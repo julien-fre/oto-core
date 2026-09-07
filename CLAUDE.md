@@ -55,6 +55,7 @@ Ajouter un provider = un module exposant `lookup(name)` + une ligne au registre
 - Imports lazy des deps optionnelles (google, o-browser) pour ne pas casser si l'extra manque.
 - ⚠️ **Pas d'`oto/__init__.py`** (namespace) → ne jamais faire `from oto import __version__` ; utiliser `importlib.metadata.version("oto-core")`.
 - Connecteur **client-sensible** (auth reverse-engineerée, infra client) → jamais ici (repo public) : package privé + bridge (cf. ADR 0003 du meta-repo).
+- **Certains annuaires et sites professionnels interdisent le moissonnage dans leurs conditions d'usage.** Vérifier avant d'ouvrir un accès ou d'écrire un connecteur qui les viserait.
 - **Auth d'une FAMILLE de connecteurs = un module partagé**, jamais recopiée par client — ex. `oto/tools/zoho/auth.py` (refresh OAuth + cache, source unique CRM/Desk/Analytics). Tant que les trois dupliquaient ce bloc, un correctif n'en couvrait qu'un tiers (le cache de token #233 n'avait atterri que sur Analytics).
 - ⚠️ **Un secret ne part JAMAIS en `params=`** (query string) : il entre dans l'URL, donc dans le message de toute exception `requests` — remonté à l'agent, journalisé, envoyé en breadcrumb Sentry — et dans les access logs du serveur distant. Toujours **`data=`** (corps, RFC 6749 §2.3.1 pour OAuth), et pas de `raise_for_status()` sur un endpoint token (son message porte l'URL). Fuite vécue #284 ; garde-fou AST dans **oto-backend** (test « no secrets in query string »).
 - **Un refus d'un client ne prescrit JAMAIS un outil MCP** (2026-08-29, oto-backend#632) :
