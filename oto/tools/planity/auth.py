@@ -16,7 +16,7 @@ from typing import Optional
 
 import httpx
 
-from .config import FIREBASE_API_KEY, HTTP_TIMEOUT, PLANITY_REST_API
+from .config import HTTP_TIMEOUT, PlanityEndpoints
 
 
 @dataclass
@@ -37,9 +37,13 @@ def _decode_jwt_claims(jwt: str) -> dict:
 class PlanityAuth:
     """Encapsulates the 3-step auth chain and token refresh."""
 
-    def __init__(self, email: str, password: str, client: Optional[httpx.AsyncClient] = None):
+    def __init__(self, email: str, password: str, endpoints: PlanityEndpoints,
+                 client: Optional[httpx.AsyncClient] = None):
         self._email = email
         self._password = password
+        # Les coordonnées viennent de l'APPELANT (cf. `config.PlanityEndpoints`) :
+        # ce dépôt est public et n'embarque aucune constante de Planity.
+        self._endpoints = endpoints
         self._client = client or httpx.AsyncClient(timeout=30.0)
         self._owns_client = client is None
         self._tokens: Optional[PlanityTokens] = None
@@ -66,7 +70,8 @@ class PlanityAuth:
         """Full 3-step login. Returns enriched tokens."""
         # 1) Firebase email/password login
         r1 = await self._client.post(
-            f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}",
+            "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
+            f"?key={self._endpoints.firebase_api_key}",
             json={"email": self._email, "password": self._password, "returnSecureToken": True},
             timeout=HTTP_TIMEOUT,
         )
@@ -77,7 +82,7 @@ class PlanityAuth:
 
         # 2) Planity custom token (enriched with business claims)
         r2 = await self._client.post(
-            f"{PLANITY_REST_API}/getProAuthToken",
+            f"{self._endpoints.rest_api}/getProAuthToken",
             json={
                 "uid": uid,
                 "token": basic_token,
@@ -93,7 +98,8 @@ class PlanityAuth:
 
         # 3) Exchange for enriched Firebase idToken
         r3 = await self._client.post(
-            f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={FIREBASE_API_KEY}",
+            "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken"
+            f"?key={self._endpoints.firebase_api_key}",
             json={"token": custom_token, "returnSecureToken": True},
             timeout=HTTP_TIMEOUT,
         )

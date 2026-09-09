@@ -1,19 +1,18 @@
 """Contrat du client Planity — la chaîne d'auth, le sharding, et les fenêtres de dates.
 
-Aucun réseau : Planity n'a pas d'API publique, donc pas de bac à sable non plus. Ce
-qu'on peut vérifier hors ligne, ce sont les trois pièces qui décident du reste et qui
-échouent silencieusement quand elles se trompent :
+Aucun réseau, et aucun bac à sable pour ce fournisseur. Ce qu'on peut vérifier hors
+ligne, ce sont les trois pièces qui décident du reste et qui échouent silencieusement
+quand elles se trompent :
 
 - la **chaîne d'auth en trois étapes** — et surtout la liste des salons atteignables,
   qu'on ne lit nulle part ailleurs que dans les claims du jeton enrichi ;
 - le **sharding**, qui n'est pas une consultation mais un CALCUL (index de calendrier)
-  et une lecture (shard métier) : viser le mauvais shard rend `permission_denied`, ce
-  qui se lit comme un problème de droits alors que c'est une adresse ;
+  et une lecture (shard métier) : viser le mauvais shard rend un refus qui se lit
+  comme un problème de droits alors que c'est une adresse ;
 - les **fenêtres de dates**, où une borne fausse ne lève rien du tout — elle rend un
   chiffre d'affaires.
 
-Le seul test qui parlait vraiment à Planity vivait derrière `PLANITY_LIVE=1` dans le
-serveur d'origine ; il n'a pas de place ici (aucun identifiant, dépôt public).
+Rien ici ne parle au fournisseur : aucun identifiant, et le dépôt est public.
 """
 from __future__ import annotations
 
@@ -28,7 +27,18 @@ from oto.tools.planity import auth as pauth
 from oto.tools.planity import date_range as dr
 from oto.tools.planity import firebase_ws as fws
 from oto.tools.planity.client import Employee, PlanityClient, SalonInfo
+from oto.tools.planity.config import PlanityEndpoints
 from oto.tools.planity.rest_api import PlanityREST
+
+
+#: Coordonnées MANIFESTEMENT fictives : ce fichier ne porte aucune valeur de
+#: Planity, pas plus que le code (cf. `config.py`). Ce qu'on vérifie ici, c'est
+#: qu'elles voyagent jusqu'aux bons endroits — pas leur contenu.
+COORDONNEES = PlanityEndpoints(
+    firebase_api_key="cle-firebase-fictive",
+    firebase_app_id="app-id-fictif",
+    rest_api="https://lambdas.exemple.invalid",
+)
 
 
 # ── Doublures ────────────────────────────────────────────────────────────────
@@ -84,11 +94,98 @@ def _auth_replies():
     ]
 
 
+# ── Les coordonnées, fournies et jamais devinées ─────────────────────────────
+
+def test_les_coordonnees_sont_obligatoires_et_sans_defaut():
+    """⚠️ Le cœur du correctif : PAS de valeur par défaut. Un défaut aurait remis
+    la constante de Planity dans ce dépôt public sous un autre nom, et personne
+    n'aurait vu la différence."""
+    import inspect
+
+    for fabrique in (PlanityClient.__init__, pauth.PlanityAuth.__init__):
+        param = inspect.signature(fabrique).parameters["endpoints"]
+        assert param.default is inspect.Parameter.empty, (
+            f"{fabrique.__qualname__} a un défaut pour `endpoints` — c'est la "
+            "constante de Planity qui revient par la fenêtre.")
+
+
+def test_un_champ_de_coordonnees_vide_leve_a_la_construction():
+    """Une chaîne vide construit un objet valide et produit, plus tard et ailleurs,
+    un 400 de Firebase — qu'on lit alors comme « mauvais mot de passe ». C'est le
+    mode de panne le plus cher : il accuse l'utilisatrice d'une erreur de
+    configuration de l'opérateur."""
+    for manquant in ("firebase_api_key", "firebase_app_id", "rest_api"):
+        champs = {"firebase_api_key": "k", "firebase_app_id": "a",
+                  "rest_api": "https://x.invalid", manquant: "   "}
+        with pytest.raises(ValueError, match=manquant):
+            PlanityEndpoints(**champs)
+
+
+def test_les_coordonnees_fournies_sont_celles_qui_partent_sur_le_fil():
+    """Elles voyagent jusqu'à TROIS endroits différents — l'URL d'auth Firebase, la
+    racine des lambdas, et la poignée de main WebSocket. En oublier un laisserait
+    une constante en dur qu'aucune relecture ne verrait."""
+    http = _FakeHTTP(_auth_replies())
+    asyncio.run(pauth.PlanityAuth(
+        "demo@example.com", "s3cret", COORDONNEES, client=http).get_tokens())
+
+    urls = [u for u, _ in http.calls]
+    assert "key=cle-firebase-fictive" in urls[0]
+    assert urls[1].startswith("https://lambdas.exemple.invalid/")
+    assert "key=cle-firebase-fictive" in urls[2]
+    assert fws.FirebaseRTDB.master("jeton", "app-id-fictif").app_id == "app-id-fictif"
+
+
+def test_aucune_valeur_de_planity_ne_subsiste_dans_le_paquet():
+    """Le cliquet. Ce dépôt est PUBLIC : une constante d'un tiers qui reviendrait —
+    par un copier-coller, par un « juste pour tester », par un défaut ajouté de
+    bonne foi — doit tomber ici et pas se découvrir par une alerte GitHub."""
+    import pathlib as _p
+
+    racine = _p.Path(__file__).resolve().parent.parent / "oto" / "tools" / "planity"
+    empreintes = ("AIza", "planityapp", "1025269755978")
+    fautes = [f"{f.name}:{empreinte}"
+              for f in sorted(racine.glob("*"))
+              if f.suffix in (".py", ".md")
+              for empreinte in empreintes
+              if empreinte in f.read_text(encoding="utf-8")]
+    assert not fautes, (
+        f"{fautes} : coordonnée de Planity en dur dans un dépôt public. Elle se "
+        "passe par `PlanityEndpoints`, jamais en constante.")
+
+
+# ── L'extra manquant ─────────────────────────────────────────────────────────
+
+def test_un_module_de_l_extra_absent_dit_d_installer_l_extra():
+    """« No module named 'httpx' » est vrai et parfaitement inutile : il n'a jamais
+    fait installer un extra à personne, et chez oto-backend il devient une ligne de
+    journal (« planity tools disabled: … ») sur laquelle on cherche un bug d'import
+    pendant vingt minutes. La retraduction vit à l'ORIGINE parce que les
+    consommateurs sont plusieurs."""
+    import oto.tools.planity as pkg
+
+    for module in ("httpx", "websockets"):
+        refus = pkg._refus_d_extra(ImportError("boom", name=module))
+        assert refus is not None
+        assert "oto-core[planity]" in str(refus) and module in str(refus)
+
+
+def test_un_import_interne_casse_remonte_tel_quel():
+    """⚠️ Le contre-cas, et c'est lui qui compte : déguiser un module du paquet
+    renommé en « installe l'extra » enverrait chercher la panne à l'opposé d'où elle
+    est. Sans cette assertion, la retraduction s'élargirait sans qu'on le voie."""
+    import oto.tools.planity as pkg
+
+    assert pkg._refus_d_extra(ImportError("boom", name="oto.tools.planity.auth")) is None
+    assert pkg._refus_d_extra(ImportError("sans nom")) is None
+
+
 # ── La chaîne d'auth ─────────────────────────────────────────────────────────
 
 def test_les_trois_etapes_sont_jouees_dans_l_ordre():
     http = _FakeHTTP(_auth_replies())
-    tokens = asyncio.run(pauth.PlanityAuth("demo@example.com", "s3cret", client=http).get_tokens())
+    tokens = asyncio.run(pauth.PlanityAuth(
+        "demo@example.com", "s3cret", COORDONNEES, client=http).get_tokens())
 
     urls = [u for u, _ in http.calls]
     assert "accounts:signInWithPassword" in urls[0]
@@ -102,7 +199,8 @@ def test_chaque_appel_de_la_chaine_porte_sa_propre_borne_de_temps():
     l'appelant — et `PlanityAuth` accepte qu'on lui en passe un. La borne se pose
     donc à l'appel. Cliquet transverse : `tests/test_http_timeouts.py`."""
     http = _FakeHTTP(_auth_replies())
-    asyncio.run(pauth.PlanityAuth("demo@example.com", "s3cret", client=http).get_tokens())
+    asyncio.run(pauth.PlanityAuth(
+        "demo@example.com", "s3cret", COORDONNEES, client=http).get_tokens())
     assert http.delais and all(d for d in http.delais)
 
 
@@ -110,7 +208,8 @@ def test_l_echange_custom_renvoie_l_uid_et_le_jeton_de_l_etape_1():
     """L'étape 2 n'est pas un simple relais : elle re-présente l'uid ET le jeton
     basique, et c'est ce qui fait enrichir le jeton par les claims métier."""
     http = _FakeHTTP(_auth_replies())
-    asyncio.run(pauth.PlanityAuth("demo@example.com", "s3cret", client=http).get_tokens())
+    asyncio.run(pauth.PlanityAuth(
+        "demo@example.com", "s3cret", COORDONNEES, client=http).get_tokens())
 
     _, corps = http.calls[1]
     assert corps["uid"] == "uid-exemple"
@@ -122,14 +221,15 @@ def test_les_salons_atteignables_sortent_des_claims_du_jeton():
     """Il n'existe AUCUNE autre source : pas d'endpoint « mes salons ». Un claim
     réservé (email, exp…) n'est pas un salon, et un claim à 0 non plus."""
     http = _FakeHTTP(_auth_replies())
-    tokens = asyncio.run(pauth.PlanityAuth("demo@example.com", "s3cret", client=http).get_tokens())
+    tokens = asyncio.run(pauth.PlanityAuth(
+        "demo@example.com", "s3cret", COORDONNEES, client=http).get_tokens())
 
     assert sorted(tokens.business_ids) == ["biz-deux", "biz-un"]
 
 
 def test_un_jeton_encore_valide_ne_relance_pas_la_chaine():
     http = _FakeHTTP(_auth_replies())
-    a = pauth.PlanityAuth("demo@example.com", "s3cret", client=http)
+    a = pauth.PlanityAuth("demo@example.com", "s3cret", COORDONNEES, client=http)
     asyncio.run(a.get_tokens())
     asyncio.run(a.get_tokens())
     assert len(http.calls) == 3, "le second appel a rejoué la chaîne d'auth"
@@ -139,7 +239,7 @@ def test_un_jeton_qui_expire_rejoue_la_chaine_entiere():
     """Pas de refresh_token : Planity re-logue. La borne est à 60 s de l'expiration —
     un jeton qui expire dans 30 s est déjà périmé pour nous."""
     http = _FakeHTTP(_auth_replies() + _auth_replies())
-    a = pauth.PlanityAuth("demo@example.com", "s3cret", client=http)
+    a = pauth.PlanityAuth("demo@example.com", "s3cret", COORDONNEES, client=http)
     asyncio.run(a.get_tokens())
     a._tokens.expires_at = __import__("time").time() + 30
     asyncio.run(a.get_tokens())
@@ -161,11 +261,11 @@ def test_l_index_de_shard_reste_dans_les_quatre_bases():
 
 def test_les_trois_familles_de_base_ont_des_hotes_distincts():
     """Maître, shard métier et shard de calendrier ne vivent NI sur le même hôte NI
-    dans le même namespace : confondre les deux derniers rend `permission_denied`,
-    qui se lit comme un droit manquant alors que c'est une adresse."""
-    maitre = fws.FirebaseRTDB.master("jeton")
-    metier = fws.FirebaseRTDB.business_shard("fr-00", "jeton")
-    calendrier = fws.FirebaseRTDB.calendars_shard("cal-exemple", "jeton")
+    dans le même namespace : confondre les deux derniers rend un refus qui se lit
+    comme un droit manquant alors que c'est une adresse."""
+    maitre = fws.FirebaseRTDB.master("jeton", "app-id-fictif")
+    metier = fws.FirebaseRTDB.business_shard("fr-00", "jeton", "app-id-fictif")
+    calendrier = fws.FirebaseRTDB.calendars_shard("cal-exemple", "jeton", "app-id-fictif")
 
     assert maitre.host == "planity-production.firebaseio.com"
     assert maitre.namespace == "planity-production"
@@ -196,6 +296,7 @@ class _FakeRTDB:
 
 def _client_avec(rtdb, business_ids=("biz-un",)):
     c = PlanityClient.__new__(PlanityClient)          # pas de socket HTTP réel
+    c._endpoints = COORDONNEES
     c._salons = {}
     c._master = rtdb
     c._shards = {}
@@ -280,7 +381,7 @@ def test_les_endpoints_de_stats_recoivent_les_DEUX_jeux_de_cles():
     """Les lambdas de statistiques exigent `userToken` ET `token`, `gte`/`lte` ET
     `start`/`end`. En oublier un rend `MISSING_TOKEN_ERROR`, qui se lit comme un
     credential invalide alors que le credential est bon."""
-    p = PlanityREST(client=_FakeHTTP([]))._stats_payload(
+    p = PlanityREST(COORDONNEES, client=_FakeHTTP([]))._stats_payload(
         "biz-un", "jeton", 1000, 2000, ["emp-1"], ["cal-1"])
 
     assert p["userToken"] == p["token"] == "jeton"

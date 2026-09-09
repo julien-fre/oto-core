@@ -1,37 +1,22 @@
 """Minimal Firebase Realtime Database WebSocket client.
 
-The Planity pro-webapp uses Firebase RTDB with multiple databases (shards):
-- Master: planity-production.firebaseio.com — business metadata
-- Business-sharded: planity-production-<shard>.europe-west1.firebasedatabase.app
-    shard name read from `businesses/<bid>/db` on master (e.g. "fr-18")
-- Calendars-sharded: planity-production-calendars-<N>.firebaseio.com
-    N = sum(char_codes(calendarId)) % 4 + 1
+⚠️ **The WebSocket is not an optimisation — it is the only transport that works
+here.** There is no simpler one to fall back to: do not "simplify" this module by
+rewriting it over plain HTTP.
 
-We speak the Firebase SDK WebSocket protocol directly. REST doesn't work because
-the security rules require an authenticated session (the idToken alone via REST
-gets `permission_denied` on most paths).
+The database is sharded across three families (master, per-business, per-calendar):
+the classmethods below build each one, and `calendar_shard_index` computes the
+calendar one rather than looking it up.
 
-Protocol basics:
-- Connect: wss://<host>/.ws?v=5&p=<appId>&ns=<namespace>
-- Server sends handshake: {t:"c",d:{t:"h",d:{ts,v,h,s}}} (we ignore, reuse same host)
-- Send auth: {t:"d",d:{r:1,a:"auth",b:{cred:"<idToken>"}}}
-- Send query: {t:"d",d:{r:2,a:"q",b:{p:"<path>",h:""}}}
-- Receive data: {t:"d",d:{a:"d",b:{p:<path>,d:<value>}}}
-- Receive ack: {t:"d",d:{r:<reqId>,b:{s:"ok"|"permission_denied"|...,d:<data>}}}
-- Unlisten: {t:"d",d:{r:<reqId>,a:"n",b:{p:"<path>"}}}
-
-Large messages are multi-frame, prefixed with "<count>\\n<first_frame>".
+Large messages arrive multi-frame, in two variants — both handled by `_recv_raw`.
 """
 from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import websockets
-
-from .config import FIREBASE_APP_ID
 
 
 def calendar_shard_index(calendar_id: str) -> int:
@@ -42,32 +27,38 @@ def calendar_shard_index(calendar_id: str) -> int:
 class FirebaseRTDB:
     """One connection to one Firebase RTDB namespace."""
 
-    def __init__(self, host: str, namespace: str, id_token: str):
+    def __init__(self, host: str, namespace: str, id_token: str, app_id: str):
         self.host = host
         self.namespace = namespace
         self.id_token = id_token
+        # App ID Firebase de Planity — fourni par l'appelant, jamais en dur ici
+        # (cf. `config.PlanityEndpoints`). Il part en `p=` dans la poignée de main.
+        self.app_id = app_id
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
         self._req_id = 0
 
     @classmethod
-    def master(cls, id_token: str) -> "FirebaseRTDB":
-        return cls("planity-production.firebaseio.com", "planity-production", id_token)
+    def master(cls, id_token: str, app_id: str) -> "FirebaseRTDB":
+        return cls("planity-production.firebaseio.com", "planity-production",
+                   id_token, app_id)
 
     @classmethod
-    def business_shard(cls, shard_name: str, id_token: str) -> "FirebaseRTDB":
+    def business_shard(cls, shard_name: str, id_token: str,
+                       app_id: str) -> "FirebaseRTDB":
         host = f"planity-production-{shard_name}.europe-west1.firebasedatabase.app"
         ns = f"planity-production-{shard_name}"
-        return cls(host, ns, id_token)
+        return cls(host, ns, id_token, app_id)
 
     @classmethod
-    def calendars_shard(cls, calendar_id: str, id_token: str) -> "FirebaseRTDB":
+    def calendars_shard(cls, calendar_id: str, id_token: str,
+                        app_id: str) -> "FirebaseRTDB":
         idx = calendar_shard_index(calendar_id)
         host = f"planity-production-calendars-{idx}.firebaseio.com"
         ns = f"planity-production-calendars-{idx}"
-        return cls(host, ns, id_token)
+        return cls(host, ns, id_token, app_id)
 
     async def connect(self):
-        uri = f"wss://{self.host}/.ws?v=5&p={FIREBASE_APP_ID}&ns={self.namespace}"
+        uri = f"wss://{self.host}/.ws?v=5&p={self.app_id}&ns={self.namespace}"
         # Bornes explicites sur l'ouverture et la fermeture : un WebSocket qui
         # attend un tiers sans délai maximal à SON niveau tient l'appelant
         # indéfiniment, même quand les enveloppes au-dessus croient l'avoir borné.
@@ -175,9 +166,14 @@ class FirebaseRTDB:
     # ─────────────────────── public API ───────────────────────
 
     async def get(self, path: str, query: Optional[dict] = None) -> Any:
-        """Read a path once (listen + unlisten). Returns the value or None.
+        """Read a path once. Returns the value, or None when it holds nothing.
 
-        Raises RuntimeError with status on failure (e.g. permission_denied).
+        ⚠️ It opens a listen and does NOT close it — the connection is short-lived
+        and dropped with the client, which is why that costs nothing here. The
+        docstring claimed "listen + unlisten" until 2026-09-09; there was no
+        unlisten, and no caller ever missed it.
+
+        Raises RuntimeError with the upstream status on failure.
         """
         collector: dict = {"path": path, "value": None}
         body: dict = {"p": path, "h": ""}
@@ -193,17 +189,3 @@ class FirebaseRTDB:
         if collector["value"] is not None:
             return collector["value"]
         return reply.get("d")
-
-    async def unlisten(self, path: str):
-        await self._send_action("n", {"p": path})
-
-
-@asynccontextmanager
-async def open_rtdb(host: str, namespace: str, id_token: str):
-    """Convenience: async with open_rtdb(...) as db: ..."""
-    db = FirebaseRTDB(host, namespace, id_token)
-    await db.connect()
-    try:
-        yield db
-    finally:
-        await db.close()

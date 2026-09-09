@@ -1,9 +1,8 @@
 """Algolia search for customers.
 
-Planity's /getCustomerSearchCredentials returns per-business API keys where
-the businessId filter is pre-applied. So queries are automatically scoped.
-
-Index name: business_customers (single global index, filter embedded in key).
+⚠️ The search key Planity hands back already carries the business filter, so a
+query cannot reach another salon's customers — the scoping is upstream, not ours.
+Which also means: do not "add" a business filter here thinking it is missing.
 """
 from __future__ import annotations
 
@@ -12,7 +11,7 @@ from typing import Optional
 
 import httpx
 
-from .config import PLANITY_REST_API, SEARCH_TIMEOUT
+from .config import SEARCH_TIMEOUT, PlanityEndpoints
 
 
 @dataclass
@@ -26,7 +25,9 @@ class AlgoliaCredentials:
 
 
 class AlgoliaClient:
-    def __init__(self, client: Optional[httpx.AsyncClient] = None):
+    def __init__(self, endpoints: PlanityEndpoints,
+                 client: Optional[httpx.AsyncClient] = None):
+        self._endpoints = endpoints
         self._client = client or httpx.AsyncClient(timeout=15.0)
         self._owns_client = client is None
         # Cache creds per (id_token, business_id)
@@ -44,7 +45,7 @@ class AlgoliaClient:
             return self._cred_cache[cache_key]
 
         r = await self._client.post(
-            f"{PLANITY_REST_API}/getCustomerSearchCredentials",
+            f"{self._endpoints.rest_api}/getCustomerSearchCredentials",
             json={
                 "token": id_token,
                 "businessId": business_id,

@@ -1,12 +1,8 @@
-"""Thin wrapper around Planity's REST lambdas at product.api.euwest1.prod.planityapp.com.
+"""Thin wrapper around Planity's REST lambdas (root = `endpoints.rest_api`).
 
-Two payload conventions observed:
-- customer-level: {businessId, customerId, token[, hasPOS]}
-- business-level: {businessId, userToken, gte, lte}
-
-Endpoints marked VERIFIED were tested end-to-end with real payloads. Others
-(marked BEST_EFFORT) are implemented based on bundle introspection and may
-return error until we capture the real payload from browser traffic.
+⚠️ The statistics endpoints want the SAME values under two names each — see
+`_stats_payload`, which is their single home. Send only one of each and the call
+fails.
 """
 from __future__ import annotations
 
@@ -14,11 +10,13 @@ from typing import Optional
 
 import httpx
 
-from .config import HTTP_TIMEOUT, PLANITY_REST_API
+from .config import HTTP_TIMEOUT, PlanityEndpoints
 
 
 class PlanityREST:
-    def __init__(self, client: Optional[httpx.AsyncClient] = None):
+    def __init__(self, endpoints: PlanityEndpoints,
+                 client: Optional[httpx.AsyncClient] = None):
+        self._endpoints = endpoints
         self._client = client or httpx.AsyncClient(timeout=30.0)
         self._owns = client is None
 
@@ -28,7 +26,7 @@ class PlanityREST:
 
     async def _call(self, endpoint: str, payload: dict) -> dict | list:
         r = await self._client.post(
-            f"{PLANITY_REST_API}/{endpoint}",
+            f"{self._endpoints.rest_api}/{endpoint}",
             json=payload,
             headers={"Origin": "https://pro.planity.com"},
             timeout=HTTP_TIMEOUT,
@@ -39,7 +37,7 @@ class PlanityREST:
             raise RuntimeError(f"{endpoint}: {data.get('errorMessage')}")
         return data
 
-    # ──────────────── Business-level (VERIFIED) ────────────────
+    # ──────────────── Business-level ────────────────
 
     async def get_key_indicators(self, business_id: str, id_token: str, gte_ms: int, lte_ms: int) -> dict:
         """CA TTC/HT, nb tickets, TVA, panier moyen."""
@@ -67,7 +65,7 @@ class PlanityREST:
         return await self._call("getOverallFrequencies",
             {"token": id_token, "businessId": business_id, "start": gte_ms, "end": lte_ms})
 
-    # ──────────────── Customer-level (VERIFIED) ────────────────
+    # ──────────────── Customer-level ────────────────
 
     async def get_customer_stats(self, business_id: str, customer_id: str, id_token: str,
                                   has_pos: bool = True) -> dict:
@@ -79,7 +77,7 @@ class PlanityREST:
             {"businessId": business_id, "customerId": customer_id, "token": id_token})
         return result if isinstance(result, list) else []
 
-    # ──────────────── Statistiques business (VERIFIED) ────────────────
+    # ──────────────── Statistiques business ────────────────
 
     async def get_revenue_breakdown(self, business_id: str, id_token: str, gte_ms: int, lte_ms: int,
                                     seller_ids: list[str], calendar_ids: list[str]) -> dict:

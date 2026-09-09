@@ -16,6 +16,7 @@ import httpx
 
 from .algolia import AlgoliaClient
 from .auth import PlanityAuth
+from .config import PlanityEndpoints
 from .firebase_ws import FirebaseRTDB
 from .rest_api import PlanityREST
 
@@ -42,11 +43,15 @@ class SalonInfo:
 
 
 class PlanityClient:
-    def __init__(self, email: str, password: str):
+    def __init__(self, email: str, password: str, endpoints: PlanityEndpoints):
+        # `endpoints` est OBLIGATOIRE et sans défaut : ce dépôt est public et ne
+        # porte aucune coordonnée de Planity (cf. `config.PlanityEndpoints`).
+        # Celui qui déploie le connecteur les pose, et répond de ce qu'il appelle.
+        self._endpoints = endpoints
         self._http = httpx.AsyncClient(timeout=30.0)
-        self.auth = PlanityAuth(email, password, client=self._http)
-        self.rest = PlanityREST(client=self._http)
-        self.algolia = AlgoliaClient(client=self._http)
+        self.auth = PlanityAuth(email, password, endpoints, client=self._http)
+        self.rest = PlanityREST(endpoints, client=self._http)
+        self.algolia = AlgoliaClient(endpoints, client=self._http)
 
         self._salons: dict[str, SalonInfo] = {}
         self._master: Optional[FirebaseRTDB] = None
@@ -79,7 +84,8 @@ class PlanityClient:
             for db in self._shards.values():
                 await db.close()
             self._shards.clear()
-            self._master = FirebaseRTDB.master(tokens.id_token)
+            self._master = FirebaseRTDB.master(
+                tokens.id_token, self._endpoints.firebase_app_id)
             await self._master.connect()
             self._current_token = tokens.id_token
             return self._master
@@ -91,7 +97,8 @@ class PlanityClient:
                 return self._shards[shard_name]
             if shard_name in self._shards:
                 await self._shards[shard_name].close()
-            db = FirebaseRTDB.business_shard(shard_name, tokens.id_token)
+            db = FirebaseRTDB.business_shard(
+                shard_name, tokens.id_token, self._endpoints.firebase_app_id)
             await db.connect()
             self._shards[shard_name] = db
             return db
@@ -193,7 +200,8 @@ class PlanityClient:
             return {}
         tokens = await self.auth.get_tokens()
         # Calendars DB is a different Firebase project — per-calendar shard
-        db = FirebaseRTDB.calendars_shard(cid, tokens.id_token)
+        db = FirebaseRTDB.calendars_shard(
+            cid, tokens.id_token, self._endpoints.firebase_app_id)
         await db.connect()
         try:
             return await db.get(f"calendars/{cid}/vevents") or {}
@@ -207,7 +215,8 @@ class PlanityClient:
         if not cid:
             return {}
         tokens = await self.auth.get_tokens()
-        db = FirebaseRTDB.calendars_shard(cid, tokens.id_token)
+        db = FirebaseRTDB.calendars_shard(
+            cid, tokens.id_token, self._endpoints.firebase_app_id)
         await db.connect()
         try:
             return await db.get(f"calendars/{cid}/vevents/{vevent_id}") or {}

@@ -17,7 +17,7 @@ Donc : un connecteur = un client ici, plusieurs faces (CLI, MCP). [[meta otomata
 ## Stack
 
 - Python ≥3.10, setuptools (namespace package). Version dans `pyproject.toml`.
-- Deps cœur : requests, france-opendata, python-dotenv, pyyaml, defusedxml, plus **httpx + websockets** pour le seul client asynchrone (`planity`, cf. ci-dessous). **Pas de typer** (c'est la façade oto-cli).
+- Deps cœur : requests, france-opendata, python-dotenv, pyyaml, defusedxml. **Pas de typer** (c'est la façade oto-cli).
 - Extras : `google`, `browser` (o-browser), `vivatech`, `anthropic`, `stock`. `all`.
 - **`uv.lock` est commité et ne gouverne AUCUNE install.** Les deps sont déclarées en
   **plancher** (`>=`) : le graphe de dépendances GitHub ne peut alors attribuer aucune
@@ -54,7 +54,7 @@ Ajouter un provider = un module exposant `lookup(name)` + une ligne au registre
 - **Clients purs, sans typer ni I/O CLI** — `print`/Typer vivent dans oto-cli. Un client retourne des objets/dicts.
 - Imports lazy des deps optionnelles (google, o-browser) pour ne pas casser si l'extra manque.
 - ⚠️ **Pas d'`oto/__init__.py`** (namespace) → ne jamais faire `from oto import __version__` ; utiliser `importlib.metadata.version("oto-core")`.
-- Connecteur **client-sensible** (auth reverse-engineerée, infra client) → jamais ici (repo public) : package privé + bridge (cf. ADR 0003 du meta-repo).
+- Connecteur **client-sensible** → jamais ici (repo public) : package privé + bridge (cf. ADR 0003 du meta-repo). ⚠️ **Client-sensible veut dire « le back-office PROPRE d'un client »** — l'outil interne de Movinmotion chez Movinmotion, son infra, ses accès. Un **produit commercial utilisé par des milliers d'entreprises** n'en est pas un, même si son API est fermée et qu'on a dû l'établir nous-mêmes : Planity, Pennylane, Zoho vivent ici, comme les autres. La règle se lit sur le PROPRIÉTAIRE de l'accès, jamais sur la difficulté d'y accéder — trois lecteurs l'ont appliquée à tort à un SaaS le 2026-09-09, et ont failli en sortir un connecteur parfaitement ordinaire.
 - **Certains annuaires et sites professionnels interdisent le moissonnage dans leurs conditions d'usage.** Vérifier avant d'ouvrir un accès ou d'écrire un connecteur qui les viserait.
 - **Auth d'une FAMILLE de connecteurs = un module partagé**, jamais recopiée par client — ex. `oto/tools/zoho/auth.py` (refresh OAuth + cache, source unique CRM/Desk/Analytics). Tant que les trois dupliquaient ce bloc, un correctif n'en couvrait qu'un tiers (le cache de token #233 n'avait atterri que sur Analytics).
 - ⚠️ **Un secret ne part JAMAIS en `params=`** (query string) : il entre dans l'URL, donc dans le message de toute exception `requests` — remonté à l'agent, journalisé, envoyé en breadcrumb Sentry — et dans les access logs du serveur distant. Toujours **`data=`** (corps, RFC 6749 §2.3.1 pour OAuth), et pas de `raise_for_status()` sur un endpoint token (son message porte l'URL). Fuite vécue #284 ; garde-fou AST dans **oto-backend** (test « no secrets in query string »).
@@ -67,14 +67,45 @@ Ajouter un provider = un module exposant `lookup(name)` + une ligne au registre
   (`linkedin_unipile_*` depuis l'ADR 0010). Garde : `tests/test_serper_scrape_guard.py`.
 - **Cache de token = process-wide keyé par credential** (hash des secrets, jamais un secret en clair comme clé) : le serveur construit un client **par appel MCP**, donc un cache porté par l'instance ne sert jamais → un refresh par appel → rate-limit du provider (Zoho : tous les appels en 400 pendant ~5 min).
 - **Un client est SYNCHRONE, sauf quand l'amont ne le permet pas.** L'exception
-  est `planity` : Planity n'a pas d'API publique et son référentiel comme son
-  agenda ne se lisent que par le protocole **WebSocket** du Firebase Realtime
-  Database (son REST répond `permission_denied` sur presque tous les chemins).
-  Tout le package est donc `async`, et il tire `httpx` + `websockets`. Ce n'est
-  pas un précédent à imiter : c'est ce que l'amont impose. Son protocole
-  reverse-engineeré est documenté dans `oto/tools/planity/README.md` — le
-  domicile d'une note de reverse est le package du connecteur, pas un `docs/`
-  central (il n'y en a pas).
+  est `planity`, dont le transport n'a pas d'équivalent synchrone : tout le package
+  est `async`, d'où l'extra **`planity`** (`httpx` + `websockets`) — deux libs pour
+  un seul connecteur, ce n'est pas au socle. Ce n'est pas un précédent à imiter :
+  c'est ce que l'amont impose, et le module concerné le dit à l'endroit où
+  quelqu'un aurait envie de « simplifier ».
+- ⚠️ **Un extra manquant se retraduit À L'ORIGINE, jamais chez le consommateur.**
+  `oto/tools/planity/__init__.py` rattrape l'`ImportError` de `httpx`/`websockets`
+  et rend « installe `oto-core[planity]` » — parce que « No module named 'httpx' »
+  est vrai, inutile, et devient chez oto-backend une ligne de journal sur laquelle
+  on cherche un bug d'import. Les consommateurs sont plusieurs ; une règle posée
+  chez l'un ne protège pas les autres. Elle ne s'applique QU'aux modules de
+  l'extra : un `ImportError` interne remonte tel quel.
+- ⚠️ **Nommer ce qu'on appelle est le métier d'un client ; raconter comment on l'a
+  trouvé ne l'est pas.** Hôtes, fonction de shard, endpoints, conventions d'appel :
+  c'est du CODE, un client ne peut pas appeler sans nommer, et ça reste ici comme
+  pour n'importe quel connecteur. Ce qui n'a pas sa place dans un dépôt publié, ni
+  en README ni en docstring ni en commentaire, tient en deux choses : le **récit de
+  la reconstitution** (« lu dans le bundle », « capturé dans le trafic », « pas
+  encore résolu, à retrouver »), et le **diagnostic sur le tiers** (ce que son
+  produit vérifie ou pas, ce qu'il répond quand on se trompe). Ni l'un ni l'autre
+  ne sert un lecteur du code, et les deux nous engagent. Ce qui reste est ce qui
+  **justifie une décision d'implémentation et ne se lit pas dans le code**, écrit à
+  l'endroit qu'il justifie. ⚠️ Ça se vérifie à la relecture d'un fichier ENTIER,
+  jamais ligne à ligne : chaque phrase se défend seule, et c'est leur somme qui
+  redonne le récit.
+- ⚠️ **Aucune COORDONNÉE d'un tiers en dur — même publique.** Les trois constantes
+  de Planity (clé d'API Firebase, App ID, racine des lambdas) ont vécu dans
+  `oto/tools/planity/config.py` jusqu'au 2026-09-09, où GitHub les a signalées sur
+  le dépôt public. Elles sont publiques par conception — tout navigateur qui ouvre
+  `pro.planity.com` les reçoit — donc les retirer n'était pas un geste de sécurité,
+  c'en était un de **généricité** : un client publié ici décrit un PROTOCOLE, il ne
+  se présente pas comme l'intégration officielle d'une entreprise dont il embarque
+  les coordonnées. Elles se passent désormais par `PlanityEndpoints`, **sans valeur
+  par défaut** — un défaut les aurait remises ici sous un autre nom, et personne
+  n'aurait vu la différence. Cliquet : `tests/test_planity_client.py`
+  (`test_aucune_valeur_de_planity_ne_subsiste_dans_le_paquet`), qui refuse dans le
+  paquet les trois empreintes de ces constantes — il les porte, on ne les recopie
+  pas ici. ⚠️ La règle vaut pour le prochain connecteur du même genre, pas seulement
+  pour celui-ci.
 - **Fichier de code < 500 lignes — un gros connecteur se découpe SANS bouger son chemin d'import.** Le point d'entrée reste `<svc>/client.py` (ou `<svc>/lib/<svc>_client.py` côté google) : il porte la construction et le transport, et **compose des mixins par famille d'appels** rangés dans `<svc>/_api/*.py` (un module = un domaine de l'API amont). Les constantes, les types d'erreur et le parsing lourd sortent en modules frères (`const.py`, `errors.py`, `feed.py`), et `client.py` les **réexporte** via `__all__` — le backend et oto-cli épinglent oto-core **par tag** : un symbole qui déménage ne casse pas ici, il casse **au bump du pin**, ailleurs, plus tard. Fait le 2026-08-27 sur unipile (1 702 L → 13 modules) et google/slides (1 516 L → 9 modules) ; le contrat est verrouillé par `tests/test_unipile_surface_frozen.py` et `tests/test_slides_surface_frozen.py`, qui figent membres + signatures et refusent tout module ≥ 500 lignes dans ces deux packages.
 
 ## Gotchas

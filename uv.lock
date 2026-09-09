@@ -1181,17 +1181,14 @@ wheels = [
 
 [[package]]
 name = "oto-core"
-version = "1.117.0"
+version = "1.118.0"
 source = { editable = "." }
 dependencies = [
     { name = "defusedxml" },
     { name = "france-opendata" },
-    { name = "httpx" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "requests" },
-    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "websockets", version = "17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 
 [package.optional-dependencies]
@@ -1202,6 +1199,7 @@ all = [
     { name = "google-api-python-client" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
+    { name = "httpx" },
     { name = "markdown" },
     { name = "o-browser" },
     { name = "o-browser-vivatech" },
@@ -1209,6 +1207,8 @@ all = [
     { name = "pandas", version = "3.0.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyarrow" },
     { name = "typer" },
+    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "websockets", version = "17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 anonymize = [
     { name = "faker" },
@@ -1227,6 +1227,11 @@ google = [
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
     { name = "markdown" },
+]
+planity = [
+    { name = "httpx" },
+    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "websockets", version = "17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 stock = [
     { name = "duckdb" },
@@ -1248,20 +1253,20 @@ requires-dist = [
     { name = "google-api-python-client", marker = "extra == 'google'", specifier = ">=2.0.0" },
     { name = "google-auth", marker = "extra == 'google'", specifier = ">=2.0.0" },
     { name = "google-auth-oauthlib", marker = "extra == 'google'", specifier = ">=1.0.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'planity'", specifier = ">=0.27" },
     { name = "markdown", marker = "extra == 'google'", specifier = ">=3.8.1" },
     { name = "o-browser", marker = "extra == 'browser'" },
     { name = "o-browser-vivatech", marker = "extra == 'vivatech'" },
-    { name = "oto-core", extras = ["google", "browser", "vivatech", "anthropic", "stock", "anonymize", "cli"], marker = "extra == 'all'" },
+    { name = "oto-core", extras = ["google", "browser", "vivatech", "anthropic", "stock", "anonymize", "cli", "planity"], marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'stock'", specifier = ">=1.5.0" },
     { name = "pyarrow", marker = "extra == 'stock'", specifier = ">=23.0.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.33.0" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.9.0" },
-    { name = "websockets", specifier = ">=13" },
+    { name = "websockets", marker = "extra == 'planity'", specifier = ">=13" },
 ]
-provides-extras = ["google", "browser", "vivatech", "anthropic", "stock", "anonymize", "cli", "all"]
+provides-extras = ["google", "browser", "vivatech", "anthropic", "stock", "anonymize", "planity", "cli", "all"]
 
 [[package]]
 name = "pandas"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oto-core"
-version = "1.117.0"
+version = "1.118.0"
 description = "Oto connector library — API clients for AI agents (no CLI). Façade CLI = oto-cli."
 readme = "README.md"
 license = { text = "MIT" }
@@ -18,14 +18,6 @@ dependencies = [
     "python-dotenv>=1.2.2",  # CVE-2026-28684
     "pyyaml>=6.0",
     "defusedxml>=0.7.1",
-    # Le connecteur `planity` parle le protocole WebSocket de Firebase Realtime
-    # Database (son REST répond `permission_denied` sur presque tout) et fait ses
-    # appels REST/Algolia en asynchrone dans la même boucle : les deux libs vont
-    # ensemble et n'ont pas d'équivalent dans `requests`. Déclarées au socle plutôt
-    # qu'en extra : un extra manquant retirerait le connecteur du serveur avec un
-    # message d'import, ce que personne ne lit comme « installe un extra ».
-    "httpx>=0.27",
-    "websockets>=13",
 ]
 
 [project.optional-dependencies]
@@ -41,11 +33,18 @@ anthropic = ["anthropic>=0.40.0"]
 # l'utilisateur (`pipx install 'oto-cli[all]'`) ne réparait rien.
 stock = ["duckdb>=1.0", "pyarrow>=23.0.1", "pandas>=1.5.0"]
 anonymize = ["faker>=20.0.0"]
+# `planity` : le seul client ASYNCHRONE de la lib — l'amont l'impose, et ni son
+# transport ni sa boucle n'existent dans `requests`, le socle du reste. Deux libs
+# pour un connecteur : c'est un extra, pas une dépendance que tout le monde tire.
+# ⚠️ L'absence de l'extra ne doit PAS se lire « module introuvable » :
+# `oto/tools/planity/__init__.py` la retraduit en « installe l'extra `planity` »,
+# à l'ORIGINE — le consommateur (oto-backend) ne fait que journaliser ce message.
+planity = ["httpx>=0.27", "websockets>=13"]
 # `cli` = the Typer command surfaces under oto.tools.*.commands, mounted by the
 # oto-cli façade. They import typer, which core clients never do — declare it so
 # `import oto.tools.google.gmail.commands` doesn't fail on a plain install.
 cli = ["typer>=0.9.0"]
-all = ["oto-core[google,browser,vivatech,anthropic,stock,anonymize,cli]"]
+all = ["oto-core[google,browser,vivatech,anthropic,stock,anonymize,cli,planity]"]
 
 [tool.setuptools.packages.find]
 where = ["."]
