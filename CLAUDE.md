@@ -17,7 +17,7 @@ Donc : un connecteur = un client ici, plusieurs faces (CLI, MCP). [[meta otomata
 ## Stack
 
 - Python ≥3.10, setuptools (namespace package). Version dans `pyproject.toml`.
-- Deps cœur : requests, france-opendata, python-dotenv, pyyaml. **Pas de typer** (c'est la façade oto-cli).
+- Deps cœur : requests, france-opendata, python-dotenv, pyyaml, defusedxml, plus **httpx + websockets** pour le seul client asynchrone (`planity`, cf. ci-dessous). **Pas de typer** (c'est la façade oto-cli).
 - Extras : `google`, `browser` (o-browser), `vivatech`, `anthropic`, `stock`. `all`.
 - **`uv.lock` est commité et ne gouverne AUCUNE install.** Les deps sont déclarées en
   **plancher** (`>=`) : le graphe de dépendances GitHub ne peut alors attribuer aucune
@@ -66,6 +66,15 @@ Ajouter un provider = un module exposant `lookup(name)` + une ligne au registre
   nommait `unipile_*`, que l'appelant n'avait pas — et qui n'existe même plus sous ce nom
   (`linkedin_unipile_*` depuis l'ADR 0010). Garde : `tests/test_serper_scrape_guard.py`.
 - **Cache de token = process-wide keyé par credential** (hash des secrets, jamais un secret en clair comme clé) : le serveur construit un client **par appel MCP**, donc un cache porté par l'instance ne sert jamais → un refresh par appel → rate-limit du provider (Zoho : tous les appels en 400 pendant ~5 min).
+- **Un client est SYNCHRONE, sauf quand l'amont ne le permet pas.** L'exception
+  est `planity` : Planity n'a pas d'API publique et son référentiel comme son
+  agenda ne se lisent que par le protocole **WebSocket** du Firebase Realtime
+  Database (son REST répond `permission_denied` sur presque tous les chemins).
+  Tout le package est donc `async`, et il tire `httpx` + `websockets`. Ce n'est
+  pas un précédent à imiter : c'est ce que l'amont impose. Son protocole
+  reverse-engineeré est documenté dans `oto/tools/planity/README.md` — le
+  domicile d'une note de reverse est le package du connecteur, pas un `docs/`
+  central (il n'y en a pas).
 - **Fichier de code < 500 lignes — un gros connecteur se découpe SANS bouger son chemin d'import.** Le point d'entrée reste `<svc>/client.py` (ou `<svc>/lib/<svc>_client.py` côté google) : il porte la construction et le transport, et **compose des mixins par famille d'appels** rangés dans `<svc>/_api/*.py` (un module = un domaine de l'API amont). Les constantes, les types d'erreur et le parsing lourd sortent en modules frères (`const.py`, `errors.py`, `feed.py`), et `client.py` les **réexporte** via `__all__` — le backend et oto-cli épinglent oto-core **par tag** : un symbole qui déménage ne casse pas ici, il casse **au bump du pin**, ailleurs, plus tard. Fait le 2026-08-27 sur unipile (1 702 L → 13 modules) et google/slides (1 516 L → 9 modules) ; le contrat est verrouillé par `tests/test_unipile_surface_frozen.py` et `tests/test_slides_surface_frozen.py`, qui figent membres + signatures et refusent tout module ≥ 500 lignes dans ces deux packages.
 
 ## Gotchas
