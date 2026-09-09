@@ -116,3 +116,54 @@ class PlanityREST:
         """Review ratings aggregated by calendar and by service."""
         return await self._call("getReviewsStats",
             self._stats_payload(business_id, id_token, gte_ms, lte_ms, seller_ids, calendar_ids))
+
+    async def get_revenue_by_payment_method(self, business_id: str, id_token: str,
+                                            gte_ms: int, lte_ms: int,
+                                            seller_ids: list[str],
+                                            calendar_ids: list[str]) -> dict:
+        """Revenue per payment method, per day: `{ts_ms: {method: {...}}}`.
+
+        A day without takings is present with an EMPTY object, not absent."""
+        return await self._call("getBusinessRevenuesByPaymentMethod",
+            self._stats_payload(business_id, id_token, gte_ms, lte_ms, seller_ids, calendar_ids))
+
+    async def get_revenue_by_vat(self, business_id: str, id_token: str,
+                                 gte_ms: int, lte_ms: int, seller_ids: list[str],
+                                 calendar_ids: list[str]) -> dict:
+        """Revenue split by VAT rate."""
+        return await self._call("getBusinessRevenuesByVat",
+            self._stats_payload(business_id, id_token, gte_ms, lte_ms, seller_ids, calendar_ids))
+
+    async def get_service_stats(self, business_id: str, id_token: str,
+                                gte_ms: int, lte_ms: int, seller_ids: list[str],
+                                calendar_ids: list[str]) -> dict:
+        """Per-service volume/revenue stats."""
+        return await self._call("getServiceStats",
+            self._stats_payload(business_id, id_token, gte_ms, lte_ms, seller_ids, calendar_ids))
+
+    # ──────────────── Approvisionnement ────────────────
+
+    async def get_products_suppliers(self, business_id: str, id_token: str) -> list[dict]:
+        """Suppliers declared for the shop. `[]` on a salon that does not use them."""
+        data = await self._call("getBusinessProductsSuppliers",
+            {"businessId": business_id, "userToken": id_token})
+        rows = data.get("data") if isinstance(data, dict) else data
+        return rows if isinstance(rows, list) else []
+
+    async def get_products_orders(self, business_id: str, id_token: str,
+                                  cursor: Optional[str] = None) -> dict:
+        """One page of product orders. Returns `{data, cursor}` — `cursor` pages on.
+
+        ⚠️ **The first call must NOT carry a `cursor` key at all.** Sending
+        `cursor: null` (or `""`, or `0`) is rejected — an absent key and a null one
+        are not the same thing here, and the refusal reads as a broken credential.
+        """
+        payload = {"businessId": business_id, "userToken": id_token}
+        if cursor:
+            payload["cursor"] = cursor
+        data = await self._call("getBusinessProductsOrders", payload)
+        if not isinstance(data, dict):
+            return {"data": [], "cursor": None}
+        rows = data.get("data")
+        return {"data": rows if isinstance(rows, list) else [],
+                "cursor": data.get("cursor")}

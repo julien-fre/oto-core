@@ -56,6 +56,7 @@ def _refus_d_extra(e: ImportError) -> "ImportError | None":
 
 
 try:
+    from . import appointments, pos, services, stock
     from .auth import PlanityAuth, PlanityTokens
     from .client import Employee, PlanityClient, SalonInfo
     from .config import PlanityEndpoints
@@ -68,6 +69,10 @@ except ImportError as _e:
 
 __all__ = [
     "Employee",
+    "appointments",
+    "pos",
+    "services",
+    "stock",
     "PlanityAuth",
     "PlanityClient",
     "PlanityEndpoints",

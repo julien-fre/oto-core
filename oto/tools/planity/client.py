@@ -14,20 +14,41 @@ from typing import Optional
 
 import httpx
 
+from . import appointments as _rdv
+from . import pos as _pos
+from . import stock as _stock
 from .algolia import AlgoliaClient
 from .auth import PlanityAuth
 from .config import PlanityEndpoints
-from .firebase_ws import FirebaseRTDB
+from .firebase_ws import FirebaseRTDB, calendar_shard_index
 from .rest_api import PlanityREST
 
 
 @dataclass
 class Employee:
+    """Un ENFANT d'agenda. Souvent une collaboratrice — pas toujours.
+
+    `deleted_at` est renseigné quand l'enfant a été supprimé côté Planity : son
+    agenda reste lisible (les rendez-vous passés y sont), mais il ne compte plus
+    dans l'équipe. Le confondre avec un actif fait annoncer sept collaboratrices à
+    un salon qui en a trois.
+
+    `type` et `title` distinguent l'enfant qui n'est PAS une personne — une cabine,
+    un poste, une ressource. Ils sont rendus tels quels : ce sont les valeurs de
+    l'amont, et leur donner un sens ici en inventerait un."""
+
     id: str
     name: str
     color: Optional[str] = None
     picture: Optional[str] = None
     calendar_id: Optional[str] = None
+    deleted_at: Optional[int] = None
+    type: Optional[str] = None
+    title: Optional[str] = None
+
+    @property
+    def deleted(self) -> bool:
+        return self.deleted_at is not None
 
 
 @dataclass
@@ -103,6 +124,54 @@ class PlanityClient:
             self._shards[shard_name] = db
             return db
 
+    async def _ensure_calendars_shard(self, child_id: str) -> FirebaseRTDB:
+        """La base `calendars-N` de cet enfant d'agenda, gardée ouverte.
+
+        Elle est indexée par un CALCUL sur l'identifiant, pas par une lecture — et
+        elle ne sert que les salons SANS shard métier (`_agenda_db`)."""
+        cle = f"calendars-{calendar_shard_index(child_id)}"
+        async with self._lock:
+            tokens = await self.auth.get_tokens()
+            if cle in self._shards and self._current_token == tokens.id_token:
+                return self._shards[cle]
+            if cle in self._shards:
+                await self._shards[cle].close()
+            db = FirebaseRTDB.calendars_shard(
+                child_id, tokens.id_token, self._endpoints.firebase_app_id)
+            await db.connect()
+            self._shards[cle] = db
+            return db
+
+    async def _agenda_db(self, salon: SalonInfo, child_id: str) -> FirebaseRTDB:
+        """Où vivent les rendez-vous de ce salon.
+
+        Sur le **shard métier** dès qu'il en a un ; la base `calendars-N` ne les
+        sert qu'à défaut. Viser la mauvaise rend un nœud vide, jamais un refus :
+        l'agenda se lit alors comme un agenda sans rendez-vous."""
+        if salon.db_shard and salon.db_shard != "master":
+            return await self._ensure_shard(salon.db_shard)
+        return await self._ensure_calendars_shard(child_id)
+
+    async def _enfants_dagenda(self, salon_id: str,
+                               employee_id: Optional[str] = None) -> tuple[SalonInfo, list[str]]:
+        """Le salon et les enfants d'agenda à lire — tous, ou celui qu'on demande.
+
+        Les enfants SUPPRIMÉS sont lus comme les autres : leur agenda garde les
+        rendez-vous passés, et les écarter ferait disparaître de l'historique une
+        collaboratrice partie — un chiffre d'affaires en moins sans rien qui le
+        signale."""
+        salon = await self.get_salon(salon_id)
+        ids = [e.id for e in salon.employees]
+        if employee_id is None:
+            return salon, ids
+        if employee_id not in ids:
+            # Lire un enfant qui n'est pas de ce salon rendrait un agenda vide, et
+            # une faute de frappe se lirait comme « cette collaboratrice n'a rien ».
+            raise ValueError(
+                f"{employee_id} n'est pas un agenda de ce salon — "
+                f"`list_employees` donne les identifiants qui en sont.")
+        return salon, [employee_id]
+
     # ─── Référentiel ───
 
     async def list_salons(self) -> list[SalonInfo]:
@@ -136,6 +205,9 @@ class PlanityClient:
                                 color=child.get("color"),
                                 picture=child.get("picture"),
                                 calendar_id=cid,
+                                deleted_at=child.get("deletedAt"),
+                                type=child.get("type"),
+                                title=child.get("title"),
                             ))
             info = SalonInfo(
                 id=bid, name=name, slug=slug, phone=phone, db_shard=db_shard,
@@ -193,35 +265,102 @@ class PlanityClient:
 
     # ─── Planning / Appointments ───
 
-    async def list_appointments(self, salon_id: str, calendar_id: Optional[str] = None) -> dict:
-        salon = await self.get_salon(salon_id)
-        cid = calendar_id or (salon.calendars[0] if salon.calendars else None)
-        if not cid:
-            return {}
-        tokens = await self.auth.get_tokens()
-        # Calendars DB is a different Firebase project — per-calendar shard
-        db = FirebaseRTDB.calendars_shard(
-            cid, tokens.id_token, self._endpoints.firebase_app_id)
-        await db.connect()
-        try:
-            return await db.get(f"calendars/{cid}/vevents") or {}
-        finally:
-            await db.close()
+    async def list_appointments(self, salon_id: str, day_from: str, day_to: str,
+                                employee_id: Optional[str] = None) -> list[dict]:
+        """Les rendez-vous du salon entre deux JOURS (`AAAA-MM-JJ`), bornes comprises.
+
+        La fenêtre est en jours et pas en horodatage : l'index de tri de Planity
+        porte `"AAAA-MM-JJ HH:MM"` en heure murale, sans décalage — le convertir en
+        millisecondes ferait perdre ou gagner une heure aux deux bouts selon la
+        saison, et un rendez-vous de plus ou de moins ne se remarque pas.
+
+        Un rendez-vous ANNULÉ est rendu comme les autres, avec `cancelled=True` :
+        il n'y a pas de champ « statut » chez Planity, seulement une date de
+        suppression, et le filtrer d'office cacherait les annulations à qui les
+        cherche."""
+        salon, enfants = await self._enfants_dagenda(salon_id, employee_id)
+        sortie: list[dict] = []
+        for child_id in enfants:
+            db = await self._agenda_db(salon, child_id)
+            sortie += await _rdv.lire_jours(db, child_id, day_from, day_to)
+        sortie.sort(key=lambda v: (v.get("start") or "", v.get("child_id") or ""))
+        return sortie
 
     async def get_appointment(self, salon_id: str, vevent_id: str,
-                               calendar_id: Optional[str] = None) -> dict:
+                              employee_id: Optional[str] = None) -> Optional[dict]:
+        """Un rendez-vous par son identifiant.
+
+        Sans `employee_id`, les agendas du salon sont parcourus jusqu'à le trouver :
+        un identifiant de rendez-vous ne dit pas de quel agenda il vient, et
+        l'appelant ne l'a pas toujours."""
+        salon, enfants = await self._enfants_dagenda(salon_id, employee_id)
+        for child_id in enfants:
+            db = await self._agenda_db(salon, child_id)
+            trouve = await _rdv.lire_un(db, child_id, vevent_id)
+            if trouve is not None:
+                return trouve
+        return None
+
+    async def list_recurring_appointments(self, salon_id: str,
+                                          employee_id: Optional[str] = None,
+                                          limit: int = 100) -> list[dict]:
+        """Les rendez-vous récurrents — invisibles à toute lecture par jour."""
+        salon, enfants = await self._enfants_dagenda(salon_id, employee_id)
+        sortie: list[dict] = []
+        for child_id in enfants:
+            db = await self._agenda_db(salon, child_id)
+            sortie += await _rdv.lire_recurrents(db, child_id, limit)
+        return sortie
+
+    # ─── Caisse ───
+
+    async def list_pos_periods(self, salon_id: str, gte_ms: int, lte_ms: int,
+                               limit: Optional[int] = None) -> list[dict]:
+        """Les sessions de caisse de la fenêtre, sans leurs tickets."""
         salon = await self.get_salon(salon_id)
-        cid = calendar_id or (salon.calendars[0] if salon.calendars else None)
-        if not cid:
-            return {}
+        db = await self._ensure_shard(salon.db_shard)
+        return await _pos.lire_periodes(db, salon_id, gte_ms, lte_ms, limit)
+
+    async def get_pos_period(self, salon_id: str, period_id: str) -> Optional[dict]:
+        """Une session de caisse AVEC ses tickets."""
+        salon = await self.get_salon(salon_id)
+        db = await self._ensure_shard(salon.db_shard)
+        return await _pos.lire_periode(db, salon_id, period_id)
+
+    async def get_receipt(self, salon_id: str, period_id: str,
+                          receipt_id: str) -> Optional[dict]:
+        """Un ticket. Il vit sous sa période — il n'a pas d'adresse à lui."""
+        salon = await self.get_salon(salon_id)
+        db = await self._ensure_shard(salon.db_shard)
+        return await _pos.lire_ticket(db, salon_id, period_id, receipt_id)
+
+    async def list_payment_methods(self, salon_id: str) -> list[dict]:
+        salon = await self.get_salon(salon_id)
+        db = await self._ensure_shard(salon.db_shard)
+        return await _pos.lire_moyens_paiement(db, salon_id)
+
+    # ─── Stock ───
+
+    async def list_stock_movements(self, salon_id: str, product_ids: list[str],
+                                   gte_ms: int, lte_ms: int) -> list[dict]:
+        """Les mouvements de stock de ces produits, une lecture bornée par produit."""
+        salon = await self.get_salon(salon_id)
+        db = await self._ensure_shard(salon.db_shard)
+        return await _stock.lire_mouvements(db, salon_id, product_ids, gte_ms, lte_ms)
+
+    async def list_mass_stock_removals(self, salon_id: str, limit: int = 50) -> list[dict]:
+        salon = await self.get_salon(salon_id)
+        db = await self._ensure_shard(salon.db_shard)
+        return await _stock.lire_sorties_de_masse(db, salon_id, limit)
+
+    async def list_suppliers(self, salon_id: str) -> list[dict]:
         tokens = await self.auth.get_tokens()
-        db = FirebaseRTDB.calendars_shard(
-            cid, tokens.id_token, self._endpoints.firebase_app_id)
-        await db.connect()
-        try:
-            return await db.get(f"calendars/{cid}/vevents/{vevent_id}") or {}
-        finally:
-            await db.close()
+        return await self.rest.get_products_suppliers(salon_id, tokens.id_token)
+
+    async def list_product_orders(self, salon_id: str,
+                                  cursor: Optional[str] = None) -> dict:
+        tokens = await self.auth.get_tokens()
+        return await self.rest.get_products_orders(salon_id, tokens.id_token, cursor)
 
     # ─── Business stats ───
 
@@ -271,4 +410,26 @@ class PlanityClient:
         seller_ids, cal_ids = await self._seller_and_calendar_ids(salon_id)
         tokens = await self.auth.get_tokens()
         return await self.rest.get_reviews_stats(salon_id, tokens.id_token, gte_ms, lte_ms,
+            seller_ids=seller_ids, calendar_ids=cal_ids)
+
+    async def get_revenue_by_payment_method(self, salon_id: str, gte_ms: int,
+                                            lte_ms: int) -> dict:
+        seller_ids, cal_ids = await self._seller_and_calendar_ids(salon_id)
+        tokens = await self.auth.get_tokens()
+        return await self.rest.get_revenue_by_payment_method(
+            salon_id, tokens.id_token, gte_ms, lte_ms,
+            seller_ids=seller_ids, calendar_ids=cal_ids)
+
+    async def get_revenue_by_vat(self, salon_id: str, gte_ms: int, lte_ms: int) -> dict:
+        seller_ids, cal_ids = await self._seller_and_calendar_ids(salon_id)
+        tokens = await self.auth.get_tokens()
+        return await self.rest.get_revenue_by_vat(
+            salon_id, tokens.id_token, gte_ms, lte_ms,
+            seller_ids=seller_ids, calendar_ids=cal_ids)
+
+    async def get_service_stats(self, salon_id: str, gte_ms: int, lte_ms: int) -> dict:
+        seller_ids, cal_ids = await self._seller_and_calendar_ids(salon_id)
+        tokens = await self.auth.get_tokens()
+        return await self.rest.get_service_stats(
+            salon_id, tokens.id_token, gte_ms, lte_ms,
             seller_ids=seller_ids, calendar_ids=cal_ids)

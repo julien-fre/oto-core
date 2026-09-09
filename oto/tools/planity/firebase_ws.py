@@ -9,6 +9,10 @@ the classmethods below build each one, and `calendar_shard_index` computes the
 calendar one rather than looking it up.
 
 Large messages arrive multi-frame, in two variants — both handled by `_recv_raw`.
+
+Reads can be BOUNDED (`limit_last`, `limit_first`, `range_on`) — see `get`. A node
+here holds years of a business's history, and reading it whole is not a slow read,
+it is a read that does not finish.
 """
 from __future__ import annotations
 
@@ -24,6 +28,45 @@ def calendar_shard_index(calendar_id: str) -> int:
     return sum(ord(c) for c in calendar_id) % 4 + 1
 
 
+def limit_last(n: int, index: str = ".key") -> dict:
+    """The last `n` children by `index` — the newest slice of a growing node."""
+    return _limite(n, index, "r")
+
+
+def limit_first(n: int, index: str = ".key") -> dict:
+    """The first `n` children by `index`."""
+    return _limite(n, index, "l")
+
+
+def _limite(n: int, index: str, depuis: str) -> dict:
+    if not isinstance(n, int) or n <= 0:
+        # Un `0` rend un nœud vide qui se lit comme « ce salon n'a rien », et un
+        # négatif part sur le fil tel quel. On refuse ici plutôt que d'expliquer
+        # une absence plus tard.
+        raise ValueError(f"une borne de lecture se compte en entier positif, pas {n!r}")
+    return {"i": index, "l": n, "vf": depuis}
+
+
+def range_on(index: str, start: Any, end: Any, limit: Optional[int] = None) -> dict:
+    """Children whose `index` falls in [start, end], inclusive at both ends.
+
+    ⚠️ **Firebase compares string indexes as STRINGS.** On an index that holds
+    `"YYYY-MM-DD HH:MM"`, an `end` of `"YYYY-MM-DD"` matches nothing at all — every
+    value of that day sorts after it — and the empty answer reads as "no
+    appointments that day". The caller owns the end bound; `appointments.py` is
+    where that particular one is computed, once.
+    """
+    if not index:
+        raise ValueError("une plage se lit SUR un index — il en faut un")
+    q: dict = {"i": index, "sp": start, "ep": end}
+    if limit is not None:
+        if not isinstance(limit, int) or limit <= 0:
+            raise ValueError(f"une borne de lecture se compte en entier positif, pas {limit!r}")
+        q["l"] = limit
+        q["vf"] = "l"
+    return q
+
+
 class FirebaseRTDB:
     """One connection to one Firebase RTDB namespace."""
 
@@ -36,6 +79,8 @@ class FirebaseRTDB:
         self.app_id = app_id
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
         self._req_id = 0
+        # Compteur de TAG de requête, distinct du compteur de requête : cf. `get`.
+        self._tag = 0
 
     @classmethod
     def master(cls, id_token: str, app_id: str) -> "FirebaseRTDB":
@@ -166,7 +211,20 @@ class FirebaseRTDB:
     # ─────────────────────── public API ───────────────────────
 
     async def get(self, path: str, query: Optional[dict] = None) -> Any:
-        """Read a path once. Returns the value, or None when it holds nothing.
+        """Read a path once, whole or BOUNDED. Returns the value, or `None`.
+
+        Pass `query` — built by `limit_last` / `limit_first` / `range_on` — to read
+        a slice instead of the whole node. Without it, the read is unbounded, which
+        on a node holding a business's history is not a slow read but one that does
+        not finish.
+
+        ⚠️ **A query REQUIRES a tag `t` in the frame.** Firebase answers a `q` frame
+        that carries `q` without `t` with `internal_error` or `permission_denied` —
+        a refusal that reads as a rights problem, and sends you looking at database
+        rules for something that is a wire-format omission. The tag is emitted here
+        and nowhere else, so no caller can forget it: it is what identifies the
+        query listen on the connection, and it is per-connection, not per-request
+        (two listens on the same path with different bounds must not share it).
 
         ⚠️ It opens a listen and does NOT close it — the connection is short-lived
         and dropped with the client, which is why that costs nothing here. The
@@ -178,7 +236,9 @@ class FirebaseRTDB:
         collector: dict = {"path": path, "value": None}
         body: dict = {"p": path, "h": ""}
         if query:
-            body["q"] = query
+            self._tag += 1
+            body["q"] = dict(query)
+            body["t"] = self._tag
         rid = await self._send_action("q", body)
         reply = await self._recv_until_reply(rid, data_collector=collector)
         status = reply.get("s")
