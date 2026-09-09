@@ -22,8 +22,11 @@ jobs:
       # les tests importent google-api-python-client. Sans lui, la COLLECTE pytest
       # s'interrompt (ModuleNotFoundError) et la CI ne teste plus rien du tout —
       # elle est restée rouge sur `main` du 12 au 18/08/2026 pour cette raison.
+      # `planity` = httpx + websockets, sortis du socle et passés en extra le
+      # 2026-09-09 : sans lui, `tests/test_planity_*.py` interrompt la collecte
+      # (« 2 errors during collection ») et la suite entière ne tourne plus.
       # Tout nouvel extra dont un test importe la dépendance doit atterrir ici.
       - name: Install (extras dont les tests importent les deps)
-        run: pip install -e ".[anonymize,google]" pytest
+        run: pip install -e ".[anonymize,google,planity]" pytest
       - name: Tests
         run: pytest -q
