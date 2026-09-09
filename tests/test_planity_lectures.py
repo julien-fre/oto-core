@@ -10,7 +10,11 @@ Trois familles de panne vivent ici, et elles ont en commun de ne jamais lever :
   une journée sans rendez-vous ;
 - **le nom des champs** — le stockage est abrégé, et lire le mauvais nom rend
   `None`, `0`, ou un rendez-vous sans cliente. C'est ainsi que tout un catalogue
-  de prestations a valu zéro euro pendant des semaines.
+  de prestations a valu zéro euro pendant des semaines ;
+- **la mort d'une connexion inactive** — l'amont raccroche sans le dire sur un
+  socket qui ne porte pas de trafic. Un socket gardé en réserve est donc mort plus
+  souvent que vivant, et le servir tel quel change une coupure silencieuse en
+  panne durable de tout ce qui passe par ce shard.
 
 Aucun réseau : ce qu'on vérifie, c'est ce qui PART sur le fil et ce qu'on fait de
 ce qui revient. Le dépôt est public et ce fichier ne porte aucune valeur réelle.
@@ -29,14 +33,41 @@ from oto.tools.planity import pos, services, stock
 
 # ── Doublure de socket ───────────────────────────────────────────────────────
 
-class _FauxWS:
-    """Un WebSocket réduit à ce que le client en fait : il note, et il répond `ok`."""
+def _coupure():
+    """Un `ConnectionClosed` de la lib, construit sans dépendre de sa signature.
 
-    def __init__(self, valeur=None):
+    Elle a changé entre versions ; ce qui compte ici est le TYPE que `get` attrape,
+    pas les arguments. Un test qui se casse sur un bump de la lib n'aurait rien
+    mesuré de ce dépôt."""
+    from websockets.exceptions import ConnectionClosedError
+
+    try:
+        return ConnectionClosedError(None, None)
+    except TypeError:                                    # signature plus ancienne
+        return ConnectionClosedError(1006, "")
+
+
+class _FauxWS:
+    """Un WebSocket réduit à ce que le client en fait : il note, et il répond `ok`.
+
+    `close_code` non nul = socket MORT, comme la lib le rend après une coupure sans
+    trame de fermeture (`1006`, mesuré). `coupures` fait échouer les N prochains
+    envois avec l'exception de la lib — le pair qui part PENDANT la lecture."""
+
+    def __init__(self, valeur=None, close_code=None, budget=None):
         self.envoyes: list[dict] = []
         self.valeur = valeur
+        self.close_code = close_code
+        # Budget de coupures PARTAGÉ avec les sockets suivants : une reconnexion ne
+        # doit pas le remettre à zéro, sinon « le pair coupe encore » ne se teste pas.
+        self.budget = budget if budget is not None else [0]
+        self.ferme = False
 
     async def send(self, texte):
+        if self.budget[0] > 0:
+            self.budget[0] -= 1
+            self.close_code = 1006
+            raise _coupure()
         self.envoyes.append(json.loads(texte))
 
     async def recv(self):
@@ -45,12 +76,21 @@ class _FauxWS:
                                            "b": {"s": "ok", "d": self.valeur}}})
 
     async def close(self):
-        return None
+        self.ferme = True
 
 
-def _db(valeur=None):
+def _db(valeur=None, close_code=None, coupures=0):
+    """Un RTDB dont `connect()` pose un socket NEUF au lieu d'ouvrir le réseau."""
     db = fws.FirebaseRTDB("hote.invalid", "ns", "jeton", "app-id-fictif")
-    db.ws = _FauxWS(valeur)
+    budget = [coupures]
+    db.ws = _FauxWS(valeur, close_code=close_code, budget=budget)
+    db.connexions = 0
+
+    async def _connect():
+        db.connexions += 1
+        db.ws = _FauxWS(valeur, budget=budget)
+
+    db.connect = _connect
     return db
 
 
@@ -386,3 +426,78 @@ def test_un_ticket_vit_sous_sa_periode():
     db = _db({})
     asyncio.run(pos.lire_ticket(db, "biz-1", "per-1", "tick-1"))
     assert _trame(db)["p"] == "pos_periods/biz-1/per-1/receipts/tick-1"
+
+
+# ── La connexion qui meurt sans le dire ─────────────────────────────────────
+
+def test_un_socket_mort_est_rouvert_avant_la_lecture():
+    """L'amont raccroche sur une connexion inactive, sans trame de fermeture. La
+    servir telle quelle fait échouer TOUT ce qui passe par ce shard."""
+    db = _db({"a": 1}, close_code=1006)
+    assert db.est_ouverte() is False
+    assert asyncio.run(db.get("noeud/x")) == {"a": 1}
+    assert (db.reconnexions, db.connexions) == (1, 1)
+
+
+def test_un_socket_vivant_n_est_pas_rouvert():
+    """La vérification ne coûte AUCUNE I/O : sur un socket vivant, elle ne fait
+    rien. Sans cette moitié-là, on paierait une poignée de main par lecture."""
+    db = _db({"a": 1})
+    asyncio.run(db.get("noeud/x"))
+    asyncio.run(db.get("noeud/x"))
+    assert (db.reconnexions, db.connexions) == (0, 0)
+
+
+def test_mort_puis_vivant_puis_mort_puis_vivant():
+    """Le pool doit SAVOIR à chaque fois qu'un socket est mort, pas se réparer une
+    seule fois : une connexion rouverte redevient inactive, donc remeurt."""
+    db = _db({"a": 1}, close_code=1006)
+    assert asyncio.run(db.get("noeud/x")) == {"a": 1}
+    db.ws.close_code = 1006                       # elle remeurt, comme en vrai
+    assert asyncio.run(db.get("noeud/x")) == {"a": 1}
+    assert db.reconnexions == 2, "la seconde mort n'a pas été vue"
+
+
+def test_un_pair_qui_part_pendant_la_lecture_donne_une_seule_reprise():
+    """La pré-vérification ne peut pas voir un pair qui s'en va entre le test et
+    l'envoi. Une reprise, sur un socket neuf — et une seule."""
+    db = _db({"a": 1}, coupures=1)
+    assert asyncio.run(db.get("noeud/x")) == {"a": 1}
+    assert db.reconnexions == 1
+
+
+def test_une_coupure_qui_se_repete_remonte_au_lieu_de_boucler():
+    """Une reprise, pas une boucle : si le pair coupe encore, l'appelant doit le
+    savoir. Réessayer sans fin transformerait une panne en attente."""
+    from websockets.exceptions import ConnectionClosed
+
+    db = _db({"a": 1}, coupures=5)
+    with pytest.raises(ConnectionClosed):
+        asyncio.run(db.get("noeud/x"))
+    assert db.reconnexions == 1, "plus d'une reprise"
+
+
+def test_deux_lectures_concurrentes_n_ouvrent_qu_une_connexion():
+    """Deux ouvertures laisseraient un socket orphelin — ouvert chez le tiers, hors
+    du pool, jamais fermé."""
+    db = _db({"a": 1}, close_code=1006)
+
+    async def deux():
+        return await asyncio.gather(db.get("noeud/x"), db.get("noeud/y"))
+
+    assert asyncio.run(deux()) == [{"a": 1}, {"a": 1}]
+    assert db.reconnexions == 1
+
+
+def test_un_refus_de_l_amont_n_est_PAS_repris():
+    """Une reprise ne couvre qu'un pair parti. Rejouer un refus le masquerait, et
+    doublerait le temps d'attente de tout appel condamné."""
+    db = _db()
+
+    async def _refus(rid, timeout=10.0, data_collector=None):
+        return {"s": "permission_denied", "d": None}
+
+    db._recv_until_reply = _refus
+    with pytest.raises(RuntimeError, match="permission_denied"):
+        asyncio.run(db.get("noeud/x"))
+    assert db.reconnexions == 0

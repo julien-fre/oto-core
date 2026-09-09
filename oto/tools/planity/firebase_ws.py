@@ -13,6 +13,18 @@ Large messages arrive multi-frame, in two variants — both handled by `_recv_ra
 Reads can be BOUNDED (`limit_last`, `limit_first`, `range_on`) — see `get`. A node
 here holds years of a business's history, and reading it whole is not a slow read,
 it is a read that does not finish.
+
+⚠️ **The upstream drops a connection that carries no traffic, silently and fast.**
+Measured 2026-09-09, two connections opened to the same host in the same second:
+the one read every 15 s was still open after 135 s; the one left idle was gone at
+45 s, with no close frame. Our own keepalive ping is what NOTICES it — the error
+surfaces as `sent 1011 (internal error) keepalive ping timeout`, which reads like a
+fault of ours and is in fact the report of a peer that left.
+
+A pooled connection is idle between two tool calls by nature: a conversation does
+not tick every 30 s. So a connection here is **expected to die**, and `get` re-opens
+it rather than failing. That is not a retry that masks a fault; it is the normal
+life of this transport. Removing the ping would only remove the DETECTION.
 """
 from __future__ import annotations
 
@@ -81,6 +93,14 @@ class FirebaseRTDB:
         self._req_id = 0
         # Compteur de TAG de requête, distinct du compteur de requête : cf. `get`.
         self._tag = 0
+        #: Combien de fois ce socket a été ré-ouvert. Lu par les tests, et utile en
+        #: exploitation : une valeur qui grimpe vite dit que le pair coupe plus tôt
+        #: qu'on ne le croit, ce qu'aucun journal d'erreur ne dirait plus.
+        self.reconnexions = 0
+        # Verrou D'INSTANCE (pas de module) : deux lectures concurrentes qui
+        # trouvent le socket mort ne doivent pas ouvrir deux connexions, dont l'une
+        # serait aussitôt orpheline — ouverte chez le tiers, jamais fermée.
+        self._ouverture = asyncio.Lock()
 
     @classmethod
     def master(cls, id_token: str, app_id: str) -> "FirebaseRTDB":
@@ -116,6 +136,34 @@ class FirebaseRTDB:
         auth_reply = await self._recv_until_reply(self._req_id, timeout=10)
         if auth_reply.get("s") != "ok":
             raise RuntimeError(f"Firebase auth failed: {auth_reply}")
+
+    def est_ouverte(self) -> bool:
+        """Le socket est-il utilisable ? **Sans aucune I/O.**
+
+        On lit `close_code` : `None` tant que la connexion vit, renseigné dès
+        qu'elle meurt (`1006` sur une coupure sans trame de fermeture — le cas
+        mesuré ici). C'est l'attribut le plus stable entre versions de la lib ; les
+        formes de `state` ont changé, celle-ci non."""
+        return self.ws is not None and getattr(self.ws, "close_code", None) is None
+
+    async def assurer_ouverte(self) -> None:
+        """Ré-ouvre le socket s'il est mort. Ne coûte rien quand il vit."""
+        if self.est_ouverte():
+            return
+        async with self._ouverture:
+            # Re-test SOUS le verrou : pendant qu'on l'attendait, une autre lecture
+            # a pu rouvrir. Sans ce second test, elle se ferait reconnecter dessous.
+            if self.est_ouverte():
+                return
+            ancien = self.ws
+            self.ws = None
+            if ancien is not None:
+                try:
+                    await ancien.close()
+                except Exception:  # noqa: SILENT — socket déjà mort, on le jette
+                    pass
+            self.reconnexions += 1
+            await self.connect()
 
     async def close(self):
         if self.ws:
@@ -226,13 +274,32 @@ class FirebaseRTDB:
         query listen on the connection, and it is per-connection, not per-request
         (two listens on the same path with different bounds must not share it).
 
+        **The connection is re-opened when it has died**, before the read and, if
+        the peer leaves mid-read, once more. The upstream drops idle connections
+        within a minute (see the module docstring): a pooled connection is dead more
+        often than alive, and failing on it would turn one silent hang-up into every
+        subsequent call failing until the pool forgets the session.
+
+        The retry is bounded to ONE and covers only a peer that left — never a
+        refusal, a timeout, or a bad path. A read is idempotent, so replaying it
+        costs a round trip; replaying anything else would be a fault masked.
+
         ⚠️ It opens a listen and does NOT close it — the connection is short-lived
-        and dropped with the client, which is why that costs nothing here. The
-        docstring claimed "listen + unlisten" until 2026-09-09; there was no
-        unlisten, and no caller ever missed it.
+        and dropped with the client, which is why that costs nothing here.
 
         Raises RuntimeError with the upstream status on failure.
         """
+        await self.assurer_ouverte()
+        try:
+            return await self._interroger(path, query)
+        except websockets.exceptions.ConnectionClosed:
+            # Le pair est parti PENDANT la lecture — la pré-vérification ne pouvait
+            # pas le savoir. Une seule reprise, sur un socket neuf.
+            await self.assurer_ouverte()
+            return await self._interroger(path, query)
+
+    async def _interroger(self, path: str, query: Optional[dict]) -> Any:
+        """Une passe de lecture sur le socket courant. Ne reconnecte pas."""
         collector: dict = {"path": path, "value": None}
         body: dict = {"p": path, "h": ""}
         if query:
