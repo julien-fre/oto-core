@@ -35,14 +35,27 @@ class _NetworkMixin:
                          cursor: Optional[str] = None) -> dict:
         """Invitations — v2 : `GET /v2/{account}/users/me/relation-requests`,
         `type=sent|received`. `limit` est un vrai param serveur (plus de curseur
-        qui fige le limit, cf. #179)."""
-        params: dict[str, Any] = {
-            "type": "sent" if direction == "sent" else "received"
-        }
-        if limit:
-            params["limit"] = limit
+        qui fige le limit, cf. #179).
+
+        ⚠️ **`type` ne part PAS avec un curseur** (oto-backend#845, 10/09/2026).
+        Unipile refuse la combinaison — `Unexpected parameters: type` — parce que
+        le curseur porte déjà le contexte de la requête qui l'a produit. `type`
+        était posé inconditionnellement, donc la page 2 était rejetée à tous les
+        coups : la pagination des invitations ne marchait pas du tout. Un client
+        avec 246 invitations en attente n'a jamais dépassé la première page et a
+        dû passer par l'API Unipile en direct pour en retirer 158.
+
+        Le rapport supposait une injection côté serveur ; ce n'en était pas une,
+        juste un paramètre jamais retiré. ⚠️ Non vérifié contre le service réel —
+        c'est son propre refus qui nomme le paramètre de trop.
+        """
+        params: dict[str, Any] = {}
         if cursor:
             params["cursor"] = cursor
+        else:
+            params["type"] = "sent" if direction == "sent" else "received"
+        if limit:
+            params["limit"] = limit
         return self._norm(self._request(
             "GET", self._acct("/users/me/relation-requests"), params=params
         ))
