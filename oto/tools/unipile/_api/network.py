@@ -8,6 +8,8 @@ composé dans `UnipileClient`, qui fournit le transport (`_request`,
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -15,7 +17,7 @@ from ..const import cursor_with_limit
 from ..errors import UnipileError
 
 
-# Curseur SYNTHÉTIQUE des invitations : `off:<offset>`.
+# Curseur SYNTHÉTIQUE des invitations : `off:<offset>:<empreinte de la page>`.
 #
 # `relation-requests` est paginé par OFFSET côté Unipile, pas par curseur — il
 # ne rend donc JAMAIS de `next_cursor`. Pour garder au tool son contrat
@@ -23,6 +25,15 @@ from ..errors import UnipileError
 # redécode à l'entrée : il n'est JAMAIS transmis en amont. Le préfixe le rend
 # lisible en log et empêche toute collision si Unipile finissait par en rendre
 # un vrai (auquel cas l'amont gagne, cf. `list_invitations`).
+#
+# Le jeton porte AUSSI l'empreinte de la page qui l'a produit, et c'est là
+# l'arrêt mécanique : qu'`offset` pagine réellement cet endpoint n'a jamais été
+# vérifié contre le service réel. Si l'hypothèse est fausse, l'amont ignore
+# `offset` et ressert la même page indéfiniment — sans empreinte, la boucle
+# appelante ne s'arrête JAMAIS (simulé : 8 pages, 400 lignes rendues pour 50
+# distinctes). En comparant la page rendue à celle du tour précédent, on coupe
+# au 2e appel. La forme `off:<n>` sans empreinte reste décodée : un curseur
+# rendu par une version antérieure ne casse pas en vol.
 _INV_CURSOR = "off:"
 
 # Plafond OBSERVÉ (2026-09-10) de `limit` sur relation-requests : 100 passe,
@@ -33,22 +44,39 @@ _INV_CURSOR = "off:"
 _INV_LIMIT_MAX = 100
 
 
-def _invitations_offset(cursor: Optional[str]) -> int:
-    """Décode un curseur d'invitations FABRIQUÉ par nous → offset.
+def _invitations_page_print(page: list) -> str:
+    """Empreinte d'une page d'invitations — ce qui la distingue de la suivante.
+
+    Sur les `id` quand les items en portent (ce que rend l'amont), sur l'item
+    entier sinon. Deux pages « identiques » au sens qui compte ici sont deux
+    pages qui reservent les MÊMES invitations — pas deux pages de même
+    taille."""
+    seed = json.dumps(
+        [it.get("id", it) if isinstance(it, dict) else it for it in page],
+        sort_keys=True, default=str, ensure_ascii=False,
+    )
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
+
+def _invitations_cursor(cursor: Optional[str]) -> tuple[int, Optional[str]]:
+    """Décode un curseur d'invitations FABRIQUÉ par nous → `(offset, empreinte
+    de la page qui l'a produit)`. L'empreinte est `None` si le curseur n'en
+    porte pas (forme antérieure `off:<n>`, toujours acceptée).
 
     Tout autre curseur est refusé ICI plutôt que transmis : passé en amont il
     déclenchait le 400 « Unexpected parameters: type » (cf.
     `list_invitations`), illisible pour l'appelant."""
     if not cursor:
-        return 0
+        return 0, None
     if cursor.startswith(_INV_CURSOR):
-        raw = cursor[len(_INV_CURSOR):]
-        if raw.isdigit():
-            return int(raw)
+        head, _, tail = cursor[len(_INV_CURSOR):].partition(":")
+        if head.isdigit():
+            return int(head), (tail or None)
     raise UnipileError(
-        "list_invitations : curseur invalide. Cet endpoint est paginé par "
-        "offset — ne repasse QUE le `cursor` rendu par l'appel précédent "
-        f"(forme `{_INV_CURSOR}<n>`), ou `offset=` directement."
+        "list_invitations : curseur invalide. Ne repasse QUE le `cursor` rendu "
+        "tel quel par l'appel précédent ; pour repartir du début du listing, "
+        "n'en passe aucun. Un curseur venu d'un autre appel — ou écrit à la "
+        "main — est refusé ici, avant tout appel en amont."
     )
 
 
@@ -86,16 +114,27 @@ class _NetworkMixin:
         page 1 passait, toute page suivante 400ait — la pagination des
         invitations était morte au-delà du premier écran, sans que rien ne le
         signale côté schéma (le tool annonçait « Paginé »). On pagine donc par
-        `offset` et on FABRIQUE le curseur rendu (`off:<n>`, cf.
-        `_invitations_offset`) pour garder au tool son contrat.
+        `offset` et on FABRIQUE le curseur rendu (cf. `_invitations_cursor`)
+        pour garder au tool son contrat.
 
         Avance de `limit` par page — contrat Unipile : « increment the offset
         by the limit » — et s'arrête quand `data` est VIDE, pas sur une page
         courte : le provider peut filtrer des items DANS la fenêtre, et
         avancer de `len(data)` re-servirait alors les mêmes. Pour un export
-        exhaustif, déduplique quand même par `id`."""
+        exhaustif, déduplique quand même par `id`.
+
+        ⚠️ ARRÊT MÉCANIQUE. Qu'`offset` pagine réellement cet endpoint n'a
+        jamais été vérifié contre le service réel. Si l'hypothèse est fausse,
+        l'amont ignore `offset` et ressert la même page à chaque tour : la
+        boucle appelante ne s'arrêterait jamais. Le curseur rendu porte donc
+        l'empreinte de la page qui l'a produit, et AUCUN curseur n'est fabriqué
+        quand la page rendue est identique à celle du tour précédent — la
+        boucle s'arrête alors au 2e appel, et `pagination_note` dit pourquoi.
+        Le critère est la page IDENTIQUE, pas la page vide : c'est le vrai mode
+        d'échec ici, une page vide n'arrive justement jamais dans ce cas."""
+        seen = None
         if offset is None:
-            offset = _invitations_offset(cursor)
+            offset, seen = _invitations_cursor(cursor)
         if limit is not None and not 1 <= limit <= _INV_LIMIT_MAX:
             raise UnipileError(
                 f"list_invitations : limit doit être entre 1 et "
@@ -118,9 +157,24 @@ class _NetworkMixin:
         if isinstance(out, dict) and not out.get("next_cursor"):
             page = out.get("data")
             if isinstance(page, list) and page:
-                nxt = f"{_INV_CURSOR}{offset + (limit or len(page))}"
-                out["next_cursor"] = nxt
-                out["cursor"] = nxt
+                mark = _invitations_page_print(page)
+                if mark == seen:
+                    # L'amont vient de resservir la page précédente à
+                    # l'identique : il n'avance pas — `offset` ne pagine pas cet
+                    # endpoint. On ne fabrique AUCUN curseur, sinon la boucle
+                    # appelante tourne à vide sans jamais rencontrer de fin.
+                    out["pagination_note"] = (
+                        "Pagination arrêtée : l'amont a resservi la page "
+                        "précédente à l'identique, il n'avance pas sur cet "
+                        "endpoint. Les éléments ci-dessus sont les mêmes que "
+                        "ceux de la page précédente ; il n'y a pas de suite à "
+                        "demander."
+                    )
+                else:
+                    nxt = (f"{_INV_CURSOR}{offset + (limit or len(page))}"
+                           f":{mark}")
+                    out["next_cursor"] = nxt
+                    out["cursor"] = nxt
         return out
 
     def send_invitation(self, provider_id: str,

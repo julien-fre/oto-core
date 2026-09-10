@@ -14,6 +14,7 @@ import pytest
 import requests
 
 from oto.tools.unipile import UnipileClient, make_unipile_client
+from oto.tools.unipile._api.network import _invitations_cursor
 from oto.tools.unipile.client import UnipileError
 
 
@@ -291,8 +292,8 @@ def test_list_invitations_mints_next_cursor():
     on le fabrique — sinon l'appelant n'a rien à repasser."""
     c = _client(canned={"data": [{"id": "a"}, {"id": "b"}]})
     out = c.list_invitations(direction="sent", limit=2)
-    assert out["next_cursor"] == "off:2"
-    assert out["cursor"] == "off:2"
+    assert out["cursor"] == out["next_cursor"]
+    assert _invitations_cursor(out["next_cursor"])[0] == 2
     # et il se reboucle : le curseur rendu redevient l'offset suivant
     rec = []
     c2 = _client(canned={"data": [{"id": "c"}]}, recorder=rec)
@@ -314,7 +315,7 @@ def test_list_invitations_short_page_still_advances_by_limit():
     re-sert les mêmes items."""
     c = _client(canned={"data": [{"id": "a"}] * 90})
     out = c.list_invitations(direction="sent", limit=100)
-    assert out["next_cursor"] == "off:100"
+    assert _invitations_cursor(out["next_cursor"])[0] == 100
 
 
 def test_list_invitations_foreign_cursor_raises_locally():
@@ -345,6 +346,89 @@ def test_list_invitations_upstream_cursor_wins():
     c = _client(canned={"data": [{"id": "a"}], "next_cursor": "REAL"})
     out = c.list_invitations(direction="sent", limit=1)
     assert out["next_cursor"] == "REAL" and out["cursor"] == "REAL"
+
+
+def test_list_invitations_amont_qui_ignore_offset_coupe_au_2e_appel():
+    """L'ARRÊT MÉCANIQUE, et le cœur de ce fichier.
+
+    Qu'`offset` pagine réellement `relation-requests` n'a JAMAIS été vérifié
+    contre le service réel. Ce banc simule l'amont du cas où l'hypothèse est
+    fausse : il ignore `offset` et ressert les mêmes 50 invitations à chaque
+    tour. Sans garde, la boucle appelante ne rencontre jamais de fin — mesuré
+    avant la garde : 8 pages, 400 lignes rendues pour 50 distinctes.
+
+    Le curseur portant l'empreinte de la page qui l'a produit, le 2e appel
+    reconnaît la page servie au 1er et ne fabrique plus de curseur : la boucle
+    s'arrête là. Deux appels, pas huit."""
+    page = [{"id": f"inv-{i}"} for i in range(50)]
+    rec = []
+    c = _client(canned=lambda *a: {"data": list(page)}, recorder=rec)
+
+    vus, cursor, appels, out = [], None, 0, {}
+    while appels < 8:              # 8 = ce que faisait la boucle sans la garde
+        out = c.list_invitations(direction="sent", limit=50, cursor=cursor)
+        appels += 1
+        vus += [it["id"] for it in out["data"]]
+        cursor = out.get("next_cursor")
+        if not cursor:
+            break
+
+    assert appels == 2, f"la boucle a tourné {appels} fois au lieu de 2"
+    assert len(rec) == 2, "un appel de trop est parti en amont"
+    assert len(vus) == 100 and len(set(vus)) == 50
+    assert "cursor" not in out, "un curseur rendu relance la boucle à vide"
+    assert "pagination_note" in out, "l'arrêt doit se DIRE, pas seulement se faire"
+
+
+def test_list_invitations_amont_qui_pagine_vraiment_va_au_bout():
+    """La contre-épreuve de la garde : elle ne doit couper QUE sur une page
+    identique. Un amont qui honore `offset` déroule jusqu'à la page vide sans
+    être arrêté en route — sinon la garde ferait perdre des invitations."""
+    total = 130
+
+    def amont(method, path, params, body):
+        off = params.get("offset", 0)
+        lim = params.get("limit", 20)
+        return {"data": [{"id": f"inv-{i}"}
+                         for i in range(off, min(off + lim, total))]}
+
+    c = _client(canned=amont)
+    vus, cursor, appels = [], None, 0
+    while appels < 20:
+        out = c.list_invitations(direction="sent", limit=50, cursor=cursor)
+        appels += 1
+        vus += [it["id"] for it in out["data"]]
+        cursor = out.get("next_cursor")
+        if not cursor:
+            break
+
+    assert len(set(vus)) == total, "la garde a coupé un amont qui paginait"
+    assert appels == 4                      # 50 + 50 + 30, puis la page vide
+
+
+def test_list_invitations_curseur_sans_empreinte_reste_decode():
+    """Un curseur rendu par la version d'avant (`off:<n>`, sans empreinte) ne
+    casse pas en vol : il se décode en offset, et faute d'empreinte à comparer
+    la page suivante est servie normalement."""
+    rec = []
+    c = _client(canned={"data": [{"id": "a"}]}, recorder=rec)
+    out = c.list_invitations(direction="sent", limit=50, cursor="off:50")
+    assert rec[0][2]["offset"] == 50
+    assert _invitations_cursor(out["next_cursor"])[0] == 100
+
+
+def test_list_invitations_refus_ne_prescrit_pas_un_param_hors_face():
+    """Le message d'un refus est du texte SERVI : il pilote l'agent qui le lit.
+    Il ne doit donc conseiller aucun paramètre que la face refuse — l'outil MCP
+    des invitations n'expose que `cursor` et `limit`. Prescrire `offset=`
+    envoyait l'agent vers un paramètre inexistant chez lui."""
+    c = _client(canned={"data": []})
+    with pytest.raises(UnipileError) as e:
+        c.list_invitations(direction="sent", cursor="pas-le-notre")
+    msg = str(e.value)
+    assert "offset" not in msg, (
+        "le refus renvoie l'agent vers `offset`, que sa face n'expose pas")
+    assert "cursor" in msg, "un refus doit nommer ce qu'il faut repasser"
 
 
 def test_send_invitation_body():
