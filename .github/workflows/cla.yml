@@ -109,8 +109,22 @@ jobs:
           branch: main
           remote-organization-name: otomata-tech
           remote-repository-name: cla-signatures
-          # Le titulaire des droits et les bots n'ont rien a signer.
-          allowlist: AlexisLaporte,dependabot[bot],github-actions[bot],*[bot]
+          # Le titulaire des droits et les bots n'ont rien a signer. S'y ajoutent
+          # les contributeurs exterieurs que le titulaire des droits a dispenses
+          # de ce controle automatique, un par un et par decision explicite
+          # (2026-09-10 pour le premier d'entre eux).
+          #
+          # Cette liste s'ETEND, elle ne se reecrit pas : chaque entree porte une
+          # decision deja prise, et en retirer une revient a redemander une
+          # signature qui a ete tranchee ailleurs.
+          #
+          # Ce que la liste couvre exactement, lu dans le source de l'action au
+          # SHA epingle ci-dessus (2026-09-10) : `checkAllowList` compare le
+          # LOGIN GitHub de chaque committer aux motifs de cette liste (`*` =
+          # joker) ; et la requete GraphQL de `getCommitters` ne lit que
+          # `commit.author` et `commit.committer` — PAS les `Co-Authored-By:`.
+          # Un co-auteur de trailer n'a donc jamais a figurer ici.
+          allowlist: AlexisLaporte,alessandro271,dependabot[bot],github-actions[bot],*[bot]
           custom-notsigned-prcomment: >-
             Merci pour cette pull request. Avant de pouvoir la merger, il faut
             que le CLA soit signe — c'est ce qui permet au projet de continuer a
