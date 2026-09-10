@@ -8,6 +8,7 @@ import json
 import re
 import time
 import base64
+from urllib.parse import quote, urlencode
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -984,10 +985,12 @@ class LemlistClient:
         """Update custom variables on a lead.
 
         Like `add_lead_variables`, the variables travel as QUERY parameters
-        (arbitrary keys) — not as a JSON body.
+        (arbitrary keys) — not as a JSON body. Spaces travel as `%20` and not as
+        `+`, cf. `_vars_query` : lemlist stockait le `+` littéralement.
         """
         return self._request(
-            "PATCH", f"leads/{lead_id}/variables", params=variables)
+            "PATCH", f"leads/{lead_id}/variables",
+            params=self._vars_query(variables))
 
     def delete_lead_variables(
         self, lead_id: str, names: List[str],
@@ -999,8 +1002,11 @@ class LemlistClient:
         """
         if not names:
             raise ValueError("names is empty — nothing to erase")
+        # Même encodage que les deux poses : un NOM de variable qui porterait un
+        # espace désignerait sinon une autre clé que celle qu'on croit effacer.
         return self._request(
-            "DELETE", f"leads/{lead_id}/variables", params={n: "" for n in names})
+            "DELETE", f"leads/{lead_id}/variables",
+            params=self._vars_query({n: "" for n in names}))
 
     def pause_lead(self, lead_id: str, *, campaign_id: str = None) -> Dict[str, Any]:
         """Pause a lead — in ONE campaign with `campaign_id`, in ALL of them
@@ -1133,14 +1139,40 @@ class LemlistClient:
         """
         return self._request("POST", f"leads/review/{lead_id}")
 
+    @staticmethod
+    def _vars_query(variables: Dict[str, str]) -> str:
+        """La query string des variables de lead, espaces en `%20` et non en `+`.
+
+        ⚠️ **lemlist décode `%XX` mais PAS `+`.** Les trois routes de variables
+        prennent leurs valeurs en paramètres d'URL (clés arbitraires, pas de corps
+        JSON) ; `requests` y encode l'espace en `+` par défaut, et lemlist stocke
+        ce `+` LITTÉRALEMENT. Mesuré 4 fois sur 4 le 10/09/2026 :
+        `{"posteRecrute": "un Traffic Manager"}` est relu `"un+Traffic+Manager"`,
+        et part tel quel dans le message au prospect.
+
+        Le signal qui l'a trouvé portait sa propre preuve : *« le slash, lui,
+        survit »* — `/` voyage en `%2F` et revient intact, donc lemlist décode
+        bien le pourcent. C'est le `+` seul qu'il ignore.
+
+        ⚠️ **Aucune erreur n'était levée** : la réponse valait `{"ok": true}`.
+        Le contournement trouvé côté appelant était de supprimer le lead et de le
+        recréer — la création, elle, passe par un corps JSON et n'a jamais eu le
+        défaut.
+
+        Rendue en CHAÎNE déjà encodée : `requests` ne retouche pas une query
+        string passée telle quelle, alors qu'il réencoderait un dict.
+        """
+        return urlencode(variables, quote_via=quote)
+
     def add_lead_variables(self, lead_id: str, variables: Dict[str, str]) -> Dict[str, Any]:
         """Add/set custom variables on a lead (POST /leads/{leadId}/variables).
 
         `variables` is sent as query parameters — the lemlist API contract for
         this endpoint (arbitrary keys, e.g. `{"customField1": "..."}`), not a
-        JSON body.
+        JSON body. Spaces travel as `%20`, cf. `_vars_query`.
         """
-        return self._request("POST", f"leads/{lead_id}/variables", params=variables)
+        return self._request("POST", f"leads/{lead_id}/variables",
+                             params=self._vars_query(variables))
 
     def export_leads(self, campaign_id: str, state: str = None) -> str:
         """Export leads from campaign as CSV."""

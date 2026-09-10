@@ -103,7 +103,11 @@ def test_add_lead_variables_sends_query_params_not_body(monkeypatch):
     assert out == {"ok": True}
     assert captured["method"] == "POST"
     assert captured["url"].endswith("/leads/lea_1/variables")
-    assert captured["params"] == {"customField1": "Lemlist", "customField2": "Will Rule"}
+    # En QUERY, pas en corps — ce que ce banc garde. Il comparait un dict, donc il
+    # figeait l'encodage par défaut de `requests` (espace → `+`), qui était le
+    # défaut lui-même : lemlist stocke ce `+` littéralement. La query est désormais
+    # construite ici, en `%20` (cf. `_vars_query`).
+    assert captured["params"] == "customField1=Lemlist&customField2=Will%20Rule"
     assert "json" not in captured
 
 
@@ -637,13 +641,13 @@ def test_les_variables_de_lead_voyagent_en_QUERY_pas_en_corps(monkeypatch):
 
     c.update_lead_variables("lea_1", {"industry": "SaaS"})
     assert captured["method"] == "PATCH"
-    assert captured["params"] == {"industry": "SaaS"}
+    assert captured["params"] == "industry=SaaS"
     assert "json" not in captured
 
     # À la suppression, c'est la PRÉSENCE de la clé qui est l'instruction.
     c.delete_lead_variables("lea_1", ["industry", "icp"])
     assert captured["method"] == "DELETE"
-    assert captured["params"] == {"industry": "", "icp": ""}
+    assert captured["params"] == "industry=&icp="
     with pytest.raises(ValueError, match="nothing to erase"):
         c.delete_lead_variables("lea_1", [])
 
