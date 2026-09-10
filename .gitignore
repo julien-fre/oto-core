@@ -27,3 +27,7 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Notes d'agent : locales, jamais versionnées.
+# Motif ciblé, pas `.claude/` en bloc : `.claude/skills/` doit rester versionnable.
+**/.claude/agent-memory/
+**/.claude/worktrees/
