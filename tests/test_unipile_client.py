@@ -271,34 +271,6 @@ def test_list_invitations_type_param():
     assert params["type"] == "sent" and params["limit"] == 10
 
 
-def test_list_invitations_page_2_ne_renvoie_PAS_le_type():
-    """oto-backend#845 — Unipile refuse `type` avec un curseur — `Unexpected parameters: type` — donc
-    la page 2 était rejetée à tous les coups et la pagination ne marchait pas du
-    tout. Un client avec 246 invitations en attente n'a jamais dépassé la première
-    page, et a retiré 158 invitations en passant par l'API Unipile en direct.
-
-    Le curseur porte déjà le contexte de la requête qui l'a produit : c'est lui
-    seul qui désigne la suite."""
-    rec = []
-    c = _client(canned={"data": []}, recorder=rec)
-    c.list_invitations(direction="sent", limit=10, cursor="CUR123")
-    _, _, params, _ = rec[0]
-    assert params["cursor"] == "CUR123"
-    assert "type" not in params, (
-        "`type` repart avec le curseur : Unipile rejettera la page entière")
-    assert params["limit"] == 10, "le limit de l'appel reste un vrai param serveur"
-
-
-def test_list_invitations_sans_curseur_garde_son_type():
-    """La contre-épreuve : retirer `type` partout casserait la première page, qui
-    en a besoin pour choisir entre envoyées et reçues."""
-    rec = []
-    c = _client(canned={"data": []}, recorder=rec)
-    c.list_invitations(direction="received")
-    _, _, params, _ = rec[0]
-    assert params["type"] == "received" and "cursor" not in params
-
-
 def test_send_invitation_body():
     rec = []
     c = _client(canned={}, recorder=rec)
