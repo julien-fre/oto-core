@@ -75,8 +75,9 @@ déjà 500 lignes) :
 
 `slack_find_user_by_email` / `oto slack find-user` appelle `users.lookupByEmail` : l'email
 passé doit être **celui du compte Slack de la personne**, pas forcément son email pro. Ex.
-vécu : `alexis@otomata.tech` échoue (`users_not_found`), seul `alexis.laporte@gmail.com`
-(email Slack réel) marche. Si lookup KO, vérifier l'email d'inscription Slack de la cible.
+vécu : l'adresse pro (`prenom@societe.tld`) échoue (`users_not_found`), seule l'adresse
+personnelle avec laquelle la personne s'est inscrite sur Slack marche. Si lookup KO,
+vérifier l'email d'inscription Slack de la cible.
 
 > Pour savoir sur **quel workspace** et sous **quelle identité** on agit, il faut aujourd'hui
 > taper l'API `auth.test` directement (pas de méthode exposée). Enhancement optionnel #25 :

@@ -183,7 +183,7 @@ Create database from CSV with auto-detected schema and registry tracking.
   "databases": {
     "partners": {
       "id": "146b953c-2288-4a4a-89e9-6237e3b02e87",
-      "url": "https://www.notion.so/146b953c22884a4a89e96237e3b02e87",
+      "url": "https://www.notion.so/abc123",
       "source_csv": "partners.csv",
       "parent_id": "abc123",
       "entries_count": 78,

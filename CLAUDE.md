@@ -30,6 +30,15 @@ Donc : un connecteur = un client ici, plusieurs faces (CLI, MCP). [[meta otomata
   depuis son `pyproject.toml`, à l'identique. Le régénérer par `uv lock` quand une
   dépendance bouge. ⚠️ **Monter un plancher reste un geste séparé** : ce fichier rend le
   dépôt observable, il ne le répare pas.
+- **`MANIFEST.in` borne l'ARCHIVE SOURCE (sdist).** `[tool.setuptools.packages.find]`
+  ne gouverne que la **roue** ; le sdist, lui, est composé par les défauts de
+  setuptools, qui y versaient `tests/` **en entier** — 419 fichiers publiés contre
+  334 dans la roue, et six fixtures y nommaient un tiers. **Une fixture est une
+  surface publiée** tant que le sdist n'est pas borné (mesuré et corrigé le
+  2026-09-10, à partir du 1.122.0).
+  Toute reprise du packaging se vérifie sur le tarball, jamais sur le pyproject :
+  `python -m build --sdist` puis `tar tzf dist/*.tar.gz` — il ne doit en sortir que
+  `oto/`, ses `package-data` et les métadonnées.
 
 ## Architecture
 

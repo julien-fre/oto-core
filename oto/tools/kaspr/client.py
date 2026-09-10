@@ -14,7 +14,7 @@ from ...config import require_secret
 _HTTP_TIMEOUT = (10, 60)  # (connexion, lecture) — jamais d'attente illimitée
 
 # Kaspr veut le SLUG NU : une URL complète (ou un slash/query) fait un 500
-# (vérifié live : `alexislaporte` → 200, `https://.../in/alexislaporte/` → 500).
+# (vérifié live : `john-doe` → 200, `https://.../in/john-doe/` → 500).
 _LINKEDIN_IN = re.compile(r"/in/([^/?#]+)", re.IGNORECASE)
 
 # Les noms que Kaspr accepte dans `dataToGet` — l'enum de SON OpenAPI (`info.version`

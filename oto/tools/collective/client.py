@@ -54,6 +54,16 @@ class CollectiveClient:
         Returns:
             Dict with timestamp, url, total_results, and jobs list.
         """
+        # Un jobId ne se résout que sous SON workspace : l'URL rendue pour
+        # chaque offre se reconstruit donc sur celui de la page scrapée, lu
+        # ici et jamais écrit en dur.
+        workspace = re.search(r"/collective/([^/?#]+)", url)
+        if not workspace:
+            raise ValueError(
+                "URL sans workspace Collective — attendu "
+                f".../collective/<workspace>/jobs, reçu : {url}"
+            )
+
         async with BrowserClient(profile_path=self.profile_path, headless=self.headless) as browser:
             print(f"Navigating to {url}...", file=sys.stderr)
             await browser.goto(url)
@@ -135,7 +145,10 @@ class CollectiveClient:
             for i, job in enumerate(jobs):
                 if i < len(all_job_ids):
                     job["jobId"] = all_job_ids[i]
-                    job["url"] = f"https://app.collective.work/collective/alexis-laporte/jobs?jobId={all_job_ids[i]}"
+                    job["url"] = (
+                        f"{self.BASE_URL}/collective/{workspace.group(1)}"
+                        f"/jobs?jobId={all_job_ids[i]}"
+                    )
 
             if screenshot_path:
                 await browser.screenshot(screenshot_path)

@@ -67,7 +67,7 @@ class ProfileMixin:
         Scrape posts from a LinkedIn profile's activity feed.
 
         Args:
-            url: Profile URL (e.g. https://www.linkedin.com/in/alexislaporte/)
+            url: Profile URL (e.g. https://www.linkedin.com/in/john-doe/)
             max_posts: Maximum number of posts to retrieve
 
         Returns:

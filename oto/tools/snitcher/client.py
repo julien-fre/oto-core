@@ -12,11 +12,11 @@ Auth: Personal Access Token (dashboard → Settings → Account → API), sent a
 **60 requests/minute per token** (429 `{"message": "Too Many Attempts."}` past
 it). Methods return the parsed JSON body as-is, unwrapping nothing.
 
-**Live-tested 2026-08-24** against a real trial-tier token (workspace
-tulina.ai): 24 of 27 endpoints exercised — every read, the full tag cycle
-(create → attach → verified on the organisation → detach), the full custom
--field cycle (definition create/get/update/list, value set/set_many/clear,
-definition delete), and a no-op `update_workspace`. Deliberately NOT
+**Live-tested 2026-08-24** against a real trial-tier token: 24 of 27 endpoints
+exercised — every read, the full tag cycle (create → attach → verified on the
+organisation → detach), the full custom-field cycle (definition
+create/get/update/list, value set/set_many/clear, definition delete), and a
+no-op `update_workspace`. Deliberately NOT
 exercised: `reveal_contact_email` (spends a credit), `create_workspace`/
 `delete_workspace`/`invite_user` (account-mutating). Findings:
 

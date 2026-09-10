@@ -92,7 +92,7 @@ class SerpAPIClient:
     ) -> tuple[Dict, Dict]:
         """Refuse un résultat VIDE que le cache a resservi ; le refait une fois.
 
-        Défaut du signal d'usage #456 (mission Audiens, 2026-08-27) : la même
+        Défaut du signal d'usage #456 (2026-08-27) : la même
         requête rendait 0 offre, puis 1 avec `no_cache=True`. Un zéro s'était
         installé dans le cache amont, qui le resservait pendant une heure. Ce
         connecteur sert d'INDICATEUR D'ACTIVITÉ — un zéro mémorisé y devient une

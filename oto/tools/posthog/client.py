@@ -3,10 +3,9 @@ feature flags, session recordings).
 
 Bearer (`Authorization: Bearer phx_…`) sur l'API privée REST + l'endpoint
 `/query/`. **Testé en live le 2026-08-22** contre un vrai projet PostHog Cloud
-US (organisation Tulina, projet 571144) : identité, découverte de projet, HogQL,
-schéma de base, et les 14 familles de ressources ci-dessous répondent exactement
-comme codé. Les quatre points ci-dessous ne se déduisent PAS de la doc et ont
-été établis par sonde.
+US : identité, découverte de projet, HogQL, schéma de base, et les 14 familles
+de ressources ci-dessous répondent exactement comme codé. Les quatre points
+ci-dessous ne se déduisent PAS de la doc et ont été établis par sonde.
 
 **(1) TROIS types de clé, et la plus visible ne marche pas.** L'API privée
 n'accepte que la clé **personnelle** `phx_…`. La clé de PROJET `phc_…` — celle

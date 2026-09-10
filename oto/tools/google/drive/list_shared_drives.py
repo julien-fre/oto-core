@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """List Shared Drives (Team Drives) accessible to service account"""
 
+import json
 import sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ if not drives_list:
     print("\nTo use a Shared Drive:")
     print("1. Create a Shared Drive in Google Drive")
     print("2. Add the service account as a member:")
-    print("   memento-drive@agents-475314.iam.gserviceaccount.com")
+    print(f"   {json.loads(creds_path.read_text())['client_email']}")
 else:
     print(f"\n✓ Found {len(drives_list)} Shared Drive(s):\n")
     for i, drive in enumerate(drives_list, 1):

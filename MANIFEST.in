@@ -1,0 +1,14 @@
+# Ce qui part dans l'ARCHIVE SOURCE (sdist).
+#
+# `[tool.setuptools.packages.find] include = ["oto*"]` ne borne que la ROUE :
+# le sdist, lui, est composé par setuptools à partir de ses propres défauts, qui
+# y versent `tests/` en entier. Sans ce fichier, une fixture de test devient une
+# surface publiée sur PyPI, au même titre que le code.
+#
+# Le paquet distribué = `oto/` + ses `package-data` + les métadonnées.
+prune tests
+prune .github
+exclude CLAUDE.md
+exclude uv.lock
+global-exclude *.py[cod]
+global-exclude __pycache__

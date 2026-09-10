@@ -564,7 +564,7 @@ class ApolloClient:
             raise ValueError("contact_ids ou label_names requis (au moins un des deux)")
         params: Dict[str, Any] = {
             # `emailer_campaign_id` en DOUBLE du segment de chemin — pas redondant,
-            # vérifié en LIVE (compte Tulina, 2026-08-20) : sans lui, 422 « Please
+            # vérifié en LIVE le 2026-08-20 : sans lui, 422 « Please
             # specify a emailer_campaign_id and send_email_from_email_account_id »
             # MÊME avec l'id déjà dans l'URL.
             "emailer_campaign_id": sequence_id,
@@ -778,7 +778,7 @@ class ApolloClient:
             per_page: ≤100. page: numéro de page
 
         ⚠️ `page`/`per_page` sont doc-claimed, pas vérifiés : le compte de test
-        (Tulina, 2026-08-20) avait 0 email envoyé — la requête rend 200 dans les
+        (2026-08-20) avait 0 email envoyé — la requête rend 200 dans les
         deux cas, sans doublon d'un résultat NON VIDE pour confirmer qu'ils sont
         honorés (vs. ignorés en silence, comme `organization_domain` l'a été
         ailleurs dans ce fichier).
@@ -976,9 +976,9 @@ class ApolloClient:
         (source=custom) — on reste ICI sciemment, et ce choix ne doit pas être
         « modernisé » sans vérifier ce point** : les deux catalogues ne rendent
         pas la même forme d'id. `typed_custom_fields` rend l'ObjectId NU
-        (`"60c39ed82bd02f01154c470a"`), qui est exactement la clé attendue par
+        (`"<objectid>"`, 24 hexa), qui est exactement la clé attendue par
         `PATCH /contacts/{id}` ; `/fields` rend un id PRÉFIXÉ de sa modalité
-        (`"account.694095a80f1b6000110fc556"`, `"contact.id"`), qu'aucune doc
+        (`"account.<objectid>"`, `"contact.id"`), qu'aucune doc
         n'autorise à découper. Prendre le catalogue « moderne » ferait donc
         écrire des clés qu'Apollo ignore en silence, en rendant 200.
         (Doc Apollo vérifiée le 2026-08-22 ; non rejoué en vrai, pas de clé ici.)
@@ -1158,7 +1158,7 @@ class ApolloClient:
         retire le contact de toutes les autres.
 
         ⚠️ `typed_custom_fields` est keyé par **id** de champ personnalisé, pas
-        par nom : `{"60c39ed82bd02f01154c470a": "2026-08-07"}`. Pour une picklist, la valeur
+        par nom : `{"<id du champ>": "2026-08-07"}`. Pour une picklist, la valeur
         est l'`id` de l'option (`picklist_values[].id`), pas son libellé. Les ids se lisent
         avec `list_typed_custom_fields()`.
 
