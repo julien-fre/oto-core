@@ -108,6 +108,20 @@ class SerperClient:
         return self._post(f"{self.BASE_URL}{endpoint}", json_data, endpoint.lstrip("/"))
 
     @staticmethod
+    def _credits_of(res: Any) -> int:
+        """Les crédits que Serper a DÉDUITS pour une réponse — son champ `credits`.
+
+        Une méthode qui pagine (`census_maps`, `reviews_all`) enchaîne plusieurs
+        requêtes, chacune facturée par Serper selon ce qu'elle a coûté (une page
+        Maps à 100 résultats, un scrape difficile) : compter les pages sous-estime
+        la dépense. Repli sur 1 quand la réponse ne le dit pas — une réponse
+        réussie coûte au moins un crédit."""
+        credits = res.get("credits") if isinstance(res, dict) else None
+        if isinstance(credits, bool) or not isinstance(credits, (int, float)) or credits < 0:
+            return 1
+        return int(credits)
+
+    @staticmethod
     def _common_payload(
         query: str,
         num: Optional[int] = None,
@@ -404,8 +418,10 @@ class SerperClient:
             language: Code langue (hl).
 
         Returns:
-            {query, count, places[], anchors_used, pages_fetched} — `count` =
-            total dédupliqué, à préférer à tout comptage d'un `search_maps` seul.
+            {query, count, places[], anchors_used, pages_fetched, credits_used} —
+            `count` = total dédupliqué, à préférer à tout comptage d'un
+            `search_maps` seul ; `credits_used` = somme des crédits que Serper a
+            déduits sur toutes les pages (ce qui se facture, pas `pages_fetched`).
         """
         if not query:
             raise ValueError("census_maps requires a non-empty query")
@@ -420,6 +436,7 @@ class SerperClient:
         seen: Dict[str, Dict[str, Any]] = {}
         order: List[str] = []
         pages_fetched = 0
+        credits_used = 0
         for anchor in anchors:
             for page in range(1, max_pages + 1):
                 res = self.search_maps(
@@ -427,6 +444,7 @@ class SerperClient:
                     country=country, language=language,
                 )
                 pages_fetched += 1
+                credits_used += self._credits_of(res)
                 places = res.get("places") or []
                 if not places:
                     break
@@ -449,6 +467,7 @@ class SerperClient:
             "places": [seen[k] for k in order],
             "anchors_used": len(anchors),
             "pages_fetched": pages_fetched,
+            "credits_used": credits_used,
         }
 
     # -------------------------------------------------------------- reviews
@@ -528,13 +547,15 @@ class SerperClient:
         d'avis).
 
         Identifier le lieu par `cid`/`fid`/`place_id` ou `query` (comme
-        search_reviews). Returns {count, reviews[], pages_fetched, truncated}.
-        `truncated=True` = le plafond a coupé avant épuisement.
+        search_reviews). Returns {count, reviews[], pages_fetched, credits_used,
+        truncated}. `truncated=True` = le plafond a coupé avant épuisement ;
+        `credits_used` = somme des crédits que Serper a déduits sur les pages.
         """
         collected: List[Dict[str, Any]] = []
         token: Optional[str] = None
         seen_tokens: set = set()
         pages = 0
+        credits_used = 0
         while len(collected) < max_reviews:
             res = self.search_reviews(
                 cid=cid, fid=fid, place_id=place_id, query=query,
@@ -542,6 +563,7 @@ class SerperClient:
                 country=country, language=language,
             )
             pages += 1
+            credits_used += self._credits_of(res)
             reviews = res.get("reviews") or []
             if not reviews:
                 break
@@ -556,6 +578,7 @@ class SerperClient:
             "count": len(collected[:max_reviews]),
             "reviews": collected[:max_reviews],
             "pages_fetched": pages,
+            "credits_used": credits_used,
             "truncated": len(collected) >= max_reviews and bool(token),
         }
 
