@@ -3,7 +3,7 @@
 Auth via API token long-lived stocké dans le secret `OTO_API_KEY` (issu
 depuis `oto.ninja/account` ou via le script `issue_token.py` côté serveur).
 
-Base URL override : env `OTO_API_URL` (défaut `https://mcp.oto.ninja`).
+Base URL override : env `OTO_API_URL` (défaut `https://mcp.oto.cx`).
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import requests
 from oto.config import require_secret
 
 
-_DEFAULT_BASE_URL = "https://mcp.oto.ninja"
+_DEFAULT_BASE_URL = "https://mcp.oto.cx"
 
 
 class DatastoreError(RuntimeError):

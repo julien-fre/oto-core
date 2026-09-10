@@ -1,4 +1,4 @@
-"""SIRENE stock — client HTTP vers `mcp.oto.ninja/api/sirene/*`.
+"""SIRENE stock — client HTTP vers `mcp.oto.cx/api/sirene/*`.
 
 Le parquet INSEE complet vit côté serveur, query via DuckDB. Cette classe ne
 télécharge plus rien localement — elle fait des appels REST authentifiés.
@@ -26,7 +26,7 @@ import requests
 from oto.config import require_secret
 
 
-_DEFAULT_BASE_URL = "https://mcp.oto.ninja"
+_DEFAULT_BASE_URL = "https://mcp.oto.cx"
 
 
 class SireneStockError(RuntimeError):

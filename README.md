@@ -21,7 +21,7 @@ pip install "oto-core[stock]"     # + SIRENE stock queries (DuckDB/parquet)
 |---|---|
 | **oto-core** (this) | the clients — single source of truth |
 | [oto-cli](https://github.com/otomata-tech/oto-cli) | `oto` command-line façade |
-| oto-backend | hosted platform ([mcp.oto.ninja](https://oto.ninja) — MCP + REST, credential vault, orgs) |
+| oto-backend | hosted platform ([mcp.oto.cx](https://oto.cx) — MCP + REST, credential vault, orgs) |
 
 ```python
 from oto.tools.sirene import SireneClient

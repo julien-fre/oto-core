@@ -1,8 +1,8 @@
-"""HTTP client vers les endpoints `/api/*` de `mcp.oto.ninja`.
+"""HTTP client vers les endpoints `/api/*` de `mcp.oto.cx`.
 
 Auth via API token long-lived (`OTO_API_KEY`, SOPS), même mécanisme que
 `oto.tools.datastore.client`. Base URL override : env `OTO_API_URL`
-(défaut `https://mcp.oto.ninja`).
+(défaut `https://mcp.oto.cx`).
 
 Scope : lecture/écriture des secrets multi-user (cookies LinkedIn,
 Crunchbase, API keys par provider) que la DB oto-mcp est seule à connaître.
@@ -18,7 +18,7 @@ import requests
 from oto.config import require_secret
 
 
-_DEFAULT_BASE_URL = "https://mcp.oto.ninja"
+_DEFAULT_BASE_URL = "https://mcp.oto.cx"
 
 
 class NinjaError(RuntimeError):
