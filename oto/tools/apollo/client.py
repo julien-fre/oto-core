@@ -71,15 +71,53 @@ class ApolloClient:
                     return v if isinstance(v, str) else str(v)
         return str(body)[:400]
 
-    def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
-        """Make API request. Une erreur HTTP lève `ApolloError` portant le message
-        AMONT (quel champ est refusé) — pas un « 422 Client Error » opaque."""
-        self._rate_limit()
+    #: Au-delà, on ne dort pas : on rend la main en NOMMANT le délai. Un outil MCP
+    #: qui attend plus que ça a déjà perdu son client (~60 s de patience côté
+    #: appelant), et dormir en silence transformerait un throttle en timeout muet.
+    _RETRY_AFTER_MAX = 15
+    #: Deux reprises au plus — le plafond total d'attente reste sous les 30 s.
+    _RETRY_MAX = 2
 
+    def _send(self, method: str, endpoint: str, **kwargs):
+        """L'envoi partagé : rate limit, puis un 429 COURT est repris.
+
+        Apollo throttle par fenêtre (le plan décide du débit) et répond 429 avec
+        `Retry-After`. Sans reprise, une construction de liste perd l'appel en
+        cours — et en lot, ce sont dix personnes qui tombent d'un coup. On reprend
+        donc, mais BORNÉ : au plus deux fois, et seulement si l'amont demande une
+        attente courte. Un `Retry-After` long n'est pas absorbé — il est REMONTÉ,
+        avec le délai dans le message, parce qu'une attente qu'on ne peut pas tenir
+        doit revenir à l'appelant plutôt que d'être dormie en douce
+        (`docs/…` d'oto-backend : tout ce qui attend un tiers a un délai maximal à
+        son propre niveau).
+        """
         url = f"{self.BASE_URL}/{endpoint}"
         headers = {"X-Api-Key": self.api_key, "Content-Type": "application/json"}
 
-        response = requests.request(method, url, headers=headers, timeout=_HTTP_TIMEOUT, **kwargs)
+        for essai in range(self._RETRY_MAX + 1):
+            self._rate_limit()
+            response = requests.request(method, url, headers=headers,
+                                        timeout=_HTTP_TIMEOUT, **kwargs)
+            if response.status_code != 429 or essai == self._RETRY_MAX:
+                return response
+            try:
+                attendre = int(response.headers.get("Retry-After", ""))
+            except (TypeError, ValueError):
+                attendre = 2
+            if attendre > self._RETRY_AFTER_MAX:
+                raise ApolloError(
+                    f"Apollo 429 sur {endpoint} : quota de débit atteint, l'amont "
+                    f"demande {attendre} s d'attente — trop long pour être absorbé "
+                    "ici. Reprends l'appel après ce délai.",
+                    status_code=429,
+                )
+            time.sleep(attendre)
+        return response
+
+    def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
+        """Make API request. Une erreur HTTP lève `ApolloError` portant le message
+        AMONT (quel champ est refusé) — pas un « 422 Client Error » opaque."""
+        response = self._send(method, endpoint, **kwargs)
         if not response.ok:
             raise ApolloError(
                 f"Apollo {response.status_code} sur {endpoint} : "
@@ -102,13 +140,7 @@ class ApolloClient:
         appelant qui n'en déclare aucun retrouve exactement le comportement de
         `_request`.
         """
-        self._rate_limit()
-
-        url = f"{self.BASE_URL}/{endpoint}"
-        headers = {"X-Api-Key": self.api_key, "Content-Type": "application/json"}
-
-        response = requests.request(method, url, headers=headers,
-                                    timeout=_HTTP_TIMEOUT, **kwargs)
+        response = self._send(method, endpoint, **kwargs)
         if not response.ok and response.status_code not in tolere:
             raise ApolloError(
                 f"Apollo {response.status_code} sur {endpoint} : "
@@ -494,6 +526,110 @@ class ApolloClient:
                 f"Apollo 404 sur webhook_result/{rid} : "
                 f"{body.get('error_code') or body}", status_code=404)
         return {"done": True, "result": body}
+
+    #: Plafond imposé par l'API sur `people/bulk_match`.
+    BULK_MATCH_MAX = 10
+
+    def bulk_match_people(
+        self,
+        details: List[Dict[str, Any]],
+        reveal_personal_emails: bool = None,
+        reveal_phone_number: bool = None,
+        webhook_url: str = None,
+    ) -> Dict[str, Any]:
+        """
+        Enrichit jusqu'à 10 personnes en UN appel (`people/bulk_match`).
+
+        C'est la forme qu'une construction de liste emploie RÉELLEMENT : un search
+        rend des centaines de personnes aux noms obfusqués, et il faut les révéler.
+        En unitaire, ce sont autant d'allers-retours — avec un `_rate_limit` d'une
+        seconde, révéler 300 personnes prend cinq minutes d'attente pure, et chaque
+        réponse porte la fiche entreprise entière.
+
+        Args:
+            details: ≤10 personnes. Chaque entrée porte les mêmes identifiants que
+                `match_person` : `id` (le plus sûr, rendu par `search_people`),
+                `email`, `linkedin_url`, ou un nom COMPLET (`first_name` +
+                `last_name`) avec `domain`/`organization_name`.
+            reveal_personal_emails: emails personnels, dans la réponse (synchrone).
+            reveal_phone_number: téléphones — ASYNCHRONES, livrés à `webhook_url`.
+                Exige `webhook_url`, comme sur `match_person`.
+            webhook_url: destination des téléphones. Interdit sans
+                `reveal_phone_number`.
+
+        Returns:
+            La réponse Apollo, dont `matches` : une entrée PAR personne demandée,
+            dans l'ordre, `None` là où rien n'a matché.
+
+        ⚠️ **Le crédit se paie à la personne, pas à l'appel** : un lot de 10 coûte
+        10 fois un unitaire. Ce que le lot économise, ce sont les APPELS (et donc le
+        rate limit), jamais les crédits.
+
+        ⚠️ **La garde d'identifiant faible s'applique à CHAQUE entrée**, et pour la
+        même raison qu'en unitaire : sur un identifiant trop faible Apollo ne rend
+        pas « rien », il CRÉE une fiche vide et la facture (feedbacks oto #347-350).
+        En lot le piège est pire — une entrée faible perdue au milieu de dix passe
+        inaperçue. L'entrée fautive est nommée par son INDEX avant tout départ.
+        """
+        entrees = list(details or [])
+        if not entrees:
+            raise ValueError("details requis (au moins une personne)")
+        if len(entrees) > self.BULK_MATCH_MAX:
+            raise ValueError(
+                f"{len(entrees)} personnes : l'API en accepte {self.BULK_MATCH_MAX} "
+                "au maximum par appel — découpe en lots")
+
+        for i, e in enumerate(entrees):
+            if not isinstance(e, dict):
+                raise ValueError(f"details[{i}] doit être un objet, pas {type(e).__name__}")
+            fort = e.get("id") or e.get("email") or e.get("linkedin_url")
+            nom_complet = bool(e.get("last_name")) or bool(
+                e.get("name") and len(str(e["name"]).split()) >= 2)
+            if not fort and not nom_complet:
+                raise ValueError(
+                    f"details[{i}] : identifiant trop faible pour un match Apollo — "
+                    "passe `id` (celui rendu par search_people), `email` ou "
+                    "`linkedin_url`, sinon un nom COMPLET (prénom + nom). Un prénom "
+                    "+ une société ne matchent pas : Apollo crée une fiche vide et "
+                    "consomme quand même le crédit.")
+
+        # Même appairage que `match_person`, et pour les mêmes raisons dans les deux
+        # sens (cf. sa garde) : sans webhook Apollo refuse, et avec un webhook sans
+        # le drapeau il accepte puis n'envoie jamais rien.
+        if reveal_phone_number and not webhook_url:
+            raise ValueError(
+                "`reveal_phone_number` exige `webhook_url` : Apollo ne rend pas les "
+                "mobiles dans la réponse, il les POSTe à cette URL quelques minutes "
+                "plus tard. Sans elle l'appel est refusé par Apollo.")
+        if webhook_url and not reveal_phone_number:
+            raise ValueError(
+                "`webhook_url` ne sert QUE le reveal de téléphone : passe aussi "
+                "`reveal_phone_number=True`, sinon Apollo n'enverra jamais rien à "
+                "cette URL.")
+
+        # Découpe identique à `match_person` : l'identité dans le CORPS (ici
+        # `details`, que le contrat d'Apollo déclare bien en `requestBody` pour ce
+        # endpoint-ci), les paramètres de CONTRÔLE en query string, booléens
+        # sérialisés à la main — `requests` écrirait `True`, l'API attend `true`.
+        params = {}
+        for nom, valeur in (("reveal_personal_emails", reveal_personal_emails),
+                            ("reveal_phone_number", reveal_phone_number)):
+            if valeur is not None:
+                params[nom] = "true" if valeur else "false"
+        if webhook_url:
+            params["webhook_url"] = webhook_url
+
+        out = self._request("POST", "people/bulk_match",
+                            json={"details": entrees}, params=params or None)
+
+        # Même marquage qu'en unitaire : une coquille vide facturée doit se VOIR,
+        # sinon l'appelant la compte comme un enrichissement réussi.
+        matches = (out or {}).get("matches") if isinstance(out, dict) else None
+        if isinstance(matches, list):
+            for m in matches:
+                if self._looks_like_stub(m):
+                    m["_stub"] = True
+        return out
 
     def get_job_postings(self, org_id: str) -> Dict[str, Any]:
         """
