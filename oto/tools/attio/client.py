@@ -77,10 +77,34 @@ class AttioResource:
         data = {"data": {"values": attributes}}
         return self.client._request("POST", f"objects/{self.object_type}/records", json=data)
 
-    def update(self, record_id: str, **attributes) -> Dict[str, Any]:
-        """Update a record."""
+    def update(self, record_id: str, overwrite_multiselect: bool = False,
+               **attributes) -> Dict[str, Any]:
+        """Update a record.
+
+        PATCH (défaut) AJOUTE les valeurs de multisélection passées à celles qui
+        existent, et une liste vide n'y change rien ; PUT les REMPLACE, et `[]` les
+        vide — « Use the PUT endpoint to overwrite or remove multiselect attribute
+        values » (doc Attio). Même bascule que `AttioEntries.update` : sans elle, une
+        valeur unique (domaine, adresse) coincée sur une fiche à fusionner ne se
+        libérait par aucun appel (signal #887).
+        """
+        method = "PUT" if overwrite_multiselect else "PATCH"
         data = {"data": {"values": attributes}}
-        return self.client._request("PATCH", f"objects/{self.object_type}/records/{record_id}", json=data)
+        return self.client._request(method, f"objects/{self.object_type}/records/{record_id}", json=data)
+
+    def merge(self, primary_record_id: str, secondary_record_id: str) -> Dict[str, Any]:
+        """Fusionne deux fiches du MÊME objet (endpoint en bêta chez Attio, signal #886).
+
+        ⚠️ Irréversible et non idempotent : les DEUX fiches d'origine sont marquées
+        fusionnées et ne se lisent plus ; Attio en crée une TROISIÈME, dont l'id
+        (`data.new_record_id`) ne correspond à aucune des deux. Là où les deux portent
+        une valeur, celle du primaire l'emporte. Rejouer rend 404 ; une réponse 202
+        dit que la fusion est asynchrone (404 `merge_in_progress` le temps qu'elle
+        finisse). Scopes : `record_permission:read-write` + `object_configuration:read`.
+        """
+        data = {"data": {"primary_record_id": primary_record_id,
+                         "secondary_record_id": secondary_record_id}}
+        return self.client._request("POST", f"objects/{self.object_type}/records/merge", json=data)
 
     def delete(self, record_id: str) -> Dict[str, Any]:
         """Delete a record."""

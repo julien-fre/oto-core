@@ -27,6 +27,9 @@ class _Faux:
     def patch(self, **kw):
         self.vus.append(("patch", kw)); return self
 
+    def insert(self, **kw):
+        self.vus.append(("insert", kw)); return self
+
     def update(self, **kw):
         # Présent EXPRÈS : sans lui, remplacer patch par update ferait tomber les
         # bancs sur un AttributeError — un rouge qui ne prouve rien.
@@ -46,6 +49,36 @@ def _client(rendu=None):
     c = CalendarClient.__new__(CalendarClient)
     c.service = _Faux(rendu)
     return c
+
+
+def test_creer_invite_et_ne_previent_personne_par_defaut():
+    """Signal #862 — l'événement se créait, personne ne pouvait y être invité. Les
+    invités partent dans le corps ; `sendUpdates` est posé EXPLICITEMENT (« none »
+    par défaut, comme à la correction) : inviter n'écrit à personne sans qu'on le
+    demande."""
+    c = _client()
+    c.create_event("Point", "2026-09-12T10:00:00+02:00", attendees=["a@x.fr", "b@y.fr"])
+    verbe, kw = c.service.vus[0]
+    assert verbe == "insert"
+    assert kw["body"]["attendees"] == [{"email": "a@x.fr"}, {"email": "b@y.fr"}]
+    assert kw["sendUpdates"] == "none"
+
+
+def test_creer_sans_invites_ne_pose_aucune_liste():
+    c = _client()
+    c.create_event("Point", "2026-09-12")
+    assert "attendees" not in c.service.vus[0][1]["body"]
+
+
+def test_corriger_les_invites_remplace_la_liste_entiere():
+    """Google REMPLACE un tableau passé à `patch` : la liste donnée est la nouvelle
+    liste, `[]` retire tout le monde. Omis, les invités restent (banc suivant)."""
+    c = _client()
+    c.update_event("evt1", attendees=["a@x.fr"])
+    assert c.service.vus[0][1]["body"] == {"attendees": [{"email": "a@x.fr"}]}
+    vide = _client()
+    vide.update_event("evt1", attendees=[])
+    assert vide.service.vus[0][1]["body"] == {"attendees": []}
 
 
 def test_une_correction_PATCHE_et_ne_remplace_pas():

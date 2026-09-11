@@ -118,6 +118,8 @@ class CalendarClient:
         location: Optional[str] = None,
         all_day: bool = False,
         calendar_id: str = 'primary',
+        attendees: Optional[list[str]] = None,
+        send_updates: str = 'none',
     ) -> dict:
         """Create a calendar event.
 
@@ -129,6 +131,11 @@ class CalendarClient:
             location: Event location.
             all_day: If True, treat start/end as dates (YYYY-MM-DD).
             calendar_id: Calendar ID.
+            attendees: guest email addresses to invite (signal #862 — the event
+                could be created, nobody could be invited to it).
+            send_updates: 'none' (default) | 'all' | 'externalOnly' — passed
+                EXPLICITLY, as in `update_event`: inviting must not mail guests
+                unless asked.
         """
         if all_day or len(start) == 10:  # YYYY-MM-DD
             body: dict = {
@@ -146,7 +153,10 @@ class CalendarClient:
             body['description'] = description
         if location:
             body['location'] = location
-        event = self.service.events().insert(calendarId=calendar_id, body=body).execute()
+        if attendees:
+            body['attendees'] = [{'email': e} for e in attendees]
+        event = self.service.events().insert(
+            calendarId=calendar_id, body=body, sendUpdates=send_updates).execute()
         return self._format_event(event)
 
     def update_event(
@@ -160,8 +170,13 @@ class CalendarClient:
         all_day: bool = False,
         calendar_id: str = 'primary',
         send_updates: str = 'none',
+        attendees: Optional[list[str]] = None,
     ) -> dict:
         """Patch an existing event — only the fields you pass are touched.
+
+        `attendees` REPLACES the whole guest list when given (Google: « array fields,
+        if specified, overwrite the existing arrays ») — pass the full list, current
+        guests included ; `[]` removes every guest ; None leaves them alone.
 
         Uses `events.patch`, NOT `events.update`: the latter REPLACES the whole
         event, so any field left out (attendees, recurrence, reminders, conference
@@ -191,11 +206,13 @@ class CalendarClient:
         if end is not None:
             body['end'] = {'date': end} if (all_day or len(end) == 10) \
                 else {'dateTime': end}
+        if attendees is not None:
+            body['attendees'] = [{'email': e} for e in attendees]
         if not body:
             raise ValueError(
                 "update_event: nothing to change — pass at least one of summary, "
-                "start, end, description, location. An empty patch would spend a "
-                "write and report success without touching anything.")
+                "start, end, description, location, attendees. An empty patch would "
+                "spend a write and report success without touching anything.")
         event = self.service.events().patch(
             calendarId=calendar_id, eventId=event_id, body=body,
             sendUpdates=send_updates).execute()
