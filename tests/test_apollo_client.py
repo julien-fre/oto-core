@@ -13,6 +13,7 @@ class _Resp:
     def __init__(self, payload, ok=True, status=200):
         self._payload, self.ok, self.status_code = payload, ok, status
         self.text = ""
+        self.headers = {}
 
     def json(self):
         return self._payload
@@ -493,3 +494,139 @@ def test_a_tolerated_404_without_a_body_is_a_named_refusal_not_a_pending():
             client.poll_webhook_result("718432950164203900")
     finally:
         patcher.stop()
+
+
+# ----------------------------------------------------------------------
+# bulk_match_people — la forme qu'une construction de liste emploie
+# RÉELLEMENT. Le crédit se paie à la PERSONNE ; ce que le lot économise,
+# ce sont les appels.
+# ----------------------------------------------------------------------
+
+def test_bulk_match_sends_details_in_the_body_and_controls_in_the_query():
+    client, calls, patcher = _client_and_calls({"matches": []})
+    try:
+        client.bulk_match_people(
+            [{"id": "p1"}, {"id": "p2"}],
+            reveal_personal_emails=True)
+        assert calls[0]["json"] == {"details": [{"id": "p1"}, {"id": "p2"}]}
+        assert calls[0]["params"]["reveal_personal_emails"] == "true"
+        assert "reveal_personal_emails" not in calls[0]["json"]
+        assert calls[0]["url"].endswith("people/bulk_match")
+    finally:
+        patcher.stop()
+
+
+def test_bulk_match_refuses_more_than_the_api_ceiling_before_sending():
+    client, calls, patcher = _client_and_calls()
+    try:
+        with pytest.raises(ValueError) as e:
+            client.bulk_match_people([{"id": f"p{i}"} for i in range(11)])
+        assert not calls
+        assert "10" in str(e.value)
+    finally:
+        patcher.stop()
+
+
+def test_bulk_match_refuses_an_empty_lot():
+    client, calls, patcher = _client_and_calls()
+    try:
+        with pytest.raises(ValueError):
+            client.bulk_match_people([])
+        assert not calls
+    finally:
+        patcher.stop()
+
+
+def test_bulk_match_names_the_weak_entry_by_index_and_sends_nothing():
+    """En lot, une entrée faible perdue au milieu de dix passe inaperçue — et
+    Apollo facture la coquille vide qu'il fabrique. L'index est ce qui rend le
+    refus actionnable."""
+    client, calls, patcher = _client_and_calls()
+    try:
+        with pytest.raises(ValueError) as e:
+            client.bulk_match_people([
+                {"id": "p1"},
+                {"first_name": "Ninon", "organization_name": "Faure"},
+            ])
+        assert not calls, "aucun crédit ne doit partir pour le lot entier"
+        assert "details[1]" in str(e.value)
+    finally:
+        patcher.stop()
+
+
+@pytest.mark.parametrize("kwargs, attendu", [
+    ({"reveal_phone_number": True}, "webhook_url"),
+    ({"webhook_url": "https://hooks.acme.test/apollo"}, "reveal_phone_number"),
+])
+def test_bulk_match_refuses_the_phone_pair_by_halves(kwargs, attendu):
+    client, calls, patcher = _client_and_calls()
+    try:
+        with pytest.raises(ValueError) as e:
+            client.bulk_match_people([{"id": "p1"}], **kwargs)
+        assert not calls
+        assert attendu in str(e.value)
+    finally:
+        patcher.stop()
+
+
+def test_bulk_match_marks_the_billed_empty_shells():
+    """Apollo facture une fiche vide : elle doit se VOIR, sinon l'appelant la
+    compte comme un enrichissement réussi (même marquage qu'en unitaire)."""
+    payload = {"matches": [
+        {"id": "x", "last_name": None, "title": None, "email": None,
+         "linkedin_url": None, "organization_id": None},
+        {"id": "y", "last_name": "Réel", "email": "a@b.co"},
+    ]}
+    client, calls, patcher = _client_and_calls(payload)
+    try:
+        out = client.bulk_match_people([{"id": "x"}, {"id": "y"}])
+        assert out["matches"][0]["_stub"] is True
+        assert "_stub" not in out["matches"][1]
+    finally:
+        patcher.stop()
+
+
+# ----------------------------------------------------------------------
+# 429 — un throttle ne doit pas coûter l'appel, mais l'attente est BORNÉE
+# ----------------------------------------------------------------------
+
+def test_a_short_429_is_retried_rather_than_losing_the_call():
+    calls, dormi = [], []
+    reponses = [_Resp({}, ok=False, status=429), _Resp({"matches": []})]
+    reponses[0].headers = {"Retry-After": "2"}
+
+    client = ApolloClient(api_key="k")
+    p1 = patch("oto.tools.apollo.client.requests.request",
+               side_effect=lambda m, u, **kw: (calls.append(kw), reponses.pop(0))[1])
+    p2 = patch("oto.tools.apollo.client.time.sleep", side_effect=dormi.append)
+    p1.start(); p2.start()
+    try:
+        out = client.bulk_match_people([{"id": "p1"}])
+        assert out == {"matches": []}
+        assert len(calls) == 2, "l'appel doit être REPRIS, pas perdu"
+        assert 2 in dormi
+    finally:
+        p1.stop(); p2.stop()
+
+
+def test_a_long_429_is_handed_back_instead_of_being_slept_through():
+    """Dormir 120 s dans un outil MCP, c'est rendre un timeout muet à un client
+    qui n'attend qu'une minute. Le délai revient donc à l'appelant, nommé."""
+    from oto.tools.apollo.client import ApolloError
+
+    calls, dormi = [], []
+    trop_long = _Resp({}, ok=False, status=429)
+    trop_long.headers = {"Retry-After": "120"}
+
+    client = ApolloClient(api_key="k")
+    p1 = patch("oto.tools.apollo.client.requests.request",
+               side_effect=lambda m, u, **kw: (calls.append(kw), trop_long)[1])
+    p2 = patch("oto.tools.apollo.client.time.sleep", side_effect=dormi.append)
+    p1.start(); p2.start()
+    try:
+        with pytest.raises(ApolloError) as e:
+            client.bulk_match_people([{"id": "p1"}])
+        assert "120" in str(e.value)
+        assert not dormi, "aucune sieste longue ne doit avoir lieu"
+    finally:
+        p1.stop(); p2.stop()
