@@ -5,6 +5,7 @@ export const listCompanies = defineFunction({
   name: "pennylane_firm.list_companies",
   connector: "pennylane_firm",
   class: "read",
+  act: false,
   description: "List the companies of the firm the token belongs to: id, name, billing_company_name, siren, address, city, postal_code, activity_nomenclature, activity_code, external_id, client_code. The id is the company_id every other function takes; it is the firm-side id and means nothing to the Company API. Paged by page number: the response carries current_page, total_pages, total_items and per_page; ask for page + 1 while it is below total_pages. Scope companies:readonly.",
   schema: {
     "type": "object",
@@ -57,6 +58,7 @@ export const getCompany = defineFunction({
   name: "pennylane_firm.get_company",
   connector: "pennylane_firm",
   class: "read",
+  act: false,
   description: "Get one company of the firm by its firm-side id (from list_companies): name, billing_company_name, siren, address, activity codes, external_id, client_code. Scope companies:readonly.",
   schema: {
     "type": "object",
@@ -91,6 +93,7 @@ export const listFiscalYears = defineFunction({
   name: "pennylane_firm.list_fiscal_years",
   connector: "pennylane_firm",
   class: "read",
+  act: false,
   description: "List the fiscal years of one company: id, start, finish (YYYY-MM-DD) and status (open, reopen, closed, frozen). Paged by page number, up to 100 per page: the response carries current_page and total_pages. Scope fiscal_years:readonly.",
   schema: {
     "type": "object",
@@ -125,6 +128,7 @@ export const listDmsFolders = defineFunction({
   name: "pennylane_firm.list_dms_folders",
   connector: "pennylane_firm",
   class: "read",
+  act: false,
   description: "List the folders of one company's DMS: id, name, path (full path from the root, e.g. /Annual/2018/FEC), parent_folder ({id}, or null at the root), files.url, created_at, updated_at. The tree is rebuilt from parent_folder or path. Paged by limit and cursor: pass next_cursor as cursor for the next page. Folders cannot be renamed, moved or deleted through the API. Scope dms_files:readonly.",
   schema: {
     "type": "object",
@@ -192,6 +196,7 @@ export const listDmsFiles = defineFunction({
   name: "pennylane_firm.list_dms_files",
   connector: "pennylane_firm",
   class: "read",
+  act: false,
   description: "List the files of one company's DMS: id, name, path (full path, folders included), parent_folder ({id}, or null at the root), url (to download the file), created_at, updated_at. Filter on parent_folder_id to list one folder. There is no single-file read: filter on id instead. Files cannot be renamed, moved or deleted through the API. Paged by limit and cursor: pass next_cursor as cursor for the next page. Scope dms_files:readonly.",
   schema: {
     "type": "object",
@@ -259,6 +264,7 @@ export const createDmsFolder = defineFunction({
   name: "pennylane_firm.create_dms_folder",
   connector: "pennylane_firm",
   class: "write",
+  act: true,
   description: "Create a folder in one company's DMS, at the root or under parent_folder_id. Returns the folder with its id and full path. A folder cannot be renamed, moved or deleted through the API afterwards: list the folders first and reuse an existing one rather than creating a duplicate. Scope dms_files:all.",
   schema: {
     "type": "object",
@@ -299,6 +305,7 @@ export const listDmsFileChanges = defineFunction({
   name: "pennylane_firm.list_dms_file_changes",
   connector: "pennylane_firm",
   class: "read",
+  act: false,
   description: "List the changes to one company's DMS files, oldest first: id (of the file), operation (insert, update, delete), processed_at, updated_at, created_at. Start from start_date (RFC 3339), or from the oldest change kept without it; changes are kept four weeks, and an older start_date is refused. Then pass next_cursor as cursor, without start_date, while has_more is true. Up to 1000 changes per page. Scope dms_files:readonly.",
   schema: {
     "type": "object",
@@ -345,7 +352,7 @@ export const connector = defineConnector({
   apiVersion: "v1",
   baseUrl: "https://app.pennylane.com/api/external/firm/v1",
   auth: {"kind": "bearer", "token": "token"},
-  credential: [{"name": "token", "label": "Firm API token", "secret": true}],
+  credential: [{"name": "token", "label": "Firm API token", "secret": true, "holder": "account"}],
   modes: ["byo_org"],
   timeoutMs: 30000,
   rateLimit: { requests: 5, intervalMs: 1000 },

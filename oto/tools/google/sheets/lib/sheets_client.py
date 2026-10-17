@@ -139,6 +139,97 @@ class SheetsClient:
             'fields': 'userEnteredFormat.numberFormat'}}])
         return {'range': range, 'type': kind, 'pattern': pattern}
 
+    def copy_sheet(self, spreadsheet_id: str, sheet, to_spreadsheet_id: Optional[str] = None,
+                   title: Optional[str] = None, index: Optional[int] = None) -> dict:
+        """Copy a tab — values, formats, widths, frozen rows, validations, conditional
+        formats — into `to_spreadsheet_id` (the same spreadsheet by default).
+
+        The source is only READ (`sheets.copyTo` needs view access on it): a shared
+        template stays untouched. Google names the copy `Copy of …` in the account's
+        locale; `title` renames it, `index` moves it (0-based)."""
+        sid = self.sheet_id(spreadsheet_id, sheet)
+        dest = to_spreadsheet_id or spreadsheet_id
+        new_title = _tab_title(title) if title is not None else None
+        copied = self.sheets.sheets().copyTo(
+            spreadsheetId=spreadsheet_id, sheetId=sid,
+            body={'destinationSpreadsheetId': dest}).execute()
+        props: dict = {'sheetId': copied['sheetId']}
+        if new_title is not None:
+            props['title'] = new_title
+        if index is not None:
+            props['index'] = int(index)
+        if len(props) > 1:
+            fields = ','.join(k for k in ('title', 'index') if k in props)
+            self._batch(dest, [{'updateSheetProperties': {'properties': props,
+                                                          'fields': fields}}])
+        return {'spreadsheet_id': dest, 'id': copied['sheetId'],
+                'title': new_title or copied['title'],
+                'index': props.get('index', copied.get('index'))}
+
+    def format(self, spreadsheet_id: str, range: str, style: dict) -> dict:
+        """Apply a cell style to every cell of an A1 range. Only the keys given change
+        (the others keep their format). Keys: `background`, `color` (`#rrggbb`),
+        `bold`, `italic` (bool), `font_size` (points), `wrap` (True = wrap text,
+        False = overflow), `align` (left | center | right), `valign` (top | middle |
+        bottom)."""
+        fmt, fields = _cell_format(style)
+        grid = self._grid_range(spreadsheet_id, range)
+        self._batch(spreadsheet_id, [{'repeatCell': {
+            'range': grid, 'cell': {'userEnteredFormat': fmt},
+            'fields': ','.join(f'userEnteredFormat.{f}' for f in fields)}}])
+        return {'range': range, 'applied': sorted(style)}
+
+    def column_width(self, spreadsheet_id: str, range: str, width: int) -> dict:
+        """Set the width, in pixels, of the columns of an A1 range (`'Tab'!A:C`)."""
+        px = int(width)
+        if px < 1:
+            raise SheetsClientError(f"width: pixels >= 1 (got {width!r})")
+        grid = self._grid_range(spreadsheet_id, range)
+        if 'startColumnIndex' not in grid:
+            raise SheetsClientError(
+                f"range {range!r} names no column: give columns, e.g. 'Tab'!A:C")
+        self._batch(spreadsheet_id, [{'updateDimensionProperties': {
+            'range': {'sheetId': grid['sheetId'], 'dimension': 'COLUMNS',
+                      'startIndex': grid['startColumnIndex'],
+                      'endIndex': grid['endColumnIndex']},
+            'properties': {'pixelSize': px}, 'fields': 'pixelSize'}}])
+        return {'range': range, 'columns': grid['endColumnIndex'] - grid['startColumnIndex'],
+                'width': px}
+
+    def freeze(self, spreadsheet_id: str, sheet, rows: Optional[int] = None,
+               cols: Optional[int] = None) -> dict:
+        """Freeze the first `rows` rows and/or `cols` columns of a tab (0 unfreezes)."""
+        grid: dict = {}
+        for key, value in (('frozenRowCount', rows), ('frozenColumnCount', cols)):
+            if value is not None:
+                if int(value) < 0:
+                    raise SheetsClientError(f"freeze: a count >= 0 (got {value!r})")
+                grid[key] = int(value)
+        if not grid:
+            raise SheetsClientError("freeze: give rows and/or cols")
+        sid = self.sheet_id(spreadsheet_id, sheet)
+        self._batch(spreadsheet_id, [{'updateSheetProperties': {
+            'properties': {'sheetId': sid, 'gridProperties': grid},
+            'fields': ','.join(f'gridProperties.{k}' for k in grid)}}])
+        return {'id': sid, 'frozen_rows': grid.get('frozenRowCount'),
+                'frozen_cols': grid.get('frozenColumnCount')}
+
+    def dropdown(self, spreadsheet_id: str, range: str, options: List[str]) -> dict:
+        """A drop-down list on every cell of an A1 range: a value outside `options`
+        is rejected. An empty `options` REMOVES the validation from the range."""
+        values = [str(o) for o in options]
+        if any(not v.strip() for v in values):
+            raise SheetsClientError("options: no empty choice")
+        grid = self._grid_range(spreadsheet_id, range)
+        request: dict = {'range': grid}
+        if values:
+            request['rule'] = {
+                'condition': {'type': 'ONE_OF_LIST',
+                              'values': [{'userEnteredValue': v} for v in values]},
+                'strict': True, 'showCustomUi': True}
+        self._batch(spreadsheet_id, [{'setDataValidation': request}])
+        return {'range': range, 'options': values, 'removed': not values}
+
     def _grid_range(self, spreadsheet_id: str, range: str) -> dict:
         """An A1 range as a GridRange: tab resolved by title, open bounds left open."""
         sheet, cells = _split_range(range)
@@ -296,6 +387,76 @@ class SheetsClient:
 
 _NUMBER_FORMAT_TYPES = ('NUMBER', 'CURRENCY', 'PERCENT', 'DATE', 'TIME',
                         'DATE_TIME', 'SCIENTIFIC', 'TEXT')
+
+
+_ALIGN = {'left': 'LEFT', 'center': 'CENTER', 'right': 'RIGHT'}
+_VALIGN = {'top': 'TOP', 'middle': 'MIDDLE', 'bottom': 'BOTTOM'}
+_STYLE_KEYS = ('background', 'color', 'bold', 'italic', 'font_size', 'wrap', 'align', 'valign')
+_HEX = re.compile(r'#?([0-9a-fA-F]{6})')
+
+
+def _rgb(value, key: str) -> dict:
+    """`#d9d9d9` → the API's 0..1 channels."""
+    m = _HEX.fullmatch(str(value).strip())
+    if not m:
+        raise SheetsClientError(f"style.{key}: a colour as #rrggbb (got {value!r})")
+    h = m.group(1)
+    return {c: int(h[i:i + 2], 16) / 255 for c, i in (('red', 0), ('green', 2), ('blue', 4))}
+
+
+def _flag(value, key: str) -> bool:
+    if not isinstance(value, bool):
+        raise SheetsClientError(f"style.{key}: true or false (got {value!r})")
+    return value
+
+
+def _choice(table: dict, value, key: str) -> str:
+    found = table.get(str(value).strip().lower())
+    if found is None:
+        raise SheetsClientError(f"style.{key}: one of {' | '.join(table)} (got {value!r})")
+    return found
+
+
+def _cell_format(style: dict) -> tuple:
+    """A `style` dict as a `CellFormat` and the field mask of exactly what it sets.
+
+    An unknown key is refused, naming the valid ones: a silently ignored key would
+    leave the agent believing the sheet is formatted."""
+    if not isinstance(style, dict) or not style:
+        raise SheetsClientError(f"style: an object with at least one of {', '.join(_STYLE_KEYS)}")
+    unknown = sorted(set(style) - set(_STYLE_KEYS))
+    if unknown:
+        raise SheetsClientError(
+            f"style: unknown key(s) {', '.join(unknown)}; valid: {', '.join(_STYLE_KEYS)}")
+    fmt: dict = {}
+    fields: list = []
+    text: dict = {}
+    if 'background' in style:
+        fmt['backgroundColor'] = _rgb(style['background'], 'background')
+        fields.append('backgroundColor')
+    if 'color' in style:
+        text['foregroundColor'] = _rgb(style['color'], 'color')
+    for key in ('bold', 'italic'):
+        if key in style:
+            text[key] = _flag(style[key], key)
+    if 'font_size' in style:
+        size = style['font_size']
+        if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= 400:
+            raise SheetsClientError(f"style.font_size: points, 1 to 400 (got {size!r})")
+        text['fontSize'] = size
+    if text:
+        fmt['textFormat'] = text
+        fields += [f'textFormat.{k}' for k in text]
+    if 'wrap' in style:
+        fmt['wrapStrategy'] = 'WRAP' if _flag(style['wrap'], 'wrap') else 'OVERFLOW_CELL'
+        fields.append('wrapStrategy')
+    if 'align' in style:
+        fmt['horizontalAlignment'] = _choice(_ALIGN, style['align'], 'align')
+        fields.append('horizontalAlignment')
+    if 'valign' in style:
+        fmt['verticalAlignment'] = _choice(_VALIGN, style['valign'], 'valign')
+        fields.append('verticalAlignment')
+    return fmt, fields
 
 
 def _tab_title(title: str) -> str:

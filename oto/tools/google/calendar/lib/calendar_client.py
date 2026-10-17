@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from uuid import uuid4
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -118,6 +119,7 @@ class CalendarClient:
         calendar_id: str = 'primary',
         attendees: Optional[list[str]] = None,
         send_updates: str = 'none',
+        meet: bool = False,
     ) -> dict:
         """Create a calendar event.
 
@@ -134,6 +136,11 @@ class CalendarClient:
             send_updates: 'none' (default) | 'all' | 'externalOnly' — passed
                 EXPLICITLY, as in `update_event`: inviting must not mail guests
                 unless asked.
+            meet: True = attach a Google Meet link (`conferenceData.createRequest`,
+                sent with `conferenceDataVersion=1`, without which Google ignores
+                it). The link comes back as `hangoutLink`; while Google is still
+                creating it, `meet_status` says so (`pending`) — read the event
+                again with `get_event`.
         """
         if all_day or len(start) == 10:  # YYYY-MM-DD
             body: dict = {
@@ -153,9 +160,22 @@ class CalendarClient:
             body['location'] = location
         if attendees:
             body['attendees'] = [{'email': e} for e in attendees]
+        params: dict = {}
+        if meet:
+            body['conferenceData'] = {'createRequest': {
+                'requestId': uuid4().hex,
+                'conferenceSolutionKey': {'type': 'hangoutsMeet'}}}
+            params['conferenceDataVersion'] = 1
         event = self.service.events().insert(
-            calendarId=calendar_id, body=body, sendUpdates=send_updates).execute()
-        return self._format_event(event)
+            calendarId=calendar_id, body=body, sendUpdates=send_updates,
+            **params).execute()
+        result = self._format_event(event)
+        if meet and 'hangoutLink' not in result:
+            # Never a silent "done": the link was asked for and is not there yet.
+            status = (((event.get('conferenceData') or {}).get('createRequest') or {})
+                      .get('status') or {}).get('statusCode')
+            result['meet_status'] = status or 'missing'
+        return result
 
     def update_event(
         self,

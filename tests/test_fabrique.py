@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from fabrique.build import generate, stale
-from fabrique.descriptions import CONNECTORS, DescriptionError, check
+from fabrique.descriptions import CONNECTORS, DescriptionError, check, served
 from fabrique.typescript import NotGenerated, connector_module, function_source, js_block
 
 SELLSY = CONNECTORS / "sellsy" / "connector.yaml"
@@ -310,3 +310,307 @@ def test_connector_carries_settings_urls_and_consent():
         assert fragment in microsoft
     sellsy = connector_module(check(_load(SELLSY), SELLSY)).source
     assert '"clientAuth": "body"' in sellsy and '"tokenRequest": "json"' in sellsy
+
+
+# --- Règle 7 : niveaux d'accès (docs/conception/niveaux-d-acces.md) -----------------
+
+GMAIL = CONNECTORS / "gmail" / "connector.yaml"
+OUTPUT = CONNECTORS.parent / "ts" / "src"
+READ = "Estimates.READ"
+ALL = "Estimates.ALL"
+SETTINGS = "Settings.READ"
+
+
+def _levels(d, **changes):
+    """Sellsy en consentement à deux niveaux : `full` accorde `Estimates.ALL`, qui implique `Estimates.READ`."""
+    _consent(d, access_levels={"read": {"scopes": [READ, SETTINGS]}, "full": {"scopes": [ALL, SETTINGS]}},
+             scope_implies={ALL: [READ]}, **changes)
+    for function in d["functions"]:
+        function["scopes"] = [READ]
+
+
+def test_access_levels_pass_and_are_carried():
+    description = _load(SELLSY)
+    _levels(description)
+    _fn(description, "get_estimate")["scopes"] = [READ, SETTINGS]
+    module = connector_module(check(description, SELLSY))
+    assert '"accessLevels": {' in module.source and '"read": {"scopes": ["Estimates.READ", "Settings.READ"]}' in module.source
+    assert '"scopeImplies": {"Estimates.ALL": ["Estimates.READ"]}' in module.source
+    assert '  class: "read",\n  act: false,\n  scopes: ["Estimates.READ", "Settings.READ"],\n  description: ' in module.source
+    assert '"scopes":' not in module.source.split("auth: {")[1].split("accessLevels")[0]
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: d["connector"]["auth"]["scope_implies"].update({"Records.ALL": [READ]}),
+     "auth.scope_implies: 'Records.ALL' is the scope of no access level"),
+    (lambda d: (d["connector"]["auth"]["access_levels"]["full"]["scopes"].append("Everything"),
+                d["connector"]["auth"]["scope_implies"].update({"Everything": [ALL]})),
+     "auth.scope_implies: 'Everything' implies a scope that implies Estimates.READ, which 'Everything' must then list too"),
+    (lambda d: d["connector"]["auth"]["access_levels"]["read"]["scopes"].append("Users.READ"),
+     "access level 'read' asks for Users.READ, which level 'full' does not cover"),
+    (lambda d: _fn(d, "get_estimate").update(scopes=[READ, "Users.READ"]),
+     "function get_estimate: scope(s) Users.READ not covered by level 'full'"),
+    (lambda d: (d["connector"]["auth"]["access_levels"]["read"].update(scopes=[SETTINGS]),),
+     "auth.identity 'list_estimates' is not served at access level 'read'"),
+    (lambda d: (d["connector"].update(probe={"function": "list_estimates"}),
+                d["connector"]["auth"].update(identity={"function": "list_estimates", "path": "data"}),
+                d["connector"]["auth"]["access_levels"].update(support={"scopes": [SETTINGS]})),
+     "auth.identity 'list_estimates' is not served at access level 'support'"),
+], ids=["implies_unused", "implies_not_closed", "level_beyond_full", "function_beyond_full", "identity_not_served",
+        "identity_not_served_at_every_level"])
+def test_access_level_rule_refuses(mutate, message):
+    description = _load(SELLSY)
+    _levels(description)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, SELLSY)
+
+
+def test_probe_must_be_served_at_every_level():
+    description = _load(SELLSY)
+    _levels(description)
+    description["connector"]["probe"] = {"function": "list_estimates"}
+    _fn(description, "list_estimates")["scopes"] = [READ]
+    check(description, SELLSY)
+    description["connector"]["auth"]["identity"] = {"function": "list_estimates", "path": "data"}
+    _fn(description, "list_estimates")["scopes"] = [ALL]
+    with pytest.raises(DescriptionError, match=re.escape("auth.identity 'list_estimates' is not served at access level 'read'")):
+        check(description, SELLSY)
+
+
+def test_closed_implication_passes():
+    """Un droit impliqué qui en implique d'autres : la clé qui l'implique les liste aussi, et la lecture en un pas suffit."""
+    description = _load(SELLSY)
+    _levels(description)
+    auth = description["connector"]["auth"]
+    auth["access_levels"]["full"]["scopes"] = ["Everything", SETTINGS]
+    auth["access_levels"]["read"]["scopes"] = [ALL, SETTINGS]
+    auth["scope_implies"] = {"Everything": [ALL, READ], ALL: [READ]}
+    check(description, SELLSY)
+
+
+def test_gmail_levels_serve_reads_at_read_and_everything_at_full():
+    """Ce que l'hôte filtre : au niveau `read`, les lectures seules ; à `full`, tout, comme sans niveaux."""
+    description = check(_load(GMAIL), GMAIL)
+    auth = description.data["connector"]["auth"]
+    levels, implies = auth["access_levels"], auth["scope_implies"]
+    functions = description.data["functions"]
+    at_read = {f["name"] for f in functions if served(f, levels["read"]["scopes"], implies)}
+    assert at_read == {f["name"] for f in functions if f["class"] == "read"}
+    assert all(served(f, levels["full"]["scopes"], implies) for f in functions)
+
+
+@pytest.mark.parametrize("path", [p for p in sorted(CONNECTORS.glob("*/connector.yaml"))
+                                  if "access_levels" not in yaml.safe_load(p.read_text(encoding="utf-8"))["connector"]["auth"]],
+                         ids=lambda p: p.parent.name)
+def test_connector_without_levels_is_unchanged(path):
+    """Un connecteur sans niveaux sort à l'octet près comme avant : son module est celui qui est commité, sans `accessLevels`
+    ni `scopes` de fonction."""
+    module = connector_module(check(_load(path), path))
+    assert "accessLevels" not in module.source and "scopeImplies" not in module.source
+    assert "\n  scopes: " not in module.source
+    assert module.source == (OUTPUT / f"{module.connector}.ts").read_text(encoding="utf-8")
+
+
+# --- Identité lue à une adresse complète (règles 5 et 7) ----------------------------
+
+SHEETS = CONNECTORS / "google_sheets" / "connector.yaml"
+USERINFO = "https://openid.example/userinfo"
+OPENID = ["openid", "email"]
+
+
+def _url_identity(d, levels=True):
+    if levels:
+        _levels(d)
+        for level in d["connector"]["auth"]["access_levels"].values():
+            level["scopes"] += OPENID
+    else:
+        _consent(d, scopes=[READ, *OPENID])
+    d["connector"]["auth"]["identity"] = {"url": USERINFO, "path": "email", "scopes": list(OPENID)}
+
+
+@pytest.mark.parametrize("levels", [True, False], ids=["with_levels", "without_levels"])
+def test_url_identity_passes_and_is_carried_as_is(levels):
+    description = _load(SELLSY)
+    _url_identity(description, levels)
+    source = connector_module(check(description, SELLSY)).source
+    assert '"identity": {"url": "https://openid.example/userinfo", "path": "email", "scopes": ["openid", "email"]}' in source
+
+
+@pytest.mark.parametrize("levels, mutate, message", [
+    (True, lambda d: d["connector"]["auth"]["access_levels"]["read"]["scopes"].remove("email"),
+     "auth.identity 'https://openid.example/userinfo' is not served at access level 'read': its scopes (openid, email) are not all covered"),
+    (True, lambda d: d["connector"]["auth"]["identity"].update(scopes=["openid", "profile"]),
+     "auth.identity 'https://openid.example/userinfo' is not served at access level 'read'"),
+    (False, lambda d: d["connector"]["auth"].update(scopes=[READ, "openid"]),
+     "auth.identity needs email, which auth.scopes does not ask for"),
+    (False, lambda d: d["connector"]["auth"].pop("scopes"),
+     "auth.identity needs email, openid, which auth.scopes does not ask for"),
+], ids=["level_without_identity_scope", "identity_scope_in_no_level", "scopes_without_identity_scope", "no_scopes"])
+def test_url_identity_rules_refuse(levels, mutate, message):
+    description = _load(SELLSY)
+    _url_identity(description, levels)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, SELLSY)
+
+
+def test_sheets_identity_is_read_at_an_address_and_levels_split_reads():
+    description = check(_load(SHEETS), SHEETS)
+    auth = description.data["connector"]["auth"]
+    assert auth["identity"] == {"url": "https://openidconnect.googleapis.com/v1/userinfo", "path": "email", "scopes": OPENID}
+    levels, implies = auth["access_levels"], auth["scope_implies"]
+    functions = description.data["functions"]
+    assert {f["name"] for f in functions if served(f, levels["read"]["scopes"], implies)} == {
+        f["name"] for f in functions if f["class"] == "read"}
+    assert all(served(f, levels["full"]["scopes"], implies) for f in functions)
+
+
+def test_microsoft_levels_serve_every_function_at_read():
+    """Les treize fonctions de `microsoft` sont des lectures : le niveau `read` les sert toutes, avec les droits *.Read.All."""
+    description = check(_load(MICROSOFT), MICROSOFT)
+    auth = description.data["connector"]["auth"]
+    assert "scopes" not in auth
+    read = auth["access_levels"]["read"]["scopes"]
+    assert not any("ReadWrite" in scope for scope in read)
+    assert all(served(f, read, auth["scope_implies"]) for f in description.data["functions"])
+
+
+# --- Règle 8 : compte de l'hôte et compte rattaché -----------------------------------
+
+LINKEDIN = CONNECTORS / "linkedin_unipile" / "connector.yaml"
+ACCOUNT_ID = "{account_id}"
+
+
+def test_hosted_account_passes_and_is_carried():
+    """Tous les champs du credential fournis par l'hôte : la description reste valide ; la sortie dit `holder` de chaque
+    champ et l'identité du compte."""
+    description = _load(LINKEDIN)
+    assert all(field["holder"] == "host" for field in description["connector"]["credential"])
+    source = connector_module(check(description, LINKEDIN)).source
+    assert 'credential: [{"name": "api_key", "label": "Unipile API key", "secret": true, "holder": "host"}],' in source
+    assert 'accountIdentity: {"name": "account_id", "label": "LinkedIn account", "pattern": "^[A-Za-z0-9_-]{1,64}$"},' in source
+    assert 'baseUrl: "https://api.unipile.com/v2/{account_id}",' in source
+    assert '"account_id"' not in source.split("export const connector")[0]
+
+
+def test_holder_defaults_to_account_in_the_output():
+    sellsy = connector_module(check(_load(SELLSY), SELLSY)).source
+    assert '"secret": true, "holder": "account"}' in sellsy
+    assert "accountIdentity" not in sellsy
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: d["connector"].update(base_url="https://api.example.net/v2/{account_id}/linkedin"),
+    lambda d: (d["connector"].update(settings=[{"name": "server", "label": "Server", "type": "url"}]),
+               d["connector"].update(base_url="{server}/v2/{account_id}")),
+    lambda d: (d["connector"].pop("base_url"),
+               d["connector"].update(settings=[{"name": "region", "label": "Region", "type": "choice", "choices": ["us", "eu"]}]),
+               d["connector"].update(base_urls={"setting": "region", "values": {
+                   "us": "https://us.example.net/v2/{account_id}", "eu": "https://eu.example.net/v2/{account_id}"}})),
+], ids=["in_the_path", "after_a_url_setting", "in_each_base_urls"])
+def test_account_identity_after_the_host_passes(mutate):
+    description = _load(LINKEDIN)
+    mutate(description)
+    check(description, LINKEDIN)
+
+
+def _get_profile(d):
+    return _fn(d, "get_profile")
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: d["connector"].update(base_url="https://api.unipile.com/v2"),
+     "base_url does not cite the account identity {account_id}"),
+    (lambda d: (d["connector"].pop("base_url"),
+                d["connector"].update(settings=[{"name": "region", "label": "Region", "type": "choice", "choices": ["us", "eu"]}]),
+                d["connector"].update(base_urls={"setting": "region", "values": {
+                    "us": "https://us.example.net/v2/{account_id}", "eu": "https://eu.example.net/v2"}})),
+     "base_urls.values.eu does not cite the account identity {account_id}"),
+    (lambda d: (_get_profile(d)["input"]["properties"].update(account_id={"type": "string"}),
+                _get_profile(d)["call"]["query"].update(account_id="account_id")),
+     "function get_profile: input argument 'account_id' bears the name of the account identity"),
+    (lambda d: _get_profile(d)["call"].update(path="/users/{identifier}/{account_id}"),
+     "function get_profile: the path cites the account identity {account_id}"),
+    (lambda d: _get_profile(d)["call"].update(query={"account_id": "with_sections"}),
+     "function get_profile: query parameter 'account_id' bears the name of the account identity"),
+    (lambda d: _fn(d, "send_message")["call"].update(body={"account_id": "text"}),
+     "function send_message: body parameter 'account_id' bears the name of the account identity"),
+    (lambda d: _get_profile(d)["call"].update(headers={"Account_Id": "with_sections"}),
+     "function get_profile: headers parameter 'account_id' bears the name of the account identity"),
+    (lambda d: _get_profile(d)["call"].update(constants={"query": {"account_id": "x"}}),
+     "function get_profile: constant query 'account_id' bears the name of the account identity"),
+    (lambda d: d["connector"].update(settings=[{"name": "account_id", "label": "Account", "type": "text", "pattern": "^[a-z]+$"}]),
+     "account_identity 'account_id' is also the name of a setting"),
+    (lambda d: d["connector"]["credential"].append({"name": "account_id", "label": "Account", "secret": False}),
+     "account_identity 'account_id' is also the name of a credential field"),
+    (lambda d: d["connector"].update(base_url="{account_id}/v2"),
+     "base_url cites the account identity {account_id} elsewhere than after the host"),
+    (lambda d: d["connector"].update(base_url="https://{account_id}.unipile.com/v2"),
+     "base_url cites the account identity {account_id} elsewhere than after the host"),
+    (lambda d: (d["connector"].pop("base_url"),
+                d["connector"].update(settings=[{"name": "region", "label": "Region", "type": "choice", "choices": ["us", "eu"]}]),
+                d["connector"].update(base_urls={"setting": "region", "values": {
+                    "us": "https://us.example.net/v2/{account_id}", "eu": "https://eu.example.net/{region}/{account_id}"}})),
+     "base_urls.values cites {region}, which is not the account identity"),
+    (lambda d: (d["connector"].update(auth={"kind": "oauth2_client_credentials", "token_url": "https://login.example/{account_id}/token",
+                                            "token_request": "form", "client_auth": "body", "client_id": "api_key",
+                                            "client_secret": "api_key"})),
+     "auth.token_url cites the account identity {account_id}, which only the base URL cites"),
+], ids=["not_cited", "not_cited_in_each_base_urls", "input_argument", "path_parameter", "query_parameter",
+        "body_parameter", "header_parameter", "constant", "setting_name", "credential_name", "at_the_head", "in_the_host",
+        "base_urls_cites_a_setting", "token_url"])
+def test_account_identity_rule_refuses(mutate, message):
+    description = _load(LINKEDIN)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, LINKEDIN)
+
+
+def test_base_urls_cite_nothing_without_an_account_identity():
+    description = _load(SELLSY)
+    description["connector"].pop("base_url")
+    description["connector"]["settings"] = [{"name": "region", "label": "Region", "type": "choice", "choices": ["us", "eu"]}]
+    description["connector"]["base_urls"] = {"setting": "region", "values": {
+        "us": "https://us.example.net/{account_id}", "eu": "https://eu.example.net"}}
+    with pytest.raises(DescriptionError, match=re.escape("base_urls.values cites {account_id}, which is not the account identity")):
+        check(description, SELLSY)
+
+
+# --- Règle 9 : `act`, ce qui engage ou détruit ---------------------------------------
+
+
+@pytest.mark.parametrize("klass, declared, resolved", [
+    ("read", None, False), ("write", None, True), ("sensitive", None, True),
+    ("read", False, False), ("write", False, False), ("write", True, True), ("sensitive", True, True),
+], ids=lambda v: str(v))
+def test_act_resolves_from_the_class(klass, declared, resolved):
+    function = _load(SELLSY)["functions"][1]
+    function["class"] = klass
+    if klass == "sensitive":
+        function["confirm"] = {"summary": "Do it to {id}."}
+    if declared is not None:
+        function["act"] = declared
+    assert f"  class: {klass!r},\n  act: {str(resolved).lower()},\n".replace("'", '"') in function_source("sellsy", function)
+
+
+@pytest.mark.parametrize("klass, declared, message", [
+    ("sensitive", False, "function get_estimate: a sensitive function cannot declare act: false"),
+    ("read", True, "function get_estimate: a read function cannot declare act: true"),
+], ids=["sensitive_not_act", "read_act"])
+def test_act_rule_refuses(klass, declared, message):
+    description = _load(SELLSY)
+    function = _get_estimate(description)
+    function["class"] = klass
+    function["act"] = declared
+    if klass == "sensitive":
+        function["confirm"] = {"summary": "Do it to {id}."}
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, SELLSY)
+
+
+def test_linkedin_sends_act_and_reads_do_not():
+    module = connector_module(check(_load(LINKEDIN), LINKEDIN)).source
+    for name in ("sendInvitation", "sendMessage"):
+        assert f'export const {name} = defineFunction({{\n  name: ' in module
+    assert module.count("  act: true,\n") == 2 and module.count("  act: false,\n") == 8

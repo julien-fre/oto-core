@@ -13,8 +13,31 @@ export type JsonSchema = { readonly [key: string]: unknown }
 /** Valeur JSON, telle qu'une constante la porte. */
 export type JsonValue = string | number | boolean | null | readonly JsonValue[] | { readonly [key: string]: JsonValue }
 
-/** Un champ du credential que l'hôte fournit à l'appel ; un compte garde tous les champs que déclare son connecteur. */
-export type CredentialField = { readonly name: string; readonly label: string; readonly secret: boolean }
+/**
+ * Qui fournit un champ du credential. `account` : saisi avec le compte, gardé avec lui. `host` : fourni par l'application
+ * hôte, une fois pour toutes ses organisations ; jamais stocké avec le compte, montré ni saisissable.
+ */
+export type CredentialHolder = "account" | "host"
+
+/**
+ * Un champ du credential que l'hôte fournit à l'appel ; un compte garde tous les champs que déclare son connecteur dont
+ * `holder` est `account`, l'hôte ajoute les siens.
+ */
+export type CredentialField = {
+  readonly name: string
+  readonly label: string
+  readonly secret: boolean
+  readonly holder: CredentialHolder
+}
+
+/**
+ * L'identité d'un compte rattaché chez un tiers qui héberge les comptes de ses utilisateurs (une messagerie hébergée) :
+ * l'identifiant du compte chez le tiers, une valeur par compte, qui satisfait `pattern` (expression ancrée). Elle n'est
+ * citée que par `baseUrl` (ou chaque adresse de `baseUrls`), après l'hôte, sous `{name}` ; aucun argument ni aucun
+ * paramètre de requête ne la porte : l'agent ne la fournit jamais. L'hôte l'écrit par un seul service qui la vérifie
+ * auprès du tiers, jamais par une saisie, et l'assemble à l'appel avec son secret et les champs du compte.
+ */
+export type AccountIdentity = { readonly name: string; readonly label: string; readonly pattern: string }
 
 /**
  * Un réglage non secret d'un compte, saisi par qui le connecte. `choice` : une valeur d'une liste fermée (une région),
@@ -56,6 +79,27 @@ export type OAuthRefresh =
   | { readonly refresh: "exchange"; readonly exchange: { readonly grantType: string; readonly tokenParam: string }; readonly rotates?: never }
   | { readonly refresh: "none"; readonly rotates?: never; readonly exchange?: never }
 
+/** Les droits que demande le consentement d'un niveau d'accès, joints par des espaces. */
+export type AccessLevel = { readonly scopes: readonly string[] }
+
+/**
+ * Les droits d'un consentement. Sans niveaux : `scopes`, qui est le niveau `full`. Avec niveaux : `accessLevels`, qui
+ * porte `full` (il ne filtre rien) et au moins un niveau restreint (`read`, `support`…), et `scopeImplies`, un droit qui
+ * en couvre d'autres, tel que le fournisseur le définit (jamais une règle devinée ; close : un droit impliqué n'en
+ * implique pas d'autres que la clé ne liste pas). L'hôte choisit un niveau par organisation, puis par équipe, qui le
+ * restreint sans jamais l'élargir ; `full` par défaut. Une fonction est servie à un niveau quand chacun de ses `scopes`
+ * est un droit du niveau ou impliqué par l'un d'eux ; sinon elle sort de ce que voit l'agent et l'appel est refusé par
+ * `access_level_denied`, qui nomme le niveau et l'opération. Le consentement demande les droits du niveau en vigueur au
+ * départ, signé dans l'état du flux ; passer d'un niveau restreint à `full` demande un nouveau consentement.
+ */
+export type OAuthScopes =
+  | { readonly scopes?: readonly string[]; readonly accessLevels?: never; readonly scopeImplies?: never }
+  | {
+      readonly accessLevels: { readonly full: AccessLevel; readonly [level: string]: AccessLevel }
+      readonly scopeImplies?: { readonly [scope: string]: readonly string[] }
+      readonly scopes?: never
+    }
+
 /**
  * Le consentement d'une personne (code d'autorisation, OAuth 2.0). L'application OAuth (identifiant et secret du client)
  * n'est ni dans la description ni dans `credential` : c'est celle de l'hôte, ou celle que pose l'organisation. Les jetons
@@ -67,23 +111,27 @@ export type OAuthUser = {
   readonly kind: "oauth2_user"
   readonly authorizeUrl: string
   readonly clientAuth: ClientAuth
-  readonly scopes?: readonly string[]
   readonly authorizeParams?: { readonly [param: string]: string }
   /** Preuve de possession du code (PKCE), par SHA-256. */
   readonly pkce?: "S256"
   /** Durée de vie, en secondes, d'un jeton d'accès dont la réponse n'en donne pas. */
   readonly expiresInDefault?: number
   /**
-   * Qui a consenti, lu juste après le consentement pour nommer le compte : `function` (nom qualifié, une lecture sans
-   * argument requis), appelée avec `{}`, et le chemin pointé d'une valeur non vide de sa réponse (l'adresse de la personne).
+   * Qui a consenti, lu juste après le consentement pour nommer le compte, et le chemin pointé d'une valeur non vide de
+   * la réponse (l'adresse de la personne). Soit `function` (nom qualifié, une lecture sans argument requis), appelée avec
+   * `{}` ; soit `url`, une adresse complète hors de `baseUrl` (le service d'identité commun d'un fournisseur), lue en
+   * `GET` avec le jeton d'accès et sans argument, et `scopes`, les droits qu'elle exige, que le consentement demande à
+   * chaque niveau.
    */
-  readonly identity: { readonly function: string; readonly path: string }
+  readonly identity:
+    | { readonly function: string; readonly path: string; readonly url?: never; readonly scopes?: never }
+    | { readonly url: string; readonly path: string; readonly scopes: readonly string[]; readonly function?: never }
   /**
    * Champs de la réponse de jeton gardés avec le compte, non secrets, renouvelés à chaque réponse de jeton, cités par
    * `baseUrl` comme un réglage (une `instance_url` qui devient l'adresse de l'API).
    */
   readonly fromToken?: readonly string[]
-} & TokenEndpoint & OAuthRefresh
+} & TokenEndpoint & OAuthRefresh & OAuthScopes
 
 /**
  * Chaque valeur qui désigne un secret nomme un champ de `credential`, jamais une valeur. Une clé passée en query
@@ -196,6 +244,18 @@ export type ConnectorFunction = {
   readonly name: string
   readonly connector: string
   readonly class: FunctionClass
+  /**
+   * La fonction engage ou détruit (envoi, corbeille, archive, déplacement) : l'hôte la sert sous `<connecteur>_act.<fonction>`,
+   * les autres sous `<connecteur>.<fonction>` (lire et simuler, brouillon compris). Une seule description, un seul compte.
+   * Valeur résolue : déclarée, sinon `false` pour `read` et `true` pour `write` et `sensitive` ; jamais `false` pour
+   * `sensitive`, jamais `true` pour `read`.
+   */
+  readonly act: boolean
+  /**
+   * Présent si et seulement si le connecteur a des niveaux d'accès (`OAuthScopes`) : les droits que la fonction exige,
+   * tous. `class` dit ce que fait la fonction, `scopes` ce qu'elle exige.
+   */
+  readonly scopes?: readonly string[]
   /** Anglais : ce que lit l'agent. */
   readonly description: string
   /** JSON Schema 2020-12 de l'entrée, celui de la description : racine `type: object`, `additionalProperties: false`. */
@@ -222,15 +282,18 @@ export type Connector = {
   /** Version de l'API du tiers, telle que l'éditeur la nomme. */
   readonly apiVersion: string
   /**
-   * Racine des chemins, gabarit possible sur les réglages (`https://{domain}.example.net`, `{server}`). Absente quand
-   * `baseUrls` la remplace, ou quand toutes les fonctions sont écrites à la main.
+   * Racine des chemins, gabarit possible sur les réglages (`https://{domain}.example.net`, `{server}`) et sur l'identité
+   * du compte, après l'hôte (`https://api.example.com/v2/{account_id}`). Absente quand `baseUrls` la remplace, ou quand
+   * toutes les fonctions sont écrites à la main.
    */
   readonly baseUrl?: string
-  /** Racine des chemins par valeur d'un réglage `choice` (une région). */
+  /** Racine des chemins par valeur d'un réglage `choice` (une région) ; chacune peut citer l'identité du compte. */
   readonly baseUrls?: UrlsBySetting
   readonly auth: Auth
   /** Vide pour `oauth2_user` et `none`. */
   readonly credential: readonly CredentialField[]
+  /** Présente pour un compte rattaché chez un tiers qui héberge les comptes de ses utilisateurs. */
+  readonly accountIdentity?: AccountIdentity
   readonly settings?: readonly Setting[]
   readonly modes: readonly ("platform" | "byo_user" | "byo_org")[]
   readonly timeoutMs: number

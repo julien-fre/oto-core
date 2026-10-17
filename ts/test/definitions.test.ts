@@ -43,12 +43,70 @@ describe("generated definitions", () => {
   })
 
   const consents = connectors.flatMap((c) => (c.auth.kind === "oauth2_user" ? [[c.name, c, c.auth] as const] : []))
-  it.each(consents)("%s: the identity of a consent is a read function callable with {}, and no credential", (_name, connector, auth) => {
-    const identity = connector.functions.find((fn) => fn.name === auth.identity.function)
-    expect(identity?.class).toBe("read")
-    expect(ajv.validate(identity?.schema as object, {})).toBe(true)
+  it.each(consents)("%s: the identity of a consent is a read function callable with {} or an https address, and no credential", (_name, connector, auth) => {
+    if (auth.identity.url !== undefined) {
+      expect(auth.identity.url).toMatch(/^https:\/\/[^\s{}?#]+$/)
+      expect(auth.identity.scopes.length).toBeGreaterThan(0)
+    } else {
+      const identity = connector.functions.find((fn) => fn.name === auth.identity.function)
+      expect(identity?.class).toBe("read")
+      expect(ajv.validate(identity?.schema as object, {})).toBe(true)
+    }
     expect(connector.credential).toEqual([])
   })
+
+  // Niveaux d'accès : une fonction est servie à un niveau quand chacun de ses droits est un droit du niveau ou impliqué par
+  // l'un d'eux. `full` sert tout ; l'identité du consentement est servie à chaque niveau ; sans niveaux, aucun droit.
+  const covered = (scopes: readonly string[], implies: { readonly [scope: string]: readonly string[] }) =>
+    new Set(scopes.flatMap((scope) => [scope, ...(implies[scope] ?? [])]))
+  const leveled = consents.flatMap(([name, connector, auth]) => (auth.accessLevels ? [[name, connector, auth.accessLevels, auth.scopeImplies ?? {}, auth.identity] as const] : []))
+  it.each(leveled)("%s: full serves every function, and every level serves the identity", (_name, connector, levels, implies, identity) => {
+    const full = covered(levels.full.scopes, implies)
+    for (const fn of connector.functions) {
+      expect(fn.scopes?.length, fn.name).toBeGreaterThan(0)
+      for (const scope of fn.scopes ?? []) expect(full.has(scope), `${fn.name}: ${scope}`).toBe(true)
+    }
+    const who = identity.url !== undefined ? identity.scopes : connector.functions.find((fn) => fn.name === identity.function)?.scopes
+    expect(Object.keys(levels).length).toBeGreaterThan(1)
+    for (const [level, { scopes }] of Object.entries(levels)) {
+      const granted = covered(scopes, implies)
+      for (const scope of who ?? ["(none)"]) expect(granted.has(scope), `${level}: ${scope}`).toBe(true)
+    }
+  })
+
+  it.each(connectors.filter((c) => !(c.auth.kind === "oauth2_user" && c.auth.accessLevels)).map((c) => [c.name, c] as const))(
+    "%s: without access levels, no function declares scopes",
+    (_name, connector) => {
+      for (const fn of connector.functions) expect(fn.scopes, fn.name).toBeUndefined()
+    },
+  )
+
+  it.each(functions)("%s: act is resolved, never false when sensitive nor true when read", (_name, _connector, fn) => {
+    expect(typeof fn.act).toBe("boolean")
+    if (fn.class === "sensitive") expect(fn.act).toBe(true)
+    if (fn.class === "read") expect(fn.act).toBe(false)
+  })
+
+  it.each(connectors.map((c) => [c.name, c] as const))("%s: every credential field says who holds it", (_name, connector) => {
+    for (const field of connector.credential) expect(["account", "host"], field.name).toContain(field.holder)
+  })
+
+  // Compte rattaché : l'identité n'est citée que par l'adresse de base, après l'hôte, et aucune fonction ne la prend.
+  it.each(connectors.flatMap((c) => (c.accountIdentity ? [[c.name, c, c.accountIdentity] as const] : [])))(
+    "%s: the account identity is cited after the host only, and by no function",
+    (_name, connector, identity) => {
+      expect(identity.pattern).toMatch(/^\^.+\$$/)
+      const cited = `{${identity.name}}`
+      const urls = connector.baseUrl !== undefined ? [connector.baseUrl] : Object.values(connector.baseUrls?.values ?? {})
+      expect(urls.length).toBeGreaterThan(0)
+      for (const url of urls) expect(url).toMatch(new RegExp(`^(https://[^/{}]+|\\{[a-z][a-z0-9_]*\\})/.*\\{${identity.name}\\}`))
+      for (const fn of connector.functions) {
+        expect(Object.keys(fn.schema.properties as object), fn.name).not.toContain(identity.name)
+        expect(fn.request.path, fn.name).not.toContain(cited)
+        for (const names of [fn.request.query, fn.request.body, fn.request.headers]) expect(Object.keys(names)).not.toContain(identity.name)
+      }
+    },
+  )
 
   it.each(connectors.filter((c) => c.baseUrls).map((c) => [c.name, c] as const))("%s: base URLs give one address per choice", (_name, connector) => {
     const setting = connector.settings?.find((s) => s.name === connector.baseUrls?.setting)

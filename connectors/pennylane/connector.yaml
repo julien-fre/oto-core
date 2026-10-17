@@ -776,6 +776,7 @@ functions:
 
   - name: create_customer_invoice
     class: write
+    act: false
     description: >-
       Create a customer invoice, always as a draft. The customer
       must exist (list_customers, create_customer). Finalizing and sending
@@ -864,6 +865,7 @@ functions:
 
   - name: create_credit_note
     class: write
+    act: false
     description: >-
       Create a standalone credit note, always as a draft. In
       Pennylane v2 a credit note is a customer invoice with negative
@@ -1273,6 +1275,7 @@ functions:
 
   - name: create_invoice_from_quote
     class: write
+    act: false
     description: >-
       Create a draft customer invoice from a quote, taking over its customer
       and lines. Finalizing and sending it remain

@@ -5,6 +5,7 @@ export const getCurrentUser = defineFunction({
   name: "wttj_ats.get_current_user",
   connector: "wttj_ats",
   class: "read",
+  act: false,
   description: "Get the user the API token acts as, and on request the organizations, jobs and pipeline stages it can reach. Start here: every other call needs an organization reference or a job reference, and this is where they are listed. Needs the me_r scope; organizations need organizations_r, jobs need jobs_r.",
   schema: {
     "type": "object",
@@ -36,6 +37,7 @@ export const getOrganization = defineFunction({
   name: "wttj_ats.get_organization",
   connector: "wttj_ats",
   class: "read",
+  act: false,
   description: "Get one organization by its reference: name, slug, description, subsidiaries, logo, sectors, size. Offices and websites on request. Needs the organizations_r scope (offices also need offices_r).",
   schema: {
     "type": "object",
@@ -67,6 +69,7 @@ export const listJobs = defineFunction({
   name: "wttj_ats.list_jobs",
   connector: "wttj_ats",
   class: "read",
+  act: false,
   description: "List the jobs (offers) of one organization, one page at a time: reference, name, status, description, profile, contract type, salary, remote policy, office, creation and publication dates. The answer is a bare array with no total: an empty or short page means the end. Needs the jobs_r scope.",
   schema: {
     "type": "object",
@@ -107,6 +110,7 @@ export const getJob = defineFunction({
   name: "wttj_ats.get_job",
   connector: "wttj_ats",
   class: "read",
+  act: false,
   description: "Get one job by its reference. With stages, embeds its pipeline as [{id, name, reference, visible, candidates_count}]: a stage is addressed by its integer id (its reference may be null), the id that create_candidate and update_candidate take as job_stage_id. Needs the jobs_r scope; candidates_count also needs candidates_r.",
   schema: {
     "type": "object",
@@ -142,6 +146,7 @@ export const listCandidates = defineFunction({
   name: "wttj_ats.list_candidates",
   connector: "wttj_ats",
   class: "read",
+  act: false,
   description: "List the candidates of one job, one page at a time: reference, stage id, profile (first name, last name, email, phone), cover letter, resume URL, origin, archived flag, dates. There is no cross-job listing: a job reference is required. The answer is a bare array with no total. Returns personal data. Needs the candidates_r scope (my_candidates_r only reaches the candidates this token created).",
   schema: {
     "type": "object",
@@ -181,6 +186,7 @@ export const getCandidate = defineFunction({
   name: "wttj_ats.get_candidate",
   connector: "wttj_ats",
   class: "read",
+  act: false,
   description: "Get one candidate by its reference, same fields as a list item. Returns personal data. Needs the candidates_r scope.",
   schema: {
     "type": "object",
@@ -212,6 +218,7 @@ export const createCandidate = defineFunction({
   name: "wttj_ats.create_candidate",
   connector: "wttj_ats",
   class: "write",
+  act: true,
   description: "Add a candidate to a job, at a given pipeline stage. job_stage_id is the integer id of a stage of this job (get_job with stages). Needs the candidates_rw or my_candidates_rw scope.",
   schema: {
     "type": "object",
@@ -266,6 +273,7 @@ export const updateCandidate = defineFunction({
   name: "wttj_ats.update_candidate",
   connector: "wttj_ats",
   class: "write",
+  act: true,
   description: "Change a candidate: only the fields passed change. job_stage_id MOVES the candidate to that stage of its job (there is no dedicated move endpoint); archived true archives it. Needs the candidates_rw scope.",
   schema: {
     "type": "object",
@@ -324,6 +332,7 @@ export const createComment = defineFunction({
   name: "wttj_ats.create_comment",
   connector: "wttj_ats",
   class: "write",
+  act: true,
   description: "Add a comment on a candidate, as plain text, HTML or markdown. Comments are write-only in this API: none can be listed back. Needs the comments_w scope and candidates_rw or my_candidates_rw.",
   schema: {
     "type": "object",
@@ -352,6 +361,7 @@ export const listMoves = defineFunction({
   name: "wttj_ats.list_moves",
   connector: "wttj_ats",
   class: "read",
+  act: false,
   description: "List the pipeline history of an organization, optionally of one job: each move is {candidate: {reference}, from: {stage, organization, job}, to: {stage, organization, job}, created_at}. A move can change stage, job or organization; a stage deleted after the move is not included. Needs the moves_r scope.",
   schema: {
     "type": "object",
@@ -386,7 +396,7 @@ export const connector = defineConnector({
   apiVersion: "v1 external",
   baseUrl: "https://www.welcomekit.co/api/v1/external",
   auth: {"kind": "bearer", "token": "api_key"},
-  credential: [{"name": "api_key", "label": "API token", "secret": true}],
+  credential: [{"name": "api_key", "label": "API token", "secret": true, "holder": "account"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 60000,
   errors: [

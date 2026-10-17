@@ -5,6 +5,7 @@ export const listAppointments = defineFunction({
   name: "nextmotion.list_appointments",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's calendar appointments. Each appointment embeds a full nested patient object (personal data). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -56,6 +57,7 @@ export const getAppointment = defineFunction({
   name: "nextmotion.get_appointment",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a calendar appointment. The appointment embeds a full nested patient object (personal data).",
   schema: {
     "type": "object",
@@ -89,6 +91,7 @@ export const rescheduleAppointment = defineFunction({
   name: "nextmotion.reschedule_appointment",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Move an appointment to a free slot. Both visit_type_opening_hour_id (the slot id) and time_slot come from search_time_slots.",
   schema: {
     "type": "object",
@@ -133,6 +136,7 @@ export const updateAppointment = defineFunction({
   name: "nextmotion.update_appointment",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Change an appointment: calendar_event (with start_time and end_time) is required. The API notifies the patient by email and SMS by default: set send_appointment_modified_email and send_appointment_modified_sms to false unless the patient must be told. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -308,6 +312,7 @@ export const deleteAppointment = defineFunction({
   name: "nextmotion.delete_appointment",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a calendar appointment. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -342,6 +347,7 @@ export const searchTimeSlots = defineFunction({
   name: "nextmotion.search_time_slots",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "A read despite the POST verb. Free online-booking slots of the clinic, unpaginated: {data: [{id, type, time_slot, utc_offset}]}. Without dates the search spans the current month. The slot id and time_slot feed reschedule_appointment and create_appointment_request.",
   schema: {
     "type": "object",
@@ -405,6 +411,7 @@ export const listAppointmentRequests = defineFunction({
   name: "nextmotion.list_appointment_requests",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's appointment requests. Each request carries the requester's name, email and phone (personal data). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -451,6 +458,7 @@ export const getAppointmentRequest = defineFunction({
   name: "nextmotion.get_appointment_request",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve appointment request details. The request carries the requester's name, email and phone (personal data).",
   schema: {
     "type": "object",
@@ -484,6 +492,7 @@ export const createAppointmentRequest = defineFunction({
   name: "nextmotion.create_appointment_request",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Request an appointment. An online booking request on a free slot (`visit_type_opening_hour`, `time_slot` from `search_time_slots`) for a person (`first_name`, `last_name`, `email`, `phone_number`, `birth_date`). The clinic is the slot's: the path carries none. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -538,6 +547,7 @@ export const listCalendarJourneys = defineFunction({
   name: "nextmotion.list_calendar_journeys",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's calendar journeys. A patient's path through the clinic on an appointment (required / completed steps). Each journey embeds its patient (personal data). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -636,6 +646,7 @@ export const listCalendarAbsences = defineFunction({
   name: "nextmotion.list_calendar_absences",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's calendar absences. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -691,6 +702,7 @@ export const getCalendarAbsence = defineFunction({
   name: "nextmotion.get_calendar_absence",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a calendar absence.",
   schema: {
     "type": "object",
@@ -724,6 +736,7 @@ export const listCalendarOpeningHours = defineFunction({
   name: "nextmotion.list_calendar_opening_hours",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's calendar opening hours. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -769,6 +782,7 @@ export const getCalendarOpeningHour = defineFunction({
   name: "nextmotion.get_calendar_opening_hour",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a calendar opening hour.",
   schema: {
     "type": "object",
@@ -802,6 +816,7 @@ export const listAppointmentRooms = defineFunction({
   name: "nextmotion.list_appointment_rooms",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's appointment rooms. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -842,6 +857,7 @@ export const getAppointmentRoom = defineFunction({
   name: "nextmotion.get_appointment_room",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve an appointment room.",
   schema: {
     "type": "object",
@@ -875,6 +891,7 @@ export const listAppointmentDevices = defineFunction({
   name: "nextmotion.list_appointment_devices",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's appointment devices. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -915,6 +932,7 @@ export const getAppointmentDevice = defineFunction({
   name: "nextmotion.get_appointment_device",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve an appointment device.",
   schema: {
     "type": "object",
@@ -948,6 +966,7 @@ export const createCalendarAbsence = defineFunction({
   name: "nextmotion.create_calendar_absence",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a calendar absence. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -1090,6 +1109,7 @@ export const updateCalendarAbsence = defineFunction({
   name: "nextmotion.update_calendar_absence",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a calendar absence. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -1232,6 +1252,7 @@ export const deleteCalendarAbsence = defineFunction({
   name: "nextmotion.delete_calendar_absence",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a calendar absence. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -1266,6 +1287,7 @@ export const createCalendarOpeningHour = defineFunction({
   name: "nextmotion.create_calendar_opening_hour",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a calendar opening hour. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -1443,6 +1465,7 @@ export const updateCalendarOpeningHour = defineFunction({
   name: "nextmotion.update_calendar_opening_hour",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a calendar opening hour. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -1617,6 +1640,7 @@ export const deleteCalendarOpeningHour = defineFunction({
   name: "nextmotion.delete_calendar_opening_hour",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a calendar opening hour. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -1651,6 +1675,7 @@ export const createAppointmentRoom = defineFunction({
   name: "nextmotion.create_appointment_room",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create an appointment room. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -1721,6 +1746,7 @@ export const updateAppointmentRoom = defineFunction({
   name: "nextmotion.update_appointment_room",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update an appointment room. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -1791,6 +1817,7 @@ export const deleteAppointmentRoom = defineFunction({
   name: "nextmotion.delete_appointment_room",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete an appointment room. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -1825,6 +1852,7 @@ export const createAppointmentDevice = defineFunction({
   name: "nextmotion.create_appointment_device",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create an appointment device. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -1877,6 +1905,7 @@ export const updateAppointmentDevice = defineFunction({
   name: "nextmotion.update_appointment_device",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update an appointment device. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -1929,6 +1958,7 @@ export const deleteAppointmentDevice = defineFunction({
   name: "nextmotion.delete_appointment_device",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete an appointment device. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -1963,6 +1993,7 @@ export const listVisitTypes = defineFunction({
   name: "nextmotion.list_visit_types",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's visit types. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2009,6 +2040,7 @@ export const getVisitType = defineFunction({
   name: "nextmotion.get_visit_type",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a visit type.",
   schema: {
     "type": "object",
@@ -2042,6 +2074,7 @@ export const listVisitTypeCategories = defineFunction({
   name: "nextmotion.list_visit_type_categories",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's visit type categories. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2082,6 +2115,7 @@ export const getVisitTypeCategory = defineFunction({
   name: "nextmotion.get_visit_type_category",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a visit type category.",
   schema: {
     "type": "object",
@@ -2115,6 +2149,7 @@ export const listSubVisitTypes = defineFunction({
   name: "nextmotion.list_sub_visit_types",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's sub visit types. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2161,6 +2196,7 @@ export const getSubVisitType = defineFunction({
   name: "nextmotion.get_sub_visit_type",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a sub visit type.",
   schema: {
     "type": "object",
@@ -2194,6 +2230,7 @@ export const listTreatmentTypes = defineFunction({
   name: "nextmotion.list_treatment_types",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's treatment types. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2235,6 +2272,7 @@ export const getTreatmentType = defineFunction({
   name: "nextmotion.get_treatment_type",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a treatment type.",
   schema: {
     "type": "object",
@@ -2268,6 +2306,7 @@ export const listTreatmentPricings = defineFunction({
   name: "nextmotion.list_treatment_pricings",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's treatment pricings. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2314,6 +2353,7 @@ export const getTreatmentPricing = defineFunction({
   name: "nextmotion.get_treatment_pricing",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a treatment pricing.",
   schema: {
     "type": "object",
@@ -2347,6 +2387,7 @@ export const listTreatmentPricingDistributions = defineFunction({
   name: "nextmotion.list_treatment_pricing_distributions",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List a treatment pricing's per-provider accounting distributions. The per-user accounting distribution of a pricing. Unpaginated.",
   schema: {
     "type": "object",
@@ -2380,6 +2421,7 @@ export const listTreatmentPackages = defineFunction({
   name: "nextmotion.list_treatment_packages",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's treatment packages. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2421,6 +2463,7 @@ export const getTreatmentPackage = defineFunction({
   name: "nextmotion.get_treatment_package",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a treatment package.",
   schema: {
     "type": "object",
@@ -2454,6 +2497,7 @@ export const listTreatmentPackageItems = defineFunction({
   name: "nextmotion.list_treatment_package_items",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List treatment package items. The treatments a package holds. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2494,6 +2538,7 @@ export const listTreatmentPackageDistributions = defineFunction({
   name: "nextmotion.list_treatment_package_distributions",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List a treatment package's per-provider accounting distributions. Unpaginated.",
   schema: {
     "type": "object",
@@ -2527,6 +2572,7 @@ export const listAccountingDistributions = defineFunction({
   name: "nextmotion.list_accounting_distributions",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's accounting distributions. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2567,6 +2613,7 @@ export const getAccountingDistribution = defineFunction({
   name: "nextmotion.get_accounting_distribution",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve an accounting distribution.",
   schema: {
     "type": "object",
@@ -2600,6 +2647,7 @@ export const listGlobalProducts = defineFunction({
   name: "nextmotion.list_global_products",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Search global product catalog. The product catalogue (name, brand). No detail endpoint. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -2641,6 +2689,7 @@ export const createVisitType = defineFunction({
   name: "nextmotion.create_visit_type",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a visit type in the clinic. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -2827,6 +2876,7 @@ export const updateVisitType = defineFunction({
   name: "nextmotion.update_visit_type",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "sub_visit_types is the FULL list of variants: a variant left out is deleted. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -3023,6 +3073,7 @@ export const deleteVisitType = defineFunction({
   name: "nextmotion.delete_visit_type",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a visit type. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -3057,6 +3108,7 @@ export const createVisitTypeCategory = defineFunction({
   name: "nextmotion.create_visit_type_category",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a visit type category. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -3127,6 +3179,7 @@ export const updateVisitTypeCategory = defineFunction({
   name: "nextmotion.update_visit_type_category",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a visit type category. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -3197,6 +3250,7 @@ export const deleteVisitTypeCategory = defineFunction({
   name: "nextmotion.delete_visit_type_category",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a visit type category. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -3231,6 +3285,7 @@ export const createTreatmentType = defineFunction({
   name: "nextmotion.create_treatment_type",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a treatment type in the clinic. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -3460,6 +3515,7 @@ export const updateTreatmentType = defineFunction({
   name: "nextmotion.update_treatment_type",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "pricings is the FULL list: a pricing left out is deleted. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -3683,6 +3739,7 @@ export const deleteTreatmentType = defineFunction({
   name: "nextmotion.delete_treatment_type",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a treatment type. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -3717,6 +3774,7 @@ export const getPostTreatmentConfig = defineFunction({
   name: "nextmotion.get_post_treatment_config",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a post-treatment config.",
   schema: {
     "type": "object",
@@ -3750,6 +3808,7 @@ export const updatePostTreatmentConfig = defineFunction({
   name: "nextmotion.update_post_treatment_config",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a post-treatment config. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -3887,6 +3946,7 @@ export const createTreatmentPackage = defineFunction({
   name: "nextmotion.create_treatment_package",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a treatment package. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -3949,6 +4009,7 @@ export const updateTreatmentPackage = defineFunction({
   name: "nextmotion.update_treatment_package",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a treatment package. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4011,6 +4072,7 @@ export const deleteTreatmentPackage = defineFunction({
   name: "nextmotion.delete_treatment_package",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a treatment package. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -4045,6 +4107,7 @@ export const createTreatmentPackageItem = defineFunction({
   name: "nextmotion.create_treatment_package_item",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Add item to treatment package. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4091,6 +4154,7 @@ export const updateTreatmentPackageItem = defineFunction({
   name: "nextmotion.update_treatment_package_item",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update treatment package item. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4137,6 +4201,7 @@ export const deleteTreatmentPackageItem = defineFunction({
   name: "nextmotion.delete_treatment_package_item",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Remove item from treatment package. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -4171,6 +4236,7 @@ export const createAccountingDistribution = defineFunction({
   name: "nextmotion.create_accounting_distribution",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create an accounting distribution. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4232,6 +4298,7 @@ export const updateAccountingDistribution = defineFunction({
   name: "nextmotion.update_accounting_distribution",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update an accounting distribution. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4293,6 +4360,7 @@ export const deleteAccountingDistribution = defineFunction({
   name: "nextmotion.delete_accounting_distribution",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete an accounting distribution. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -4327,6 +4395,7 @@ export const getMe = defineFunction({
   name: "nextmotion.get_me",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Useful to check which user an API key acts as.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -4347,6 +4416,7 @@ export const listClinics = defineFunction({
   name: "nextmotion.list_clinics",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Start here: almost every other function needs a clinic_id from this list. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -4379,6 +4449,7 @@ export const listClinicFeatures = defineFunction({
   name: "nextmotion.list_clinic_features",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic features / subscription options. The clinic's Nextmotion subscription options (code, prices, counts, sale/cancel/end times). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -4419,6 +4490,7 @@ export const listDoctors = defineFunction({
   name: "nextmotion.list_doctors",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's doctors. The clinic's practitioners. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -4459,6 +4531,7 @@ export const getDoctor = defineFunction({
   name: "nextmotion.get_doctor",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a doctor.",
   schema: {
     "type": "object",
@@ -4492,6 +4565,7 @@ export const createDoctor = defineFunction({
   name: "nextmotion.create_doctor",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a doctor. Adds a collaborator (`email` and `kind` required; names required when the email is not a known user). Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4602,6 +4676,7 @@ export const updateDoctor = defineFunction({
   name: "nextmotion.update_doctor",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a doctor. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4710,6 +4785,7 @@ export const deleteDoctor = defineFunction({
   name: "nextmotion.delete_doctor",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a doctor. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -4744,6 +4820,7 @@ export const listLeads = defineFunction({
   name: "nextmotion.list_leads",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's leads. Prospects (contact details, source, status, desired treatment, follow-up counters). Each lead carries a person's name, email, phone and free-text notes (personal data). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -4784,6 +4861,7 @@ export const getLead = defineFunction({
   name: "nextmotion.get_lead",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a lead. The lead carries a person's name, email, phone and free-text notes (personal data).",
   schema: {
     "type": "object",
@@ -4817,6 +4895,7 @@ export const createLead = defineFunction({
   name: "nextmotion.create_lead",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a lead. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4885,6 +4964,7 @@ export const updateLead = defineFunction({
   name: "nextmotion.update_lead",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a lead. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -4953,6 +5033,7 @@ export const deleteLead = defineFunction({
   name: "nextmotion.delete_lead",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a lead. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -4987,6 +5068,7 @@ export const convertLeadToPatient = defineFunction({
   name: "nextmotion.convert_lead_to_patient",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Turn a lead into a patient; answers the patient, an existing one when its details match.",
   schema: {
     "type": "object",
@@ -5021,6 +5103,7 @@ export const createCall = defineFunction({
   name: "nextmotion.create_call",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Log a call. Logs a call (JSON; a recording file, multipart only, is not sent by this client). Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -5105,6 +5188,7 @@ export const createCommunicationRecord = defineFunction({
   name: "nextmotion.create_communication_record",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "SENDS a real email, SMS or WhatsApp message built from one of the clinic's communication templates, about one object (a quote, an invoice or an administrative document). Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -5163,6 +5247,7 @@ export const listObjectLabels = defineFunction({
   name: "nextmotion.list_object_labels",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Labels used across the clinic: lead sources, statuses, channels, zones, quote tags, call labels. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -5224,6 +5309,7 @@ export const listCommunicationTemplates = defineFunction({
   name: "nextmotion.list_communication_templates",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic communication templates. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -5270,6 +5356,7 @@ export const getCommunicationTemplate = defineFunction({
   name: "nextmotion.get_communication_template",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a communication template.",
   schema: {
     "type": "object",
@@ -5303,6 +5390,7 @@ export const updateCommunicationTemplate = defineFunction({
   name: "nextmotion.update_communication_template",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a communication template. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -5354,6 +5442,7 @@ export const listCommunicationTemplatePlaceholders = defineFunction({
   name: "nextmotion.list_communication_template_placeholders",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List communication template autocomplete metadata. The placeholders a template of that `type` (e.g. `quote`, `appointment_reminder`) can use.",
   schema: {
     "type": "object",
@@ -5415,6 +5504,7 @@ export const listDocumentTemplates = defineFunction({
   name: "nextmotion.list_document_templates",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's document templates. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -5466,6 +5556,7 @@ export const getDocumentTemplate = defineFunction({
   name: "nextmotion.get_document_template",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a document template.",
   schema: {
     "type": "object",
@@ -5499,6 +5590,7 @@ export const createDocumentTemplate = defineFunction({
   name: "nextmotion.create_document_template",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a document template. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -5599,6 +5691,7 @@ export const updateDocumentTemplate = defineFunction({
   name: "nextmotion.update_document_template",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a document template. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -5687,6 +5780,7 @@ export const deleteDocumentTemplate = defineFunction({
   name: "nextmotion.delete_document_template",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a document template. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -5721,6 +5815,7 @@ export const duplicateDocumentTemplate = defineFunction({
   name: "nextmotion.duplicate_document_template",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Duplicate a document template. Answers the copy.",
   schema: {
     "type": "object",
@@ -5754,6 +5849,7 @@ export const listDocumentTemplatePlaceholders = defineFunction({
   name: "nextmotion.list_document_template_placeholders",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List autofills / autocomplete options. Placeholders per document type (same codes as `list_document_templates`).",
   schema: {
     "type": "object",
@@ -5784,6 +5880,7 @@ export const listSurveyForms = defineFunction({
   name: "nextmotion.list_survey_forms",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's survey forms. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -5830,6 +5927,7 @@ export const getSurveyForm = defineFunction({
   name: "nextmotion.get_survey_form",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a survey form.",
   schema: {
     "type": "object",
@@ -5863,6 +5961,7 @@ export const createSurveyForm = defineFunction({
   name: "nextmotion.create_survey_form",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a survey form. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -5930,6 +6029,7 @@ export const updateSurveyForm = defineFunction({
   name: "nextmotion.update_survey_form",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a survey form. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -5996,6 +6096,7 @@ export const deleteSurveyForm = defineFunction({
   name: "nextmotion.delete_survey_form",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a survey form. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -6030,6 +6131,7 @@ export const listSurveyFormPlaceholders = defineFunction({
   name: "nextmotion.list_survey_form_placeholders",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List autocomplete options. Placeholders of a survey-form type (`bolt_note` | `treatment_consent`, required).",
   schema: {
     "type": "object",
@@ -6061,6 +6163,7 @@ export const listWebhooks = defineFunction({
   name: "nextmotion.list_webhooks",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's webhooks. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -6101,6 +6204,7 @@ export const getWebhook = defineFunction({
   name: "nextmotion.get_webhook",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a webhook.",
   schema: {
     "type": "object",
@@ -6134,6 +6238,7 @@ export const createWebhook = defineFunction({
   name: "nextmotion.create_webhook",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Register a webhook: Nextmotion will push the chosen events of this clinic, which may carry personal data, to the given URL. headers usually carry the receiver's secret. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -6246,6 +6351,7 @@ export const updateWebhook = defineFunction({
   name: "nextmotion.update_webhook",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Change where and how a webhook pushes this clinic's events (url required). Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -6317,6 +6423,7 @@ export const deleteWebhook = defineFunction({
   name: "nextmotion.delete_webhook",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a webhook. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -6351,6 +6458,7 @@ export const listPatients = defineFunction({
   name: "nextmotion.list_patients",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's patients. Patient records are personal data, including the practitioner's comments and a photograph. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -6412,6 +6520,7 @@ export const getPatient = defineFunction({
   name: "nextmotion.get_patient",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a patient. The record is personal data, including the practitioner's comments and a photograph.",
   schema: {
     "type": "object",
@@ -6445,6 +6554,7 @@ export const createPatient = defineFunction({
   name: "nextmotion.create_patient",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a patient record (identity only). Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -6507,6 +6617,7 @@ export const updatePatient = defineFunction({
   name: "nextmotion.update_patient",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a patient's identity (same fields as create_patient). Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -6569,6 +6680,7 @@ export const listQuotes = defineFunction({
   name: "nextmotion.list_quotes",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's quotes. Each quote embeds a nested patient object (personal data). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -6615,6 +6727,7 @@ export const getQuote = defineFunction({
   name: "nextmotion.get_quote",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a quote. The quote embeds a nested patient object (personal data).",
   schema: {
     "type": "object",
@@ -6648,6 +6761,7 @@ export const listInvoices = defineFunction({
   name: "nextmotion.list_invoices",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "The API accepts no filter on this list (no date, no patient), and its order is not documented. Each invoice embeds a nested patient object (personal data). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -6688,6 +6802,7 @@ export const getInvoice = defineFunction({
   name: "nextmotion.get_invoice",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve an invoice. The invoice embeds a nested patient object (personal data).",
   schema: {
     "type": "object",
@@ -6721,6 +6836,7 @@ export const updateQuote = defineFunction({
   name: "nextmotion.update_quote",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a quote. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -6845,6 +6961,7 @@ export const deleteQuote = defineFunction({
   name: "nextmotion.delete_quote",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a quote. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -6879,6 +6996,7 @@ export const validateQuote = defineFunction({
   name: "nextmotion.validate_quote",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Validate a draft quote, optionally updating it in the same request. Irreversible. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -7009,6 +7127,7 @@ export const updateInvoice = defineFunction({
   name: "nextmotion.update_invoice",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update an invoice. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -7127,6 +7246,7 @@ export const validateInvoice = defineFunction({
   name: "nextmotion.validate_invoice",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Validate a draft invoice: it gets its number and can no longer be edited. issued_time and invoiced_time are optional. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -7171,6 +7291,7 @@ export const payInvoice = defineFunction({
   name: "nextmotion.pay_invoice",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Record a payment on an invoice: amounts per means, custom mediums, voucher, deferred date; do_validate also validates it. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -7397,6 +7518,7 @@ export const createCreditNote = defineFunction({
   name: "nextmotion.create_credit_note",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Issue a credit note (accounting record) for a patient; items are required. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -7734,6 +7856,7 @@ export const listPayments = defineFunction({
   name: "nextmotion.list_payments",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's payments. Each payment embeds its invoice. The embedded invoice carries a nested patient object (personal data). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -7780,6 +7903,7 @@ export const getPayment = defineFunction({
   name: "nextmotion.get_payment",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a payment. The payment embeds a nested patient object (personal data).",
   schema: {
     "type": "object",
@@ -7813,6 +7937,7 @@ export const updatePayment = defineFunction({
   name: "nextmotion.update_payment",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a payment. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -8032,6 +8157,7 @@ export const listPaymentMediums = defineFunction({
   name: "nextmotion.list_payment_mediums",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's custom payment mediums. Custom payment means. Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -8072,6 +8198,7 @@ export const getPaymentMedium = defineFunction({
   name: "nextmotion.get_payment_medium",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a custom payment medium.",
   schema: {
     "type": "object",
@@ -8105,6 +8232,7 @@ export const createPaymentMedium = defineFunction({
   name: "nextmotion.create_payment_medium",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Create a custom payment medium. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -8143,6 +8271,7 @@ export const updatePaymentMedium = defineFunction({
   name: "nextmotion.update_payment_medium",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a custom payment medium. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -8181,6 +8310,7 @@ export const deletePaymentMedium = defineFunction({
   name: "nextmotion.delete_payment_medium",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a custom payment medium. Answers 204 when done; permanent.",
   schema: {
     "type": "object",
@@ -8215,6 +8345,7 @@ export const getAppointmentIncomeStatistics = defineFunction({
   name: "nextmotion.get_appointment_income_statistics",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Appointment income of the clinic over time, as one chart (one value per period). Without dates the API spans 6 periods up to today. Unpaginated.",
   schema: {
     "type": "object",
@@ -8265,6 +8396,7 @@ export const listTreatmentTypeStatistics = defineFunction({
   name: "nextmotion.list_treatment_type_statistics",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Draft-quoted, quoted and invoiced treatment counts over time, one chart per treatment type. Without dates the API spans 6 periods up to today. Unpaginated.",
   schema: {
     "type": "object",
@@ -8315,6 +8447,7 @@ export const listTreatmentTypeIncomeStatistics = defineFunction({
   name: "nextmotion.list_treatment_type_income_statistics",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Income from invoiced treatments over time, one chart per treatment type. Without dates the API spans 6 periods up to today. Unpaginated.",
   schema: {
     "type": "object",
@@ -8365,6 +8498,7 @@ export const getPatientStats = defineFunction({
   name: "nextmotion.get_patient_stats",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "A patient's financial totals: quoted, invoiced, paid, credit notes, reimbursements, first and last visit, review requests, media counts. No identity in the response.",
   schema: {
     "type": "object",
@@ -8398,6 +8532,7 @@ export const listProducts = defineFunction({
   name: "nextmotion.list_products",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "List clinic's products in stock. The clinic's stock, one row per lot. A product row embeds its catalogue entry (`global_product`: name, brand). Paginated by limit and offset; the answer is {count, next, previous, data}.",
   schema: {
     "type": "object",
@@ -8462,6 +8597,7 @@ export const getProduct = defineFunction({
   name: "nextmotion.get_product",
   connector: "nextmotion",
   class: "read",
+  act: false,
   description: "Retrieve a product.",
   schema: {
     "type": "object",
@@ -8495,6 +8631,7 @@ export const createProduct = defineFunction({
   name: "nextmotion.create_product",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Add a product to stock. A lot (`global_product` required). Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -8563,6 +8700,7 @@ export const updateProduct = defineFunction({
   name: "nextmotion.update_product",
   connector: "nextmotion",
   class: "write",
+  act: true,
   description: "Update a product. Only the arguments given are sent; a top-level field cannot be set to null.",
   schema: {
     "type": "object",
@@ -8617,6 +8755,7 @@ export const deleteProduct = defineFunction({
   name: "nextmotion.delete_product",
   connector: "nextmotion",
   class: "sensitive",
+  act: true,
   description: "Delete a stock lot; answers 200 with the deleted product.",
   schema: {
     "type": "object",
@@ -8655,7 +8794,7 @@ export const connector = defineConnector({
   apiVersion: "v4",
   baseUrl: "https://api.nextmotion.net/open_api",
   auth: {"kind": "bearer", "token": "api_key"},
-  credential: [{"name": "api_key", "label": "API key", "secret": true}],
+  credential: [{"name": "api_key", "label": "API key", "secret": true, "holder": "account"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 60000,
   queryArrays: "repeat",

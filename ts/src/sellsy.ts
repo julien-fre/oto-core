@@ -5,6 +5,7 @@ export const listEstimates = defineFunction({
   name: "sellsy.list_estimates",
   connector: "sellsy",
   class: "read",
+  act: false,
   description: "List Sellsy estimates (quotes), one page at a time. Pass the returned pagination.offset as offset to get the next page.",
   schema: {
     "type": "object",
@@ -83,6 +84,7 @@ export const getEstimate = defineFunction({
   name: "sellsy.get_estimate",
   connector: "sellsy",
   class: "read",
+  act: false,
   description: "Get the full record of one Sellsy estimate by its id.",
   schema: {
     "type": "object",
@@ -162,7 +164,7 @@ export const connector = defineConnector({
     "clientSecret": "client_secret",
     "expiresInDefault": 3600
   },
-  credential: [{"name": "client_id", "label": "Client ID", "secret": true}, {"name": "client_secret", "label": "Client Secret", "secret": true}],
+  credential: [{"name": "client_id", "label": "Client ID", "secret": true, "holder": "account"}, {"name": "client_secret", "label": "Client Secret", "secret": true, "holder": "account"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 30000,
   queryArrays: "brackets",

@@ -5,6 +5,7 @@ export const listCalls = defineFunction({
   name: "modjo.list_calls",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the calls recorded in Modjo, page by page (pagination.total gives the count; another page exists while page * size < total). The key belongs to the workspace: without user_id it returns every user's calls. date_from and date_to bound the call date, created_from and created_to the creation date. Without expand, related objects are ids only (userIds, contactIds, dealId, accountId); expand replaces them by the objects and can inline sub-resources (transcript, summaries, next-steps...), which makes pages heavy: expand transcript on one call at a time. status processing means the analysis is not finished (5 to 30 minutes after upload).",
   schema: {
     "type": "object",
@@ -94,6 +95,7 @@ export const getCall = defineFunction({
   name: "modjo.get_call",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get one Modjo call by its numeric id or its UUID (the one an upload returns): date, duration, direction, language, status, retention status, CRM activity. expand inlines participants, deal, account, transcript, AI summaries, notes, next steps, topics, tags, CRM filling answers and AI scoring in a single request.",
   schema: {
     "type": "object",
@@ -151,6 +153,7 @@ export const getCallTranscript = defineFunction({
   name: "modjo.get_call_transcript",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get the transcript of one Modjo call: timed blocks with their speaker (type user for a workspace member, contact for an external participant). Empty while the call is still processing.",
   schema: {
     "type": "object",
@@ -185,6 +188,7 @@ export const listCallSummaries = defineFunction({
   name: "modjo.list_call_summaries",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get the AI summaries of one Modjo call, one per summary template of the workspace; the text is in answer.",
   schema: {
     "type": "object",
@@ -219,6 +223,7 @@ export const listCallNotes = defineFunction({
   name: "modjo.list_call_notes",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get the published notes of one Modjo call, written by a user or by the AI; drafts are not returned. rawContent is rich text in JSON.",
   schema: {
     "type": "object",
@@ -253,6 +258,7 @@ export const listCallNextSteps = defineFunction({
   name: "modjo.list_call_next_steps",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get the next steps Modjo's AI drew from one call (title, description). Empty while the call is processing or when there is none.",
   schema: {
     "type": "object",
@@ -287,6 +293,7 @@ export const getCallRecording = defineFunction({
   name: "modjo.get_call_recording",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get a signed URL to download the audio or video recording of one Modjo call. The URL expires after one hour (expiresAt): fetch it right before use and never store it.",
   schema: {
     "type": "object",
@@ -322,6 +329,7 @@ export const listCallCrmFillingAnswers = defineFunction({
   name: "modjo.list_call_crm_filling_answers",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the CRM field values Modjo's AI filled from one call and pushed to the CRM; answers never pushed are not returned. crmFillingFieldUuid refers to a field of list_crm_filling_template_fields.",
   schema: {
     "type": "object",
@@ -358,6 +366,7 @@ export const listCallTags = defineFunction({
   name: "modjo.list_call_tags",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get the tags set on one Modjo call.",
   schema: {
     "type": "object",
@@ -392,6 +401,7 @@ export const addCallTag = defineFunction({
   name: "modjo.add_call_tag",
   connector: "modjo",
   class: "write",
+  act: true,
   description: "Set an existing tag on one Modjo call (tag ids from list_tags). Idempotent: a tag already set stays set once.",
   schema: {
     "type": "object",
@@ -427,6 +437,7 @@ export const removeCallTag = defineFunction({
   name: "modjo.remove_call_tag",
   connector: "modjo",
   class: "write",
+  act: true,
   description: "Remove a tag from one Modjo call; the tag itself is kept.",
   schema: {
     "type": "object",
@@ -462,6 +473,7 @@ export const uploadCall = defineFunction({
   name: "modjo.upload_call",
   connector: "modjo",
   class: "sensitive",
+  act: true,
   description: "Import into Modjo a call recorded elsewhere: Modjo downloads the media from media_url, which must be publicly reachable. At least one participant of type user must be a licensed Modjo user. Processing is asynchronous (5 to 30 minutes): the answer gives the call UUID and status processing; read it with get_call until completed or failed. Modjo also logs the call in the connected CRM, updating the activity crm_activity_id when given, creating one otherwise. The API cannot delete a call.",
   schema: {
     "type": "object",
@@ -559,6 +571,7 @@ export const listCallReviews = defineFunction({
   name: "modjo.list_call_reviews",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the reviews of calls (coaching scorecards), with their answers per question; ratings go from 0 to 4, -1 meaning not applicable. Newest first unless order is asc, the choice for incremental syncs. The API returns private reviews too (isPrivate is informative only).",
   schema: {
     "type": "object",
@@ -598,6 +611,7 @@ export const listAccounts = defineFunction({
   name: "modjo.list_accounts",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the accounts (companies) Modjo mirrors from the connected CRM, with their CRM id and link.",
   schema: {
     "type": "object",
@@ -627,6 +641,7 @@ export const getAccount = defineFunction({
   name: "modjo.get_account",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get one account Modjo mirrors from the connected CRM.",
   schema: {
     "type": "object",
@@ -655,6 +670,7 @@ export const listContacts = defineFunction({
   name: "modjo.list_contacts",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the contacts (external people) Modjo mirrors from the connected CRM: email, phone, job title, account.",
   schema: {
     "type": "object",
@@ -684,6 +700,7 @@ export const getContact = defineFunction({
   name: "modjo.get_contact",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get one contact Modjo mirrors from the connected CRM.",
   schema: {
     "type": "object",
@@ -712,6 +729,7 @@ export const listDeals = defineFunction({
   name: "modjo.list_deals",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the deals Modjo mirrors from the connected CRM: status, stage, amount, close date, probability, owner (a Modjo user id).",
   schema: {
     "type": "object",
@@ -743,6 +761,7 @@ export const getDealSummary = defineFunction({
   name: "modjo.get_deal_summary",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get the AI summary Modjo built for one deal across its calls, as typed sections.",
   schema: {
     "type": "object",
@@ -771,6 +790,7 @@ export const listTags = defineFunction({
   name: "modjo.list_tags",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the call tags of the Modjo workspace.",
   schema: {
     "type": "object",
@@ -799,6 +819,7 @@ export const listTopics = defineFunction({
   name: "modjo.list_topics",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the topics Modjo detects in calls (saidBy: by a user, by a contact, or by anyone).",
   schema: {
     "type": "object",
@@ -827,6 +848,7 @@ export const listUsers = defineFunction({
   name: "modjo.list_users",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the members of the Modjo workspace (role user, manager or admin). email finds one person, whose id filters list_calls.",
   schema: {
     "type": "object",
@@ -856,6 +878,7 @@ export const getUser = defineFunction({
   name: "modjo.get_user",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get one member of the Modjo workspace.",
   schema: {
     "type": "object",
@@ -884,6 +907,7 @@ export const listTeams = defineFunction({
   name: "modjo.list_teams",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the teams of the Modjo workspace.",
   schema: {
     "type": "object",
@@ -913,6 +937,7 @@ export const getTeam = defineFunction({
   name: "modjo.get_team",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get one team of the Modjo workspace.",
   schema: {
     "type": "object",
@@ -941,6 +966,7 @@ export const listTeamMembers = defineFunction({
   name: "modjo.list_team_members",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the members of one Modjo team.",
   schema: {
     "type": "object",
@@ -973,6 +999,7 @@ export const listCrmFillingTemplates = defineFunction({
   name: "modjo.list_crm_filling_templates",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the CRM filling templates: which calls (duration, providers, teams, tags) get CRM fields filled by Modjo's AI.",
   schema: {
     "type": "object",
@@ -1002,6 +1029,7 @@ export const getCrmFillingTemplate = defineFunction({
   name: "modjo.get_crm_filling_template",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "Get one CRM filling template.",
   schema: {
     "type": "object",
@@ -1035,6 +1063,7 @@ export const listCrmFillingTemplateFields = defineFunction({
   name: "modjo.list_crm_filling_template_fields",
   connector: "modjo",
   class: "read",
+  act: false,
   description: "List the fields of one CRM filling template: the prompt, the CRM field it fills (entity, key, type) and whether it is pushed automatically.",
   schema: {
     "type": "object",
@@ -1074,7 +1103,7 @@ export const connector = defineConnector({
   apiVersion: "v2",
   baseUrl: "https://api.modjo.ai/v2",
   auth: {"kind": "bearer", "token": "api_key"},
-  credential: [{"name": "api_key", "label": "Workspace API key", "secret": true}],
+  credential: [{"name": "api_key", "label": "Workspace API key", "secret": true, "holder": "account"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 60000,
   queryArrays: "comma",

@@ -37,6 +37,7 @@ _HTTP_TIMEOUT = (10, 60)  # (connect, read) — never wait indefinitely
 # contacts and departments returned an opaque 403). Usage signal #299.
 _SCOPE_BY_PREFIX = (
     ("tickets/search", "Desk.search.READ"),
+    ("articles/search", "Desk.search.READ"),
     ("tickets", "Desk.tickets.{rw}"),
     ("contacts", "Desk.contacts.{rw}"),
     ("articles", "Desk.articles.READ"),
@@ -247,8 +248,9 @@ class ZohoDeskClient:
     ) -> dict:
         """List Help Center articles (metadata only — the HTML body comes from
         `get_article`). status: Published / Draft / Review / Expired.
-        sortBy: e.g. modifiedTime, createdTime, viewCount (prefix "-" for desc)."""
-        params: dict[str, Any] = {"from": from_index, "limit": min(limit, 100)}
+        sortBy: e.g. modifiedTime, createdTime, viewCount (prefix "-" for desc).
+        `limit`: 1-50 on this endpoint (Zoho's documented range)."""
+        params: dict[str, Any] = {"from": from_index, "limit": min(limit, 50)}
         if department_id:
             params["departmentId"] = department_id
         if category_id:
@@ -262,3 +264,31 @@ class ZohoDeskClient:
     def get_article(self, article_id: str) -> dict:
         """Get a single article, including its full HTML body (`answer`)."""
         return self._request("GET", f"articles/{article_id}")
+
+    def search_articles(
+        self,
+        query: Optional[str] = None,
+        title: Optional[str] = None,
+        tag: Optional[str] = None,
+        category_id: Optional[str] = None,
+        department_id: Optional[str] = None,
+        from_index: int = 0,
+        limit: int = 10,
+        sort_by: Optional[str] = None,
+    ) -> dict:
+        """Search Help Center articles (`GET /articles/search`, scopes
+        `Desk.search.READ` + `Desk.articles.READ`). `query` searches every field of
+        the article (`_all`), `title` and `tag` one field each (wildcard).
+        from: 0-4999 (0-based, unlike the listing); limit: 1-100.
+        sortBy: relevance, modifiedTime, createdTime (prefix "-" for desc).
+
+        Zoho answers `204 No Content` when nothing matches: returned as an empty
+        page with `count` 0, the shape of a page with results."""
+        params: dict[str, Any] = {"from": from_index, "limit": min(limit, 100)}
+        for key, value in (("_all", query), ("title", title), ("tag", tag),
+                           ("categoryId", category_id),
+                           ("departmentId", department_id), ("sortBy", sort_by)):
+            if value:
+                params[key] = value
+        return self._request("GET", "articles/search", params=params) or {
+            "data": [], "count": 0}

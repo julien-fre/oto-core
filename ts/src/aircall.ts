@@ -5,6 +5,7 @@ export const listCalls = defineFunction({
   name: "aircall.list_calls",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "List the calls of the Aircall company, bounded on their creation date: who called whom, when, how long, the line, the agent, tags, comments, and the recording or voicemail URLs. Six months of history only, and at most 10,000 calls through pagination: narrow with date_from to reach further. Ascending by creation date unless order is desc. Recording and voicemail URLs expire (direct mp3 one hour, short URLs three hours): fetch them right before use. duration includes ringing; talk time is ended_at - answered_at. Times are UNIX seconds, UTC. meta.next_page_link is null on the last page.",
   schema: {
     "type": "object",
@@ -50,6 +51,7 @@ export const searchCalls = defineFunction({
   name: "aircall.search_calls",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Search the calls of the Aircall company by direction, agent (user_id) or external phone number, bounded on their creation date. A call transferred from line A to line B is found by B only. Same history, limits and expiring URLs as list_calls.",
   schema: {
     "type": "object",
@@ -103,6 +105,7 @@ export const getCall = defineFunction({
   name: "aircall.get_call",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get one Aircall call by its id, with its recording and voicemail URLs when present. The direct URLs are valid one hour, the short URLs three hours: fetch them right before use, never store them.",
   schema: {
     "type": "object",
@@ -135,6 +138,7 @@ export const getCallTranscription = defineFunction({
   name: "aircall.get_call_transcription",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get the transcription of one Aircall call: utterances in order, each with participant_type (internal = agent with user_id, external = caller with phone_number) and start/end offsets in seconds; content.language gives the language. Served only to companies on the Aircall AI package (AI Assist or AI Assist Pro); mode realtime needs AI Assist Pro.",
   schema: {
     "type": "object",
@@ -170,6 +174,7 @@ export const getCallSummary = defineFunction({
   name: "aircall.get_call_summary",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get the AI summary of one Aircall call. Served only to companies on the Aircall AI package, for calls that were analysed.",
   schema: {
     "type": "object",
@@ -198,6 +203,7 @@ export const getCallTopics = defineFunction({
   name: "aircall.get_call_topics",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get the key topics of one Aircall call, as a list of strings. Served only to companies on the Aircall AI package, for calls that were analysed.",
   schema: {
     "type": "object",
@@ -226,6 +232,7 @@ export const getCallSentiments = defineFunction({
   name: "aircall.get_call_sentiments",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get the sentiment (POSITIVE, NEUTRAL, NEGATIVE) of each participant of one Aircall call. Served only to companies on the Aircall AI package, for calls that were analysed.",
   schema: {
     "type": "object",
@@ -254,6 +261,7 @@ export const getCallActionItems = defineFunction({
   name: "aircall.get_call_action_items",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get the action items of one Aircall call; ai_generated false means written by an agent. Served only to companies on the Aircall AI package, for calls that were analysed.",
   schema: {
     "type": "object",
@@ -282,6 +290,7 @@ export const listUsers = defineFunction({
   name: "aircall.list_users",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "List the users (agents) of the Aircall company, bounded on their creation date: id, name, email, availability, time zone, extension. The id is the user_id of search_calls.",
   schema: {
     "type": "object",
@@ -325,6 +334,7 @@ export const getUser = defineFunction({
   name: "aircall.get_user",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get one Aircall user by numeric id or by email address.",
   schema: {
     "type": "object",
@@ -360,6 +370,7 @@ export const listTeams = defineFunction({
   name: "aircall.list_teams",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "List the Aircall teams (groups of users that route inbound calls), each with its users.",
   schema: {
     "type": "object",
@@ -393,6 +404,7 @@ export const getTeam = defineFunction({
   name: "aircall.get_team",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get one Aircall team with its users.",
   schema: {
     "type": "object",
@@ -421,6 +433,7 @@ export const listNumbers = defineFunction({
   name: "aircall.list_numbers",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "List the phone numbers (lines) of the Aircall company, bounded on their creation date: digits, name, country, time zone, live recording, and the users on the line.",
   schema: {
     "type": "object",
@@ -464,6 +477,7 @@ export const getNumber = defineFunction({
   name: "aircall.get_number",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get one Aircall phone number (line) with its users.",
   schema: {
     "type": "object",
@@ -492,6 +506,7 @@ export const listContacts = defineFunction({
   name: "aircall.list_contacts",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "List the shared contacts of the Aircall company: name, company, phone numbers, emails. Contacts synced from third-party integrations (CRM) are not served by the API. At most 10,000 contacts through pagination: narrow with date_from beyond that.",
   schema: {
     "type": "object",
@@ -540,6 +555,7 @@ export const searchContacts = defineFunction({
   name: "aircall.search_contacts",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Search the shared contacts of the Aircall company by phone number and/or email. Contacts synced from third-party integrations are not served.",
   schema: {
     "type": "object",
@@ -591,6 +607,7 @@ export const getContact = defineFunction({
   name: "aircall.get_contact",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get one shared Aircall contact by its id.",
   schema: {
     "type": "object",
@@ -619,6 +636,7 @@ export const getCompany = defineFunction({
   name: "aircall.get_company",
   connector: "aircall",
   class: "read",
+  act: false,
   description: "Get the Aircall company behind the API key: its name, number of users and number of phone numbers.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -644,7 +662,7 @@ export const connector = defineConnector({
   apiVersion: "v1 (users on v2)",
   baseUrl: "https://api.aircall.io",
   auth: {"kind": "basic", "username": "api_id", "password": "api_token"},
-  credential: [{"name": "api_id", "label": "API ID", "secret": false}, {"name": "api_token", "label": "API Token", "secret": true}],
+  credential: [{"name": "api_id", "label": "API ID", "secret": false, "holder": "account"}, {"name": "api_token", "label": "API Token", "secret": true, "holder": "account"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 60000,
   errors: [

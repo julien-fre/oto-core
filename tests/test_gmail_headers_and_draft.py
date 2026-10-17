@@ -136,3 +136,13 @@ def test_explicit_html_is_never_re_rendered(drafted):
                          html="<p>déjà rendu</p>")
     html = _parts_of(drafted)["text/html"]
     assert html == "<p>déjà rendu</p>" and "<strong>" not in html
+
+
+# ── Envoyer un brouillon existant : par son id, sans le recomposer ───────────
+
+def test_send_draft_sends_the_draft_by_id(client):
+    client.service.users().drafts().send().execute.return_value = {
+        "id": "m9", "threadId": "t9", "labelIds": ["SENT"]}
+    assert client.send_draft("r-42") == {"id": "m9", "threadId": "t9"}
+    client.service.users().drafts().send.assert_called_with(
+        userId="me", body={"id": "r-42"})

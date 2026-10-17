@@ -5,6 +5,7 @@ export const listEventTypes = defineFunction({
   name: "amplitude.list_event_types",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "List the event types declared in this Amplitude project, with category, description and visibility. Read it before writing a query: a misspelt event name returns zeros, not an error.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -26,6 +27,7 @@ export const listEventProperties = defineFunction({
   name: "amplitude.list_event_properties",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "List the event properties of this Amplitude project, or only those of one event type.",
   schema: {
     "type": "object",
@@ -52,6 +54,7 @@ export const listUserProperties = defineFunction({
   name: "amplitude.list_user_properties",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "List the user properties of this Amplitude project. Custom ones come back prefixed gp: — use that exact name in segments and group-bys.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -73,6 +76,7 @@ export const listGroupProperties = defineFunction({
   name: "amplitude.list_group_properties",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "List the group (account) properties of this Amplitude project, prefixed grp:. Empty when the project has no Accounts add-on.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -94,6 +98,7 @@ export const listEvents = defineFunction({
   name: "amplitude.list_events",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "List the event types with their weekly totals and uniques: what actually fires, not only what is declared.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -115,6 +120,7 @@ export const getSegmentation = defineFunction({
   name: "amplitude.get_segmentation",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Compute one event's metric over time (event segmentation). Each query spends the project's hourly cost budget (days x conditions x query type): keep windows short or use a weekly or monthly interval. Prefer a saved chart (get_chart) when the team already has one.",
   schema: {
     "type": "object",
@@ -172,6 +178,7 @@ export const getFunnel = defineFunction({
   name: "amplitude.get_funnel",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Compute the conversion through ordered steps (funnel). Spends the project's hourly cost budget. Prefer a saved chart (get_chart) when the team already has the funnel: conversion window, step order and exclusions rarely survive being re-specified.",
   schema: {
     "type": "object",
@@ -224,6 +231,7 @@ export const getRetention = defineFunction({
   name: "amplitude.get_retention",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Of the users who did start_event, how many came back to do return_event (use {\"event_type\": \"_active\"} for any event). Spends the project's hourly cost budget.",
   schema: {
     "type": "object",
@@ -270,6 +278,7 @@ export const getActiveUsers = defineFunction({
   name: "amplitude.get_active_users",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Count active (default) or new users over time. Spends the project's hourly cost budget.",
   schema: {
     "type": "object",
@@ -306,6 +315,7 @@ export const getSessions = defineFunction({
   name: "amplitude.get_sessions",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Session metrics over a window: length (distribution of session lengths), average (average session length) or peruser (sessions per user).",
   schema: {
     "type": "object",
@@ -335,6 +345,7 @@ export const getChart = defineFunction({
   name: "amplitude.get_chart",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Run a saved Amplitude chart and return its results as JSON, computed by Amplitude with the chart's own definition: the number the team reads in Amplitude. The chart id is the last segment of the chart URL.",
   schema: {
     "type": "object",
@@ -362,6 +373,7 @@ export const searchUsers = defineFunction({
   name: "amplitude.search_users",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Find a user by user id, device id or Amplitude id. Returns the matches with their amplitude_id, needed to read the user's activity. Shares a budget of 360 calls per hour with get_user_activity.",
   schema: {
     "type": "object",
@@ -388,6 +400,7 @@ export const getUserActivity = defineFunction({
   name: "amplitude.get_user_activity",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Read one user's summary and event stream. Takes the amplitude_id returned by search_users, not the user id.",
   schema: {
     "type": "object",
@@ -423,6 +436,7 @@ export const listCohorts = defineFunction({
   name: "amplitude.list_cohorts",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "List the project's behavioral cohorts: id, name, size, last computed.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -444,6 +458,7 @@ export const requestCohortDownload = defineFunction({
   name: "amplitude.request_cohort_download",
   connector: "amplitude",
   class: "write",
+  act: true,
   description: "Start a download job for one cohort and return its request_id. Each request counts against the project's 500 cohort downloads per month. Poll get_cohort_download_status with the request_id until JOB COMPLETED.",
   schema: {
     "type": "object",
@@ -477,6 +492,7 @@ export const getCohortDownloadStatus = defineFunction({
   name: "amplitude.get_cohort_download_status",
   connector: "amplitude",
   class: "read",
+  act: false,
   description: "Read the status of a cohort download job: async_status is JOB INPROGRESS while running, JOB COMPLETED when the file is ready.",
   schema: {
     "type": "object",
@@ -508,7 +524,7 @@ export const connector = defineConnector({
   apiVersion: "Dashboard REST and Taxonomy api/2; charts and cohort list api/3; cohort download api/5",
   baseUrls: {"setting": "region", "values": {"us": "https://amplitude.com", "eu": "https://analytics.eu.amplitude.com"}},
   auth: {"kind": "basic", "username": "api_key", "password": "secret_key"},
-  credential: [{"name": "api_key", "label": "API key", "secret": true}, {"name": "secret_key", "label": "Secret key", "secret": true}],
+  credential: [{"name": "api_key", "label": "API key", "secret": true, "holder": "account"}, {"name": "secret_key", "label": "Secret key", "secret": true, "holder": "account"}],
   settings: [{"name": "region", "label": "Data region", "type": "choice", "choices": ["us", "eu"], "default": "us"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 60000,

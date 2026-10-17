@@ -17,6 +17,7 @@ pip install "oto-core[stock]"     # + SIRENE stock queries (DuckDB/parquet)
 
 - `oto.tools.*` — one client per service: French company data (SIRENE, INPI, BODACC, BOAMP, DVF via [france-opendata](https://pypi.org/project/france-opendata/)), web search (Serper), email finding (Hunter), CRM (Attio, Folk), outreach (Lemlist, Kaspr, Fullenrich), Google Workspace, Slack, WhatsApp, Reddit, Pennylane, Silae (French payroll), and more.
 - `oto.tools.common.FieldFilter` — reusable response redaction (mask IBANs, anonymize names, drop fields) any connector can apply; driven by code or a `field_filters.<service>` policy in `~/.otomata/config.yaml`.
+- `oto.tools.common.scrub` — pseudonymises sensitive values written inside free text (social security numbers, IBANs, cards, e-mails, phones, secrets by their shape; names, addresses and credentials through an OpenAI-compatible model that only points at passages), each replaced by a stable keyed token; the `scrub` action of `FieldFilter`.
 
 ## Shared connector descriptions
 

@@ -15,13 +15,30 @@
     },
     "exposure": { "$ref": "#/$defs/exposure" }
   },
-  "if": {
-    "properties": { "connector": { "not": { "anyOf": [{ "required": ["base_url"] }, { "required": ["base_urls"] }] } } }
-  },
-  "then": {
-    "$comment": "Without base_url or base_urls, every function must be handwritten.",
-    "properties": { "functions": { "items": { "required": ["handwritten"] } } }
-  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "connector": { "not": { "anyOf": [{ "required": ["base_url"] }, { "required": ["base_urls"] }] } } }
+      },
+      "then": {
+        "$comment": "Without base_url or base_urls, every function must be handwritten.",
+        "properties": { "functions": { "items": { "required": ["handwritten"] } } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "connector": { "properties": { "auth": { "required": ["access_levels"] } } } }
+      },
+      "then": {
+        "$comment": "A connector with access levels: every function declares the scopes it requires.",
+        "properties": { "functions": { "items": { "required": ["scopes"] } } }
+      },
+      "else": {
+        "$comment": "A connector without access levels: no function declares scopes.",
+        "properties": { "functions": { "items": { "not": { "required": ["scopes"] } } } }
+      }
+    }
+  ],
   "$defs": {
     "identifier": {
       "type": "string",
@@ -86,7 +103,7 @@
       ]
     },
     "url_template": {
-      "description": "An https URL without trailing slash. It may cite settings as {name}: a url setting (or a value read from the token) only at its head, where it stands for the scheme and the host; any other setting after https://.",
+      "description": "An https URL without trailing slash. It may cite settings as {name}: a url setting (or a value read from the token) only at its head, where it stands for the scheme and the host; any other setting after https://. base_url may also cite the account identity (account_identity.name), after the host only.",
       "type": "string",
       "pattern": "^(https://[^\\s]*[^/\\s]|\\{[a-z][a-z0-9_]*\\}([^\\s]*[^/\\s])?)$"
     },
@@ -100,7 +117,11 @@
         "values": {
           "type": "object",
           "minProperties": 2,
-          "additionalProperties": { "type": "string", "pattern": "^https://[^\\s{}]*[^/\\s{}]$" }
+          "additionalProperties": {
+            "description": "An https URL without trailing slash; it may cite the account identity as {name}, after the host only.",
+            "type": "string",
+            "pattern": "^https://[^\\s{}/]+(/([^\\s{}/]|\\{[a-z][a-z0-9_]*\\})+)*$"
+          }
         }
       }
     },
@@ -199,7 +220,7 @@
           "$ref": "#/$defs/text"
         },
         "base_url": {
-          "description": "Root of the call paths, possibly a template over settings. base_url or base_urls is required unless every function is handwritten.",
+          "description": "Root of the call paths, possibly a template over settings and the account identity. base_url or base_urls is required unless every function is handwritten.",
           "$ref": "#/$defs/url_template"
         },
         "base_urls": {
@@ -224,8 +245,24 @@
             "properties": {
               "name": { "$ref": "#/$defs/identifier" },
               "label": { "$ref": "#/$defs/text" },
-              "secret": { "type": "boolean" }
+              "secret": { "type": "boolean" },
+              "holder": {
+                "description": "Who supplies the field. account: entered with the account. host: supplied by the host application, once for all its organisations; never stored with the account, shown or entered.",
+                "enum": ["account", "host"],
+                "default": "account"
+              }
             }
+          }
+        },
+        "account_identity": {
+          "description": "Identifier of the account at a third party that hosts its users' accounts (a hosted messaging service), one value per account. Cited only by base_url, never by an argument, a call parameter or a constant: the agent never supplies it, the host writes it through a service that checks it with the third party.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "label", "pattern"],
+          "properties": {
+            "name": { "$ref": "#/$defs/identifier" },
+            "label": { "$ref": "#/$defs/text" },
+            "pattern": { "description": "Anchored regular expression the identifier must match.", "type": "string", "pattern": "^\\^.+\\$$" }
           }
         },
         "modes": {
@@ -386,7 +423,15 @@
             "token_url": { "description": "Token endpoint, called with a form body (authorization code, refresh, exchange).", "$ref": "#/$defs/url_template" },
             "token_urls": { "$ref": "#/$defs/urls_by_setting" },
             "client_auth": { "$ref": "#/$defs/client_auth" },
-            "scopes": { "description": "Joined by spaces in the authorization request.", "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+            "scopes": { "description": "Joined by spaces in the authorization request. Exclusive of access_levels: a connector without levels keeps scopes, and that is its full level.", "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+            "access_levels": { "$ref": "#/$defs/access_levels" },
+            "scope_implies": {
+              "description": "With access_levels: a scope that covers others, as the provider defines it. Never a guessed rule: a broad scope covers a narrower one only when this file says so.",
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": { "minLength": 1 },
+              "additionalProperties": { "$ref": "#/$defs/scope_list" }
+            },
             "authorize_params": {
               "description": "Constant parameters added to the authorization URL. Never one the host sets itself.",
               "type": "object",
@@ -415,14 +460,28 @@
             },
             "expires_in_default": { "description": "Lifetime in seconds of an access token whose response gives none.", "type": "integer", "minimum": 1 },
             "identity": {
-              "description": "Who consented, read right after the consent to name the account: a read function without required argument, and the dotted path of a non-empty value in its response.",
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["function", "path"],
-              "properties": {
-                "function": { "$ref": "#/$defs/identifier" },
-                "path": { "$ref": "#/$defs/text" }
-              }
+              "description": "Who consented, read right after the consent to name the account, and the dotted path of a non-empty value in the response. Either a read function of the connector without required argument, or a full address read with GET outside base_url (a provider's common identity service), with the scopes it requires, which the consent asks for at every level.",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["function", "path"],
+                  "properties": {
+                    "function": { "$ref": "#/$defs/identifier" },
+                    "path": { "$ref": "#/$defs/text" }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["url", "path", "scopes"],
+                  "properties": {
+                    "url": { "description": "Fixed https address, called with the access token and no argument.", "type": "string", "pattern": "^https://[^\\s{}?#]*[^/\\s{}?#]$" },
+                    "path": { "$ref": "#/$defs/text" },
+                    "scopes": { "description": "Scopes this address requires, all of them.", "$ref": "#/$defs/scope_list" }
+                  }
+                }
+              ]
             },
             "from_token": {
               "description": "Fields of the token response kept with the account, not secret, renewed at each token response, and citable in base_url like a setting.",
@@ -434,7 +493,9 @@
           },
           "required": ["kind", "authorize_url", "client_auth", "refresh", "identity"],
           "oneOf": [{ "required": ["token_url"] }, { "required": ["token_urls"] }],
+          "dependentRequired": { "scope_implies": ["access_levels"] },
           "allOf": [
+            { "not": { "required": ["scopes", "access_levels"] } },
             {
               "if": { "properties": { "refresh": { "const": "refresh_token" } } },
               "then": { "required": ["rotates"] },
@@ -458,6 +519,27 @@
     "client_auth": {
       "description": "How the client id and secret reach the token endpoint: in the request body, or as HTTP Basic.",
       "enum": ["body", "basic"]
+    },
+    "scope_list": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/text" }
+    },
+    "access_levels": {
+      "description": "Named access levels of a consent. full is required and filters nothing; any other name (read, support...) is a restricted level. Each level lists the scopes its consent asks for. The host picks one per organisation or team; a function is served at a level when each of its scopes is a scope of the level or implied by one (scope_implies).",
+      "type": "object",
+      "required": ["full"],
+      "minProperties": 2,
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scopes"],
+        "properties": {
+          "scopes": { "description": "Joined by spaces in the authorization request of this level.", "$ref": "#/$defs/scope_list" }
+        }
+      }
     },
     "input_schema": {
       "description": "JSON Schema of the function input: a strict object.",
@@ -496,7 +578,15 @@
       "properties": {
         "name": { "description": "A verb and its object.", "$ref": "#/$defs/identifier" },
         "class": { "enum": ["read", "write", "sensitive"] },
-        "description": { "description": "What the agent reads, in English.", "$ref": "#/$defs/text" },
+        "act": {
+          "description": "Whether the function commits or destroys (send, trash, archive, move): the host serves it as <connector>_act.<function>. Defaults from class: read false, write and sensitive true; a mere preparation, such as a draft, declares false. Never false on a sensitive function, never true on a read one.",
+          "type": "boolean"
+        },
+        "description": { "description": "What the agent reads, in English; at most 1000 characters.", "$ref": "#/$defs/text", "maxLength": 1000 },
+        "scopes": {
+          "description": "Only in a connector with access levels, where it is required: the scopes this function requires, all of them. It is served at a level when each is a scope of the level or implied by one. class stays: it says what the function does.",
+          "$ref": "#/$defs/scope_list"
+        },
         "input": { "$ref": "#/$defs/input_schema" },
         "examples": {
           "description": "Each input is validated against the function input.",

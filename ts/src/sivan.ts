@@ -5,6 +5,7 @@ export const listCompanies = defineFunction({
   name: "sivan.list_companies",
   connector: "sivan",
   class: "read",
+  act: false,
   description: "List the activated companies of the group, each with its salaries (and their contracts), localisations and opening hours. The API key is scoped to one company group; this returns every company in it.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -26,6 +27,7 @@ export const listSalaries = defineFunction({
   name: "sivan.list_salaries",
   connector: "sivan",
   class: "read",
+  act: false,
   description: "List the salaries of the group. with_counter adds each salary's hour counter (in seconds) for the current ISO week/year; with_absences_counter adds the absences counter object. Both default to false.",
   schema: {
     "type": "object",
@@ -59,6 +61,7 @@ export const listEvents = defineFunction({
   name: "sivan.list_events",
   connector: "sivan",
   class: "read",
+  act: false,
   description: "List planned calendar events over a window, grouped by company then salary. The period cannot exceed 31 days (inclusive); split a longer range into successive windows. with_absence_type adds absenceType on each event (null when it is not an absence). companies_ids and salaries_ids, when non-empty, restrict the load BEFORE generation — use them on large groups.",
   schema: {
     "type": "object",
@@ -108,6 +111,7 @@ export const listBadgedEvents = defineFunction({
   name: "sivan.list_badged_events",
   connector: "sivan",
   class: "read",
+  act: false,
   description: "List time-clock (badged) events over a window, grouped by company then salary. Requires the time-clock module to be enabled on the group (400 otherwise). The period cannot exceed 31 days (inclusive). companies_ids and salaries_ids, when non-empty, restrict the load BEFORE generation.",
   schema: {
     "type": "object",
@@ -155,6 +159,7 @@ export const listAbsences = defineFunction({
   name: "sivan.list_absences",
   connector: "sivan",
   class: "read",
+  act: false,
   description: "List absences overlapping the window, as a flat list. By default includes PENDING, ACCEPTED and REFUSED; pass status to restrict to a subset. salaries_ids, when non-empty, restricts to the listed salaries.",
   schema: {
     "type": "object",
@@ -201,6 +206,7 @@ export const listTimesheets = defineFunction({
   name: "sivan.list_timesheets",
   connector: "sivan",
   class: "read",
+  act: false,
   description: "List timesheet aggregates per salary and contract over a window: weekly totals and daily planned/done events, in seconds. Root and week objects may carry extra numeric aggregates (overtime, paid vacation, night time…), returned as-is. The period cannot exceed 31 days (inclusive). salaries_ids, when non-empty, restricts to the listed salaries.",
   schema: {
     "type": "object",
@@ -247,7 +253,7 @@ export const connector = defineConnector({
   apiVersion: "external-1.0",
   baseUrl: "https://api2.sivan.io",
   auth: {"kind": "api_key", "in": "header", "name": "X-Api-Key", "key": "api_key"},
-  credential: [{"name": "api_key", "label": "Company-group API key", "secret": true}],
+  credential: [{"name": "api_key", "label": "Company-group API key", "secret": true, "holder": "account"}],
   modes: ["byo_org"],
   timeoutMs: 60000,
   errors: [

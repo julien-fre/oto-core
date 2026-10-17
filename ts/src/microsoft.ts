@@ -5,6 +5,8 @@ export const searchSites = defineFunction({
   name: "microsoft.search_sites",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Sites.Read.All"],
   description: "Search the SharePoint sites whose name or description matches a query. Only the sites the signed-in person can open are returned.",
   schema: {
     "type": "object",
@@ -41,6 +43,8 @@ export const getSite = defineFunction({
   name: "microsoft.get_site",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Sites.Read.All"],
   description: "Get one SharePoint site by its composite id ({hostname},{site-collection-id},{web-id}), as returned by search_sites.",
   schema: {
     "type": "object",
@@ -75,6 +79,8 @@ export const getSiteByPath = defineFunction({
   name: "microsoft.get_site_by_path",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Sites.Read.All"],
   description: "Get one SharePoint site by the host name and server-relative path read in its URL: https://acme.sharepoint.com/sites/Marketing gives hostname acme.sharepoint.com and site_path sites/Marketing.",
   schema: {
     "type": "object",
@@ -114,6 +120,8 @@ export const listSiteDrives = defineFunction({
   name: "microsoft.list_site_drives",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Sites.Read.All"],
   description: "List the document libraries of a SharePoint site. A library is a drive: its id is the drive_id of the item functions.",
   schema: {
     "type": "object",
@@ -154,6 +162,8 @@ export const getMe = defineFunction({
   name: "microsoft.get_me",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["User.Read"],
   description: "Get the signed-in person: id, displayName, mail and userPrincipalName. Every other function acts on their behalf and sees what they see.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -175,6 +185,8 @@ export const getMyDrive = defineFunction({
   name: "microsoft.get_my_drive",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Files.Read.All"],
   description: "Get the OneDrive of the signed-in person. Its id is the drive_id of the item functions.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -196,6 +208,8 @@ export const getUserDrive = defineFunction({
   name: "microsoft.get_user_drive",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Files.Read.All"],
   description: "Get the OneDrive of a colleague, by user id or userPrincipalName (usually the work email), if they shared it with the signed-in person. Its id is the drive_id of the item functions.",
   schema: {
     "type": "object",
@@ -230,6 +244,8 @@ export const getItem = defineFunction({
   name: "microsoft.get_item",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Files.Read.All"],
   description: "Get the metadata of one file or folder of a drive by its item id.",
   schema: {
     "type": "object",
@@ -269,6 +285,8 @@ export const getItemByPath = defineFunction({
   name: "microsoft.get_item_by_path",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Files.Read.All"],
   description: "Get the metadata of one file or folder of a drive by its path from the drive root, e.g. Contracts/2026/nda.docx.",
   schema: {
     "type": "object",
@@ -308,6 +326,8 @@ export const listRootChildren = defineFunction({
   name: "microsoft.list_root_children",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Files.Read.All"],
   description: "List the files and folders at the root of a drive.",
   schema: {
     "type": "object",
@@ -348,6 +368,8 @@ export const listChildren = defineFunction({
   name: "microsoft.list_children",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Files.Read.All"],
   description: "List the files and folders inside one folder of a drive, by the folder's item id.",
   schema: {
     "type": "object",
@@ -395,6 +417,8 @@ export const listChildrenByPath = defineFunction({
   name: "microsoft.list_children_by_path",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Files.Read.All"],
   description: "List the files and folders inside one folder of a drive, by the folder's path from the drive root, e.g. Contracts/2026.",
   schema: {
     "type": "object",
@@ -442,6 +466,8 @@ export const searchItems = defineFunction({
   name: "microsoft.search_items",
   connector: "microsoft",
   class: "read",
+  act: false,
+  scopes: ["https://graph.microsoft.com/Files.Read.All"],
   description: "Search the files of a whole drive by name, metadata and content. Results come from the SharePoint index, not a live scan: a file added seconds ago may not show yet. The query cannot contain an apostrophe.",
   schema: {
     "type": "object",
@@ -488,7 +514,7 @@ export const connector = defineConnector({
   name: "microsoft",
   label: "Microsoft 365 (SharePoint, OneDrive)",
   namespace: "microsoft",
-  version: "3.0.0",
+  version: "3.1.0",
   apiVersion: "v1.0",
   baseUrl: "https://graph.microsoft.com/v1.0",
   auth: {
@@ -496,12 +522,28 @@ export const connector = defineConnector({
     "authorizeUrl": "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize",
     "tokenUrl": "https://login.microsoftonline.com/organizations/oauth2/v2.0/token",
     "clientAuth": "body",
-    "scopes": [
-      "offline_access",
-      "User.Read",
-      "https://graph.microsoft.com/Files.ReadWrite.All",
-      "https://graph.microsoft.com/Sites.ReadWrite.All"
-    ],
+    "accessLevels": {
+      "read": {
+        "scopes": [
+          "offline_access",
+          "User.Read",
+          "https://graph.microsoft.com/Files.Read.All",
+          "https://graph.microsoft.com/Sites.Read.All"
+        ]
+      },
+      "full": {
+        "scopes": [
+          "offline_access",
+          "User.Read",
+          "https://graph.microsoft.com/Files.ReadWrite.All",
+          "https://graph.microsoft.com/Sites.ReadWrite.All"
+        ]
+      }
+    },
+    "scopeImplies": {
+      "https://graph.microsoft.com/Files.ReadWrite.All": ["https://graph.microsoft.com/Files.Read.All"],
+      "https://graph.microsoft.com/Sites.ReadWrite.All": ["https://graph.microsoft.com/Sites.Read.All"]
+    },
     "authorizeParams": {"prompt": "select_account", "response_mode": "query"},
     "refresh": "refresh_token",
     "rotates": true,
@@ -514,7 +556,7 @@ export const connector = defineConnector({
   errors: [
     { status: 400, code: "invalid_request", message: "Microsoft Graph rejected the request as invalid: check the arguments.", retryable: false },
     { status: 401, code: "authorization_expired", message: "Microsoft no longer accepts this authorization (expired or revoked): the person must sign in again.", retryable: false },
-    { status: 403, code: "permission_missing", message: "The signed-in person has no access to this resource, or a delegated scope is missing (offline_access, User.Read, Files.ReadWrite.All, Sites.ReadWrite.All). It does not mean the resource is absent.", retryable: false },
+    { status: 403, code: "permission_missing", message: "The signed-in person has no access to this resource, or a delegated scope is missing. It does not mean the resource is absent.", retryable: false },
     { status: 404, code: "not_found", message: "Microsoft Graph object not found: check the id or path.", retryable: false },
     { status: 429, code: "rate_limited", message: "Microsoft Graph is throttling these requests: retry after the delay it gives.", retryable: true },
     { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Microsoft Graph is temporarily unavailable: retry later.", retryable: true },

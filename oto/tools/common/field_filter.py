@@ -21,6 +21,8 @@ Usage:
         {"fields": ["nom", "prenom", "name"], "action": "pseudonym", "kind": "name"},
         {"fields": ["dateNaissance"], "action": "generalize", "to": "year"},
         {"fields": ["salaire", "numeroSecu"], "action": "drop"},
+        # Free text: values found INSIDE the strings, replaced by a stable token.
+        {"fields": ["*"], "action": "scrub", "detect": ["nir", "iban", "secret"]},
     ])
     clean = f.apply(api_response)   # dict or list of dicts
 
@@ -30,9 +32,12 @@ Usage:
 
 import hashlib
 import re
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .local_dirs import get_config_section
+
+if TYPE_CHECKING:
+    from .scrub import ChatSpanDetector
 
 # Default replacement for masked values.
 _MASK = "••••"
@@ -41,14 +46,16 @@ _MASK = "••••"
 class FieldFilter:
     """Recursively redacts fields of a connector response by leaf key name."""
 
-    def __init__(self, rules: Optional[list[dict]] = None, salt: Optional[str] = None):
+    def __init__(self, rules: Optional[list[dict]] = None, salt: Optional[str] = None,
+                 detector: Optional["ChatSpanDetector"] = None):
         """
         Args:
             rules: List of rule dicts. Each rule has:
                 - ``fields``: list of field (leaf key) names to match,
                   case-insensitive, at any depth.
                 - ``action``: one of ``drop``/``remove``, ``mask``,
-                  ``anonymize``, ``hash``, ``pseudonym``, ``generalize``.
+                  ``anonymize``, ``hash``, ``pseudonym``, ``generalize``,
+                  ``scrub``.
                 - ``keep_last`` / ``keep_first`` (int, ``mask`` only): keep N
                   trailing/leading chars in clear, mask the rest.
                 - ``preserve`` (``mask`` only): ``email``/``phone``/``iban`` —
@@ -57,23 +64,35 @@ class FieldFilter:
                   ``last_name``/``email``/``company``/``phone``/``address``.
                 - ``to`` (``generalize`` only): ``year``/``month``/``range``/
                   ``department`` ; ``step`` (int) for ``range``.
+                - ``detect`` (``scrub`` only, required): the kinds of value to find
+                  inside the strings under the field — ``scrub.KINDS``. ``fields:
+                  ["*"]`` scrubs every string leaf no other scrub rule names. Runs
+                  after the other actions, on what they left.
             salt: Optional salt mixed into ``anonymize``/``hash``/``pseudonym``
                 to defeat dictionary re-identification. Deterministic for a
-                given salt.
+                given salt. Also keys the ``scrub`` tokens.
+            detector: the model asked for the ``scrub`` kinds that only a reading
+                finds (``scrub.MODEL_KINDS``); required when a rule detects one.
         """
         self.salt = salt or ""
         # Flatten rules into a lookup: lower-cased field name -> rule.
         self._by_field: dict[str, dict] = {}
+        # ``scrub`` rules: field name (or ``*``) -> kinds to find in its strings.
+        self._scrub: dict[str, tuple[str, ...]] = {}
         for rule in rules or []:
             for name in rule.get("fields", []):
-                self._by_field[str(name).lower()] = rule
+                if rule.get("action") == "scrub":
+                    self._scrub[str(name).lower()] = _detect_of(rule)
+                else:
+                    self._by_field[str(name).lower()] = rule
+        self.detector = detector
         # Lazily built Faker instance (``pseudonym`` mode only).
         self._faker = None
 
     @property
     def is_empty(self) -> bool:
         """True when there are no rules (``apply`` is the identity)."""
-        return not self._by_field
+        return not self._by_field and not self._scrub
 
     @classmethod
     def from_config(cls, service: str) -> "FieldFilter":
@@ -103,7 +122,15 @@ class FieldFilter:
         """
         if self.is_empty:
             return data
-        return self._walk(data)
+        out = self._walk(data) if self._by_field else data
+        if self._scrub:
+            from .scrub import TextScrubber
+            from .scrub.tree import scrub_tree
+
+            named = {k: v for k, v in self._scrub.items() if k != "*"}
+            out = scrub_tree(out, named, self._scrub.get("*"),
+                             TextScrubber(self.salt, self.detector))
+        return out
 
     def _walk(self, value: Any) -> Any:
         if isinstance(value, dict):
@@ -254,3 +281,16 @@ class FieldFilter:
 
     def _digest(self, value: Any) -> str:
         return hashlib.sha256((self.salt + str(value)).encode("utf-8")).hexdigest()
+
+
+def _detect_of(rule: dict) -> tuple[str, ...]:
+    """The kinds a ``scrub`` rule finds — refused when absent or unknown, never guessed."""
+    from .scrub import KINDS
+
+    detect = rule.get("detect")
+    if not detect or not isinstance(detect, list):
+        raise ValueError("a 'scrub' rule names the kinds to find: detect=[...]")
+    unknown = sorted(set(detect) - set(KINDS))
+    if unknown:
+        raise ValueError(f"unknown scrub kinds {unknown} (expected {list(KINDS)})")
+    return tuple(dict.fromkeys(detect))

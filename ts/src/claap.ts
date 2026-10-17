@@ -5,6 +5,7 @@ export const listRecordings = defineFunction({
   name: "claap.list_recordings",
   connector: "claap",
   class: "read",
+  act: false,
   description: "List the Claap meeting and call recordings visible to the key, newest first, one page at a time; pass pagination.nextCursor back as cursor for the next page. The key belongs to the workspace, not to a person: without recorder_email or recorder_id it returns every recording visible in Claap's global search, colleagues' meetings included. view_id applies a saved view's filters and sort; other filters narrow within it. Signed URLs in the result (video, transcript files, thumbnail) expire after 24 hours: never store them.",
   schema: {
     "type": "object",
@@ -78,6 +79,7 @@ export const getRecording = defineFunction({
   name: "claap.get_recording",
   connector: "claap",
   class: "read",
+  act: false,
   description: "Get one Claap recording. Check state: only Ready carries the full payload (AI summary keyTakeaways and outlines, actionItems, aiFields, deal and companies, analytics, transcripts); Empty, Uploaded and Failed return a thin shape (id, title, author, upload). Signed URLs expire after 24 hours. A 404 can also mean the recording is private or hidden from global search.",
   schema: {
     "type": "object",
@@ -106,6 +108,7 @@ export const getRecordingTranscript = defineFunction({
   name: "claap.get_recording_transcript",
   connector: "claap",
   class: "read",
+  act: false,
   description: "Get the transcript of one Claap recording. format text returns plain text lines \"mm:ss speaker: text\", the readable choice; format json (the default) returns timed segments with per-word detail and is very heavy. lang picks a translation; the available languages are in transcripts[].langIso2 of get_recording.",
   schema: {
     "type": "object",
@@ -143,6 +146,7 @@ export const deleteRecording = defineFunction({
   name: "claap.delete_recording",
   connector: "claap",
   class: "sensitive",
+  act: true,
   description: "Delete one Claap recording. Permanent: Claap has no trash and no undo. Read it with get_recording first to be sure of what is deleted.",
   schema: {
     "type": "object",
@@ -172,6 +176,7 @@ export const listRecordingViews = defineFunction({
   name: "claap.list_recording_views",
   connector: "claap",
   class: "read",
+  act: false,
   description: "List the saved Claap recording views: public views first, then the built-in defaults (isDefault true). Private views are invisible to the API. A view filtering on Me matches the whole workspace here, since the key is nobody in particular. Pass a view id as view_id to list_recordings.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -193,6 +198,7 @@ export const getRecordingView = defineFunction({
   name: "claap.get_recording_view",
   connector: "claap",
   class: "read",
+  act: false,
   description: "Get one saved Claap recording view: its columns, filters and sort.",
   schema: {
     "type": "object",
@@ -225,7 +231,7 @@ export const connector = defineConnector({
   apiVersion: "v1",
   baseUrl: "https://api.claap.io/v1",
   auth: {"kind": "api_key", "in": "header", "name": "X-Claap-Key", "key": "api_key"},
-  credential: [{"name": "api_key", "label": "Workspace API key", "secret": true}],
+  credential: [{"name": "api_key", "label": "Workspace API key", "secret": true, "holder": "account"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 60000,
   queryArrays: "comma",

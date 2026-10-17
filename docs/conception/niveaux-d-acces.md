@@ -1,7 +1,7 @@
 # Niveaux d'accès d'un connecteur
 
 - **Statut** : validé par le mainteneur le 14/10/2026
-- **Dernière révision** : 2026-10-14
+- **Dernière révision** : 2026-10-16
 
 ## Résumé
 
@@ -63,14 +63,23 @@ Le niveau borne ce que l'hôte laisse faire, indépendamment du jeton : un ancie
 
 ## Écart avec le code
 
-- Le schéma de description et sa validation ne portent pas encore `access_levels`, `scope_implies` ni le `scopes` d'une fonction. Aucun connecteur décrit ne déclare de niveaux.
+- Portés par le schéma (`connectors/connector.schema.json`) : `access_levels` (en `oauth2_user` seulement ; `full` exigé, au moins un niveau restreint, chaque niveau une liste de droits non vide), `scope_implies` (seulement à côté de `access_levels`), l'exclusion de `scopes` et `access_levels`, et le `scopes` d'une fonction, exigé dans un connecteur à niveaux et refusé dans un connecteur sans niveaux.
+- Portés par la fabrique (règle 7, [fabrique](fabrique.md)) : `scope_implies` est clos (la clé liste aussi ce qu'impliquent les droits qu'elle implique) et chacune de ses clés est un droit d'un niveau ; `full` couvre chaque droit d'un niveau restreint et chaque droit exigé par une fonction ; l'identité du consentement et la sonde sont servies à chaque niveau ; une identité lue à une adresse complète déclare ses propres droits, servis eux aussi à chaque niveau. La sortie TypeScript porte `accessLevels`, `scopeImplies` et le `scopes` de chaque fonction ; `ts/src/types.ts` les type.
+- Un connecteur sans niveaux ne change pas : même validation, et son module TypeScript est le même à l'octet près (tests `test_connector_without_levels_*` et `test_committed_output_is_current`).
+- Décrits avec niveaux (`read` et `full`) : `gmail`, `google_drive`, `google_calendar`, `google_sheets` (identité par userinfo OpenID, droits `openid` et `email` à chaque niveau) et `microsoft` (`read` : `Files.Read.All` et `Sites.Read.All` ; `full` : les droits `ReadWrite.All` ; ses treize fonctions sont des lectures, servies aux deux niveaux). Le client Python `microsoft` de la lib ne connaît pas les niveaux : ses droits de fichiers restent les `ReadWrite.All` (`oto/tools/microsoft/scopes.py`).
+- Rien n'exécute encore les niveaux : ni le réglage par organisation et par équipe, ni le filtrage des fonctions et des opérations, ni `access_level_denied`, ni le consentement au niveau en vigueur signé dans l'état du flux. Le paquet d'oto 2 n'exécute pas encore `oauth2_user` ([fabrique](fabrique.md), « Écart avec le code »).
 - Premier usage : un CRM et un centre d'aide dont les outils sont écrits à la main chez l'hôte d'oto 1, qui déclare leurs niveaux dans le même vocabulaire, en Python.
 
 ## Questions ouvertes
 
 - Un niveau restreint par défaut, posé par le connecteur plutôt que par l'organisation ?
 - Faut-il refuser, au départ du consentement, un niveau dont les droits ne couvrent aucune fonction ?
+- Le niveau `read` est-il exigé (« au moins `read` et `full` », comme le dit le résumé), ou `full` et un niveau restreint quelconque suffisent-ils, comme le schéma l'accepte aujourd'hui ?
+- Une fonction d'un connecteur sans niveaux peut-elle déclarer `scopes`, pour documenter ses droits avant que le connecteur n'ait de niveaux ? Le schéma le refuse aujourd'hui.
+- L'implication est-elle transitive ? Le document ne le dit pas ; la fabrique exige une implication close, pour qu'une lecture en un pas et une lecture transitive servent les mêmes fonctions.
 
 ## Historique
 
 - 2026-10-14 : création — niveaux d'accès, droits exigés par fonction, implication déclarée, réglage par organisation et par équipe — décidé par le mainteneur (source : besoin d'un essai en lecture seule).
+- 2026-10-16 : niveaux portés par le schéma et la fabrique (règle 7) ; `gmail`, `google_drive` et `google_calendar` décrits avec `read` et `full` — décidé par le mainteneur.
+- 2026-10-16 : l'identité d'un consentement peut se lire à une adresse complète, avec ses droits, servis à chaque niveau ; `google_sheets` et `microsoft` décrits avec `read` et `full` — décidé par le mainteneur.

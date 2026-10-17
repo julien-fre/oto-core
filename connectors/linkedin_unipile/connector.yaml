@@ -1,0 +1,300 @@
+# yaml-language-server: $schema=../connector.schema.json
+# LinkedIn through Unipile, API v2: Unipile hosts the LinkedIn session of each
+# connected member, and one API key reaches every account of its subscription.
+# The key belongs to the host application (holder: host), never to an account;
+# an account is the Unipile identifier of one connected LinkedIn member
+# (account_identity), cited by base_url only and never supplied by the agent.
+# Paths, parameters and bodies follow the Python client (oto.tools.unipile, v2).
+#
+# Not described here (kept in the Python client):
+# - the identity guard of get_profile and get_company: under concurrency the
+#   API was seen answering another member or company; the client compares the
+#   answer to the requested identifier and refuses a mismatch;
+# - the slug resolution of get_company: a 404 on a brand name retried through a
+#   company search (several calls);
+# - the cursor of list_invitations, minted by the client: the endpoint pages by
+#   offset and never returns a next cursor;
+# - starting a new thread (send_message with attendee_id): its route depends
+#   on whether the provider sorts messaging by inbox, with a fallback on 501;
+#   list_chats takes the inbox route, the one the client declares for LinkedIn;
+# - the attendee names that list_chats can add (contacts book, several calls);
+# - the shorter read timeout of get_company (60 s), the connector having one
+#   timeout only.
+connector:
+  name: linkedin_unipile
+  label: LinkedIn (Unipile)
+  namespace: linkedin_unipile
+  version: 1.0.0
+  api_version: v2
+  base_url: https://api.unipile.com/v2/{account_id}
+  auth: { kind: api_key, in: header, name: X-API-KEY, key: api_key }
+  credential:
+    - { name: api_key, label: Unipile API key, secret: true, holder: host }
+  account_identity: { name: account_id, label: LinkedIn account, pattern: "^[A-Za-z0-9_-]{1,64}$" }
+  modes: [platform]
+  timeout_s: 120
+  query_arrays: repeat
+  probe: { function: get_me }
+  errors:
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Unipile rejected the request as invalid: check the arguments." }
+    - { status: 401, code: account_disconnected, retryable: false,
+        message: "The LinkedIn session of this account is disconnected: reconnect your LinkedIn account." }
+    - { status: 403, code: forbidden, retryable: false,
+        message: "This action is out of the scope of this LinkedIn account (a LinkedIn product or permission it does not have)." }
+    - { status: 404, code: not_found, retryable: false,
+        message: "LinkedIn object not found: check the identifier." }
+    - { status: 429, code: rate_limited, retryable: true,
+        message: "LinkedIn limit reached for this account (profile and company pages are capped per account): retry later, possibly hours later." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
+        message: "Unipile or LinkedIn is temporarily unavailable: retry later." }
+
+functions:
+  - name: get_me
+    class: read
+    description: >-
+      Get the LinkedIn profile of the connected account itself: the member whose
+      session the other functions act as. Its provider_id is the member's own
+      id; its public_identifier, the slug of their profile URL.
+    input:
+      type: object
+      additionalProperties: false
+      properties: {}
+    examples:
+      - { title: Who is connected, input: {} }
+    call: { method: GET, path: /users/me }
+
+  - name: get_profile
+    class: read
+    description: >-
+      Get the full LinkedIn profile of a member, by public identifier (the slug
+      of linkedin.com/in/<slug>) or provider id (ACoAA…). The answer carries the
+      provider_id that send_invitation needs, and the About text as bio.
+      with_sections narrows the sections returned (all of them when omitted);
+      a *_preview value returns only the first visible entries of a section.
+      LinkedIn caps profile pages per account over hours.
+    input:
+      type: object
+      additionalProperties: false
+      required: [identifier]
+      properties:
+        identifier:
+          type: string
+          minLength: 1
+          description: "Public identifier (slug of the profile URL) or provider id (ACoAA…)."
+        with_sections:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            enum: [linkedin_*, linkedin_*_preview,
+                   linkedin_experience, linkedin_experience_preview,
+                   linkedin_education, linkedin_education_preview,
+                   linkedin_languages, linkedin_languages_preview,
+                   linkedin_skills, linkedin_skills_preview,
+                   linkedin_certifications, linkedin_certifications_preview,
+                   linkedin_volunteer_experience, linkedin_volunteer_experience_preview,
+                   linkedin_projects, linkedin_projects_preview,
+                   linkedin_recommendations, linkedin_recommendations_preview,
+                   linkedin_interests, linkedin_interests_preview,
+                   linkedin_recruiting_activity, linkedin_recruiting_activity_preview]
+    examples:
+      - { title: Full profile by slug, input: { identifier: jane-doe-4b2a1c } }
+      - { title: Experience and education only, input: { identifier: ACoAAB1x2y3, with_sections: [linkedin_experience, linkedin_education] } }
+    refusals:
+      - { code: profile_not_found, when: 404, message: "No LinkedIn profile with this identifier: check the slug of the profile URL, or the provider id." }
+    call:
+      method: GET
+      path: "/users/{identifier}"
+      query: { with_sections: with_sections }
+
+  - name: get_company
+    class: read
+    description: >-
+      Get the LinkedIn page of a company, by slug (the public identifier in
+      linkedin.com/company/<slug>) or numeric id. A brand name is not always the
+      slug: on a 404, read the slug from the company page URL. LinkedIn caps
+      company pages per account over hours.
+    input:
+      type: object
+      additionalProperties: false
+      required: [identifier]
+      properties:
+        identifier:
+          type: string
+          minLength: 1
+          description: "Company slug (public identifier) or numeric id."
+    examples:
+      - { title: Company page by slug, input: { identifier: unipile } }
+      - { title: Company page by numeric id, input: { identifier: "1441" } }
+    refusals:
+      - { code: company_not_found, when: 404, message: "No LinkedIn company with this identifier: check the slug in the company page URL." }
+    call: { method: GET, path: "/linkedin/company/{identifier}" }
+
+  - name: list_relations
+    class: read
+    description: >-
+      List the first-degree relations (connections) of the connected account,
+      one page at a time. Pass back next_cursor to read the next page; the page
+      size is fixed by the first call of a walk, which the cursor keeps.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        limit: { type: integer, minimum: 1, description: "Relations per page." }
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page." }
+    examples:
+      - { title: First page of relations, input: { limit: 50 } }
+      - { title: Next page, input: { cursor: eyJsaW1pdCI6NTAsInN0YXJ0SW5kZXgiOjUwfQ } }
+    call:
+      method: GET
+      path: /users/me/relations
+      query: { limit: limit, cursor: cursor }
+    pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 10 }
+    output: { items: data }
+
+  - name: list_invitations
+    class: read
+    description: >-
+      List the pending invitations of the connected account, received or sent.
+      Pages by offset, not by cursor: for the next page, pass offset increased
+      by limit; an empty page ends the list. Stop too if a page repeats the
+      previous one.
+    input:
+      type: object
+      additionalProperties: false
+      required: [direction]
+      properties:
+        direction: { enum: [received, sent], description: "Invitations received by the account, or sent by it." }
+        limit: { type: integer, minimum: 1, maximum: 100, description: "Invitations per page." }
+        offset: { type: integer, minimum: 0, description: "Invitations to skip: the previous offset plus limit." }
+    examples:
+      - { title: Received invitations, input: { direction: received } }
+      - { title: Second page of sent invitations, input: { direction: sent, limit: 100, offset: 100 } }
+    call:
+      method: GET
+      path: /users/me/relation-requests
+      query: { type: direction, limit: limit, offset: offset }
+    output: { items: data }
+
+  - name: get_post
+    class: read
+    description: >-
+      Get one LinkedIn post by its id, as listings and the feed return it (an
+      activity URN, urn:li:activity:<id>).
+    input:
+      type: object
+      additionalProperties: false
+      required: [post_id]
+      properties:
+        post_id: { type: string, minLength: 1, description: "Id of the post." }
+    examples:
+      - { title: One post, input: { post_id: "urn:li:activity:7251234567890123456" } }
+    refusals:
+      - { code: post_not_found, when: 404, message: "No LinkedIn post with this id, or it is not visible to this account." }
+    call: { method: GET, path: "/posts/{post_id}" }
+
+  - name: list_chats
+    class: read
+    description: >-
+      List the LinkedIn conversations of the connected account in one inbox,
+      one page at a time: CLASSIC_PRIMARY is the main inbox;
+      the others hold archived, spam, job, InMail and starred conversations.
+      Each conversation carries the id that list_chat_messages and send_message
+      take. Pass back next_cursor to read the next page.
+    input:
+      type: object
+      additionalProperties: false
+      required: [inbox]
+      properties:
+        inbox:
+          enum: [CLASSIC_PRIMARY, CLASSIC_ARCHIVED, CLASSIC_SPAM, CLASSIC_JOBS, CLASSIC_INMAIL, CLASSIC_STARRED]
+          description: "LinkedIn inbox; CLASSIC_PRIMARY is the main one."
+        limit: { type: integer, minimum: 1, description: "Conversations per page." }
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page." }
+    examples:
+      - { title: Main inbox, input: { inbox: CLASSIC_PRIMARY, limit: 20 } }
+      - { title: InMail conversations, input: { inbox: CLASSIC_INMAIL } }
+    call:
+      method: GET
+      path: "/inboxes/{inbox}/chats"
+      query: { limit: limit, cursor: cursor }
+    pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 10 }
+    output: { items: data }
+
+  - name: list_chat_messages
+    class: read
+    description: >-
+      List the messages of one LinkedIn conversation of the connected
+      account, by its chat id (from list_chats). Read them before replying with
+      send_message.
+    input:
+      type: object
+      additionalProperties: false
+      required: [chat_id]
+      properties:
+        chat_id: { type: string, minLength: 1, description: "Id of the conversation, from list_chats." }
+        limit: { type: integer, minimum: 1, description: "Messages returned, at most." }
+    examples:
+      - { title: Messages of a conversation, input: { chat_id: 9f8eAbC1dEf2, limit: 50 } }
+    refusals:
+      - { code: chat_not_found, when: 404, message: "No LinkedIn conversation with this id for this account." }
+    call:
+      method: GET
+      path: "/chats/{chat_id}/messages"
+      query: { limit: limit }
+    output: { items: data }
+
+  - name: send_invitation
+    class: sensitive
+    description: >-
+      Send a LinkedIn connection invitation from the connected account to a
+      member, with an optional note. The member is named by provider id
+      (ACoAA…, the provider_id of get_profile), not by slug.
+    input:
+      type: object
+      additionalProperties: false
+      required: [provider_id]
+      properties:
+        provider_id: { type: string, minLength: 1, description: "Provider id of the member (ACoAA…)." }
+        message: { type: string, minLength: 1, description: "Note sent with the invitation." }
+    examples:
+      - { title: Invitation without a note, input: { provider_id: ACoAAB1x2y3 } }
+      - { title: Invitation with a note, input: { provider_id: ACoAAB1x2y3, message: "Glad to connect after the panel yesterday." } }
+    refusals:
+      - { code: member_not_found, when: 404, message: "No LinkedIn member with this provider id: take it from the member's profile." }
+    confirm:
+      summary: "Send a LinkedIn invitation to {provider_id} from the connected account; it cannot be withdrawn here."
+    call:
+      method: POST
+      path: /users/me/relation-requests
+      body: { user_id: provider_id, message: message }
+
+  - name: send_message
+    class: sensitive
+    description: >-
+      Send a text message from the connected account in an existing LinkedIn
+      conversation, named by its chat id, taken from list_chats. The member on
+      the other side receives it at once; it cannot be unsent here. Starting a
+      new conversation is not covered.
+    input:
+      type: object
+      additionalProperties: false
+      required: [chat_id, text]
+      properties:
+        chat_id: { type: string, minLength: 1, description: "Id of the conversation, from list_chats." }
+        text: { type: string, minLength: 1, description: "Text of the message." }
+    examples:
+      - { title: Reply in a conversation, input: { chat_id: 9f8eAbC1dEf2, text: "Thanks, Thursday 10am works for me." } }
+    refusals:
+      - { code: chat_not_found, when: 404, message: "No LinkedIn conversation with this id for this account." }
+    confirm:
+      summary: "Send this message in LinkedIn conversation {chat_id} from the connected account: \"{text}\". It cannot be unsent here."
+    call:
+      method: POST
+      path: "/chats/{chat_id}/messages/send"
+      body: { text: text }
+
+exposure:
+  mode: per_connector
+  tool: linkedin_unipile

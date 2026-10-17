@@ -5,6 +5,7 @@ export const getCompany = defineFunction({
   name: "pennylane.get_company",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "Get the company and the user the API key belongs to, and the key's scopes. One key reaches one company only. The scopes field is the key's actual set of rights: read it whenever Pennylane refuses access (401/403), and tell the user which scope is missing rather than retrying. Scopes are split by object: journals:*, ledger_accounts:* and ledger_entries:* are distinct, so a key that reads entries may not read journals.",
   schema: {"type": "object", "additionalProperties": false, "properties": {}},
   examples: [
@@ -26,6 +27,7 @@ export const listFiscalYears = defineFunction({
   name: "pennylane.list_fiscal_years",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the company's fiscal years, newest first by default. Paged by limit and cursor: pass next_cursor as cursor for the next page.",
   schema: {
     "type": "object",
@@ -65,6 +67,7 @@ export const listLedgerAccounts = defineFunction({
   name: "pennylane.list_ledger_accounts",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the chart of accounts. Every ledger entry line needs a ledger_account_id, read here, never guessed. Scope ledger_accounts:readonly. Up to 1000 accounts per page.",
   schema: {
     "type": "object",
@@ -126,6 +129,7 @@ export const listJournals = defineFunction({
   name: "pennylane.list_journals",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the company's journals ({id, code, label, type}: purchases, sales, bank...). A ledger entry needs a journal_id: these ids are specific to the company, resolve them here every time and never hard-code them. Scope journals:readonly, distinct from the scope of ledger entries.",
   schema: {
     "type": "object",
@@ -187,6 +191,7 @@ export const listCategories = defineFunction({
   name: "pennylane.list_categories",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the analytical categories (expense and revenue categories), each in one group (an analytical axis, see list_category_groups). Scope categories:readonly.",
   schema: {
     "type": "object",
@@ -248,6 +253,7 @@ export const listCategoryGroups = defineFunction({
   name: "pennylane.list_category_groups",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the category groups, the analytical axes ({id, label}): a category belongs to one group, and the weights an object carries within one group sum to 1. Scope categories:readonly.",
   schema: {
     "type": "object",
@@ -286,6 +292,7 @@ export const listSupplierInvoiceCategories = defineFunction({
   name: "pennylane.list_supplier_invoice_categories",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the analytical categories of one supplier invoice, each with its weight (a string between 0 and 1). Scope supplier_invoices:readonly.",
   schema: {
     "type": "object",
@@ -326,6 +333,7 @@ export const listCustomerInvoiceCategories = defineFunction({
   name: "pennylane.list_customer_invoice_categories",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the analytical categories of one customer invoice, each with its weight (a string between 0 and 1). Scope customer_invoices:readonly.",
   schema: {
     "type": "object",
@@ -366,6 +374,7 @@ export const listLedgerEntryLineCategories = defineFunction({
   name: "pennylane.list_ledger_entry_line_categories",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the analytical categories of one ledger entry line, each with its weight (a string between 0 and 1). The line ids come from list_ledger_entry_lines. Scope ledger_entries:readonly.",
   schema: {
     "type": "object",
@@ -406,6 +415,7 @@ export const listInvoiceTemplates = defineFunction({
   name: "pennylane.list_invoice_templates",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the customer invoice templates. The template drives the PDF rendering: a credit-note template without the payment and IBAN block is the only way through the API to get a credit-note layout. Pass its id as customer_invoice_template_id when creating or updating an invoice or a credit note. Scope customer_invoice_templates:readonly.",
   schema: {
     "type": "object",
@@ -444,6 +454,7 @@ export const listProducts = defineFunction({
   name: "pennylane.list_products",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the product catalogue (id, label, price, unit, vat_rate...). Resolve the product_id of an invoice or quote line here, never guess it. Beware of near-homonym labels: choose on the full record (price, unit), not on the start of the name.",
   schema: {
     "type": "object",
@@ -505,6 +516,7 @@ export const getProduct = defineFunction({
   name: "pennylane.get_product",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "Get one product by its id.",
   schema: {
     "type": "object",
@@ -533,6 +545,7 @@ export const createProduct = defineFunction({
   name: "pennylane.create_product",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Create a product in the catalogue. price_before_tax is a decimal string (\"700.00\"). vat_rate is a Pennylane code, never a percentage: 20% is FR_200, 10% FR_100, 5.5% FR_55, 2.1% FR_21, exempt is exempt.",
   schema: {
     "type": "object",
@@ -577,6 +590,7 @@ export const listCustomers = defineFunction({
   name: "pennylane.list_customers",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List customers (companies and individuals) with their contact details. Resolve a customer_id from a name here: invoice lists carry only customer.{id, url}. Before creating a customer, look it up by external_reference with the filter: creating it again is refused (\"External reference has already been taken\"); reuse the id found.",
   schema: {
     "type": "object",
@@ -641,6 +655,7 @@ export const createCustomer = defineFunction({
   name: "pennylane.create_customer",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Create a company customer. The full billing address is required. Look the customer up by external_reference first (list_customers): an external_reference already taken is refused. Returns the customer with its id, to pass as customer_id when creating an invoice or a quote.",
   schema: {
     "type": "object",
@@ -706,6 +721,7 @@ export const updateCustomer = defineFunction({
   name: "pennylane.update_customer",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Update a company customer: complete its emails, VAT number, registration number, IBAN, external_reference... Typical use: a customer known to Pennylane without email or identifier, completed before invoicing it. Only the arguments passed are changed.",
   schema: {
     "type": "object",
@@ -773,6 +789,7 @@ export const listSuppliers = defineFunction({
   name: "pennylane.list_suppliers",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List suppliers (id, name...). Resolve the supplier_id of an existing supplier here before creating one.",
   schema: {
     "type": "object",
@@ -834,6 +851,7 @@ export const getSupplier = defineFunction({
   name: "pennylane.get_supplier",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "Get one supplier by its id.",
   schema: {
     "type": "object",
@@ -862,6 +880,7 @@ export const createSupplier = defineFunction({
   name: "pennylane.create_supplier",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Create a supplier, before recording the purchase invoice of a new supplier. Look it up first (list_suppliers). Returns the supplier with its id.",
   schema: {
     "type": "object",
@@ -923,6 +942,7 @@ export const listCustomerInvoices = defineFunction({
   name: "pennylane.list_customer_invoices",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List customer invoices and credit notes (the revenue side), newest first: to match against incoming payments, or to find unpaid invoices. Without a filter the whole history comes back; start with a date or customer filter. To find one invoice by its external_reference (e.g. before creating a credit note for a failed payment: if an invoice already carries the reference, the credit note exists), filter on external_reference: the server filter is exhaustive, archived and old invoices included.",
   schema: {
     "type": "object",
@@ -997,6 +1017,7 @@ export const listCustomerInvoiceLines = defineFunction({
   name: "pennylane.list_customer_invoice_lines",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the lines of a customer invoice or credit note, with their id (needed to update a line of a draft).",
   schema: {
     "type": "object",
@@ -1037,6 +1058,7 @@ export const createCustomerInvoice = defineFunction({
   name: "pennylane.create_customer_invoice",
   connector: "pennylane",
   class: "write",
+  act: false,
   description: "Create a customer invoice, always as a draft. The customer must exist (list_customers, create_customer). Finalizing and sending are separate functions, called only after explicit human validation. Each line takes exactly one of two shapes, with no other key (any deviation is refused as NotAnyOf): a product line {product_id, quantity}, the product filling the rest (label, raw_currency_unit_price, unit, vat_rate may override it); or a free line {label, quantity, unit, raw_currency_unit_price, vat_rate}, all required. raw_currency_unit_price is the unit price before tax as a string (\"700.00\"); quantity is a number, never a string. Pass an external_reference to trace the source and look it up before creating again.",
   schema: {
     "type": "object",
@@ -1127,6 +1149,7 @@ export const createCreditNote = defineFunction({
   name: "pennylane.create_credit_note",
   connector: "pennylane",
   class: "write",
+  act: false,
   description: "Create a standalone credit note, always as a draft. In Pennylane v2 a credit note is a customer invoice with negative amounts: give every line a NEGATIVE quantity (crediting 195 credits at 1.45 is quantity -195, unit price \"1.45\"). Lines follow the invoice line shapes (product line or free line). Nothing is linked at creation: the creation-time credited_invoice_id is broken upstream; link afterwards with link_credit_note if needed, or name the original invoice in pdf_invoice_free_text. Pass the source event as external_reference and look it up first (list_customer_invoices) so one event gives one credit note. For the credit-note layout, pass the id of a credit-note template.",
   schema: {
     "type": "object",
@@ -1216,6 +1239,7 @@ export const linkCreditNote = defineFunction({
   name: "pennylane.link_credit_note",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Link an existing credit note to the customer invoice it credits. The only working way to link them (the creation-time attribute is broken upstream). The API offers no unlinking.",
   schema: {
     "type": "object",
@@ -1246,6 +1270,7 @@ export const updateCustomerInvoice = defineFunction({
   name: "pennylane.update_customer_invoice",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Update a draft customer invoice or credit note: dates, customer, template, free text, external_reference, and its lines through invoice_lines {create, update, delete} (update and delete need the line id, from list_customer_invoice_lines). Typical use: switch a draft credit note to the credit-note template before finalizing. On a finalized document Pennylane only accepts label, external_reference and line updates: never use this to correct an issued document.",
   schema: {
     "type": "object",
@@ -1380,6 +1405,7 @@ export const finalizeCustomerInvoice = defineFunction({
   name: "pennylane.finalize_customer_invoice",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Finalize a draft customer invoice or credit note: it gets its definitive number and can no longer be edited. Only after explicit human validation of the draft.",
   schema: {
     "type": "object",
@@ -1407,6 +1433,7 @@ export const sendCustomerInvoice = defineFunction({
   name: "pennylane.send_customer_invoice",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Email a finalized customer invoice or credit note to the customer, at the addresses on the customer's record. Only after explicit human validation. The PDF takes a few minutes to generate after finalization: a conflict means it is not ready yet, retry later.",
   schema: {
     "type": "object",
@@ -1436,6 +1463,7 @@ export const deleteCustomerInvoice = defineFunction({
   name: "pennylane.delete_customer_invoice",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Delete a draft customer invoice or credit note, e.g. an obsolete draft before it is finalized by mistake. A finalized document cannot be deleted: it is cancelled with a credit note.",
   schema: {
     "type": "object",
@@ -1465,6 +1493,7 @@ export const listQuotes = defineFunction({
   name: "pennylane.list_quotes",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List sales quotes, newest first. Without a filter the whole history comes back: filter on status or customer_id. Statuses: pending, accepted, denied, invoiced, expired.",
   schema: {
     "type": "object",
@@ -1526,6 +1555,7 @@ export const getQuote = defineFunction({
   name: "pennylane.get_quote",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "Get one quote: status, quote_number, linked_invoices, and public_file_url, its PDF (a link that expires after 30 minutes).",
   schema: {
     "type": "object",
@@ -1554,6 +1584,7 @@ export const getQuotePdfLink = defineFunction({
   name: "pennylane.get_quote_pdf_link",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "Get the PDF link of a quote, to attach to an email. The link expires after 30 minutes: read it right before use, never store it.",
   schema: {
     "type": "object",
@@ -1587,6 +1618,7 @@ export const listQuoteLines = defineFunction({
   name: "pennylane.list_quote_lines",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the lines of a quote.",
   schema: {
     "type": "object",
@@ -1627,6 +1659,7 @@ export const createQuote = defineFunction({
   name: "pennylane.create_quote",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Create a sales quote. A quote has no draft: it is created pending and reaches the customer only when sent. The customer must exist. Tell the user the customer, the lines and the validity date before calling. Lines follow the invoice line shapes: a product line {product_id, quantity} or a free line {label, quantity, unit, raw_currency_unit_price, vat_rate}, all required; a discount is a free line with a negative price (\"-100.00\").",
   schema: {
     "type": "object",
@@ -1717,6 +1750,7 @@ export const updateQuoteStatus = defineFunction({
   name: "pennylane.update_quote_status",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Set the status of a quote: pending, accepted, denied, invoiced or expired; e.g. accepted once the customer has signed.",
   schema: {
     "type": "object",
@@ -1748,6 +1782,7 @@ export const createInvoiceFromQuote = defineFunction({
   name: "pennylane.create_invoice_from_quote",
   connector: "pennylane",
   class: "write",
+  act: false,
   description: "Create a draft customer invoice from a quote, taking over its customer and lines. Finalizing and sending it remain separate steps after human validation. Needs the scope customer_invoices:all on top of quotes.",
   schema: {
     "type": "object",
@@ -1779,6 +1814,7 @@ export const listSupplierInvoices = defineFunction({
   name: "pennylane.list_supplier_invoices",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List supplier invoices (the expense side), newest first: to match against outgoing payments, or to find what remains to pay. Without a filter the whole history comes back: filter on date or supplier_id.",
   schema: {
     "type": "object",
@@ -1851,6 +1887,7 @@ export const getSupplierInvoice = defineFunction({
   name: "pennylane.get_supplier_invoice",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "Get one supplier invoice, with its accounting_status: draft, archived, entry, validation_needed or complete. Its lines are read with list_supplier_invoice_lines.",
   schema: {
     "type": "object",
@@ -1879,6 +1916,7 @@ export const listSupplierInvoiceLines = defineFunction({
   name: "pennylane.list_supplier_invoice_lines",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the lines of a supplier invoice, with their id (needed to update or delete a line) and their vat_rate.",
   schema: {
     "type": "object",
@@ -1919,6 +1957,7 @@ export const updateSupplierInvoice = defineFunction({
   name: "pennylane.update_supplier_invoice",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Correct a supplier invoice not yet validated: label, dates, invoice number, supplier, amounts, external_reference, and its lines through invoice_lines {create, update, delete} (update and delete need the line id, from list_supplier_invoice_lines). Amounts are decimal strings. The amount before tax exists at invoice level only: a line carries currency_amount (tax included) and currency_tax, plus its vat_rate. No intracom_200 code exists: for an intra-EU acquisition at 20%, ask the user which code applies, never guess. Pennylane decides whether an invoice already complete can be changed.",
   schema: {
     "type": "object",
@@ -2048,6 +2087,7 @@ export const validateSupplierInvoice = defineFunction({
   name: "pennylane.validate_supplier_invoice",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Validate the accounting of a supplier invoice: it moves to complete and its accounting entry is posted. The API offers no way back. Call it only on the user's explicit request, invoice by invoice, never right after a correction. Refused when the entry lines are not balanced.",
   schema: {
     "type": "object",
@@ -2078,6 +2118,7 @@ export const listLedgerEntries = defineFunction({
   name: "pennylane.list_ledger_entries",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List ledger entries. Without a filter the whole history comes back, thousands of entries on a real ledger: filter at the source on date, journal_id or id, the only way to find an entry without reading every page. Scope ledger_entries:readonly.",
   schema: {
     "type": "object",
@@ -2140,6 +2181,7 @@ export const getLedgerEntry = defineFunction({
   name: "pennylane.get_ledger_entry",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "One ledger entry by its id, e.g. to read back an entry just posted.",
   schema: {
     "type": "object",
@@ -2168,6 +2210,7 @@ export const listLedgerEntryLines = defineFunction({
   name: "pennylane.list_ledger_entry_lines",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the lines of a ledger entry with their id: lettering takes line ids, not entry ids. Line order is not guaranteed: match a line on its content, never on its position.",
   schema: {
     "type": "object",
@@ -2233,6 +2276,7 @@ export const listLetteredLines = defineFunction({
   name: "pennylane.list_lettered_lines",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List the ledger entry lines lettered with a given line: the way to see what a lettering actually grouped, since lettering spreads to lines already lettered.",
   schema: {
     "type": "object",
@@ -2273,6 +2317,7 @@ export const createLedgerEntry = defineFunction({
   name: "pennylane.create_ledger_entry",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Post an entry to the general ledger. Pennylane has no draft for a ledger entry and the API cannot delete one: the entry is posted at once, and the only remedy is update_ledger_entry. Before calling, give the user the exact detail (journal, date, label, each line with its account and amount) and wait for agreement. Each line carries debit and credit as decimal strings (\"120.50\", \"0.00\") and a ledger_account_id (list_ledger_accounts); total debits must equal total credits, or Pennylane refuses the entry. journal_id comes from list_journals. 1 to 1000 lines. The order of the returned lines is not guaranteed: find a line by its content.",
   schema: {
     "type": "object",
@@ -2336,6 +2381,7 @@ export const updateLedgerEntry = defineFunction({
   name: "pennylane.update_ledger_entry",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Change a posted ledger entry: the only remedy for a wrong entry, since the API cannot delete one. ledger_entry_lines takes {create, update, delete}, and delete removes lines by id: this commits as much as a creation, so give the user the exact detail and wait for agreement. The lines must stay balanced; line ids come from list_ledger_entry_lines.",
   schema: {
     "type": "object",
@@ -2435,6 +2481,7 @@ export const letterLedgerEntryLines = defineFunction({
   name: "pennylane.letter_ledger_entry_lines",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Letter ledger entry lines together. Not to be confused with matching a bank transaction to an invoice (match_customer_invoice_transaction, match_supplier_invoice_transaction): the wrong one raises no error, it just acts on the wrong objects. Lettering spreads: if a line passed is already lettered, the lettering extends to the lines it is already lettered with (asking for A and C when A and B are lettered gives A, B and C); check the result with list_lettered_lines. Pass line ids, not entry ids (list_ledger_entry_lines). unbalanced_lettering_strategy none refuses an unbalanced lettering, partial accepts it.",
   schema: {
     "type": "object",
@@ -2479,6 +2526,7 @@ export const unletterLedgerEntryLines = defineFunction({
   name: "pennylane.unletter_ledger_entry_lines",
   connector: "pennylane",
   class: "sensitive",
+  act: true,
   description: "Undo the lettering of ledger entry lines. The previous grouping is not returned: read it first with list_lettered_lines if it may have to be restored.",
   schema: {
     "type": "object",
@@ -2523,6 +2571,7 @@ export const listTransactions = defineFunction({
   name: "pennylane.list_transactions",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "List bank transactions, newest first. Without a filter the whole history comes back, far beyond what an agent can read: filter on date at the source. A transaction not fully matched carries a non-zero outstanding_balance.",
   schema: {
     "type": "object",
@@ -2584,6 +2633,7 @@ export const getTrialBalance = defineFunction({
   name: "pennylane.get_trial_balance",
   connector: "pennylane",
   class: "read",
+  act: false,
   description: "Get the trial balance for a period: balances grouped by ledger account. Scope trial_balance:readonly. Up to 1000 accounts per page.",
   schema: {
     "type": "object",
@@ -2625,6 +2675,7 @@ export const matchCustomerInvoiceTransaction = defineFunction({
   name: "pennylane.match_customer_invoice_transaction",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Match a bank transaction to a finalized customer invoice, e.g. to settle a paid invoice whose incoming transfer is not matched (else Pennylane keeps it late and reminds the customer wrongly). A reconciliation link, not an accounting entry. Not to be confused with lettering ledger entry lines (letter_ledger_entry_lines). One transaction per call.",
   schema: {
     "type": "object",
@@ -2651,6 +2702,7 @@ export const matchSupplierInvoiceTransaction = defineFunction({
   name: "pennylane.match_supplier_invoice_transaction",
   connector: "pennylane",
   class: "write",
+  act: true,
   description: "Match a bank transaction to a supplier invoice. A reconciliation link, not an accounting entry. Not to be confused with lettering ledger entry lines (letter_ledger_entry_lines). One transaction per call.",
   schema: {
     "type": "object",
@@ -2681,7 +2733,7 @@ export const connector = defineConnector({
   apiVersion: "v2",
   baseUrl: "https://app.pennylane.com/api/external/v2",
   auth: {"kind": "bearer", "token": "api_key"},
-  credential: [{"name": "api_key", "label": "API key", "secret": true}],
+  credential: [{"name": "api_key", "label": "API key", "secret": true, "holder": "account"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 30000,
   rateLimit: { requests: 4, intervalMs: 1000 },

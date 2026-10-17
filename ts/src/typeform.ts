@@ -5,6 +5,7 @@ export const listWorkspaces = defineFunction({
   name: "typeform.list_workspaces",
   connector: "typeform",
   class: "read",
+  act: false,
   description: "List the Typeform workspaces the token can access, across organizations: {total_items, page_count, items: [{id, name, account_id, shared, forms: {count, href}}]}. The id filters list_forms. Needs the workspaces:read scope.",
   schema: {
     "type": "object",
@@ -34,6 +35,7 @@ export const listForms = defineFunction({
   name: "typeform.list_forms",
   connector: "typeform",
   class: "read",
+  act: false,
   description: "List the forms of the Typeform account, public and private: {total_items, page_count, items: [{id, title, created_at, last_updated_at, settings: {is_public}, _links: {display, responses}}]}. Needs the forms:read scope.",
   schema: {
     "type": "object",
@@ -67,6 +69,7 @@ export const getForm = defineFunction({
   name: "typeform.get_form",
   connector: "typeform",
   class: "read",
+  act: false,
   description: "Get the full definition of one Typeform form: title, fields (each {id, ref, title, type, properties: {description, choices, fields for groups}, validations}), hidden fields, variables, logic, screens, settings, and _links.responses, the host that stores its responses. A response's answers[].field.id points to these fields. If _links.responses is not on api.typeform.com, the account lives in an EU data center and list_responses here would come back empty. Needs the forms:read scope.",
   schema: {
     "type": "object",
@@ -102,6 +105,7 @@ export const listResponses = defineFunction({
   name: "typeform.list_responses",
   connector: "typeform",
   class: "read",
+  act: false,
   description: "List the responses to one Typeform form, newest first: {total_items, page_count, items: [{response_id, token, landed_at, submitted_at, metadata, hidden, calculated: {score}, variables, answers: [{field: {id, type, ref}, type, <type>: value}]}]}. An answer's value sits under the key named by its type (text, choice.label, choices.labels, number, boolean, email, url, file_url, date...); answers come in no particular order: match them to the form's fields by field.id. To get the next page, pass the token of the last item as before. Responses from the last ~30 minutes may not be listed yet. Queried outside the account's data center, the list comes back empty without error: check get_form's _links.responses first. Needs the responses:read scope.",
   schema: {
     "type": "object",
@@ -198,6 +202,7 @@ export const createForm = defineFunction({
   name: "typeform.create_form",
   connector: "typeform",
   class: "write",
+  act: true,
   description: "Create a Typeform form and return it, with its id and _links.display (the public URL). A form is public as soon as it is created unless settings.is_public is false: pass settings: {is_public: false} to keep a draft private. Each field is at least {title, type}; choices go in properties.choices [{label}], a required answer in validations: {required: true}. Images must already exist in the account. To put the form in a workspace, pass workspace: {href: \"https://api.typeform.com/workspaces/<id>\"}. Needs the forms:write scope.",
   schema: {
     "type": "object",
@@ -303,6 +308,7 @@ export const replaceForm = defineFunction({
   name: "typeform.replace_form",
   connector: "typeform",
   class: "sensitive",
+  act: true,
   description: "Overwrite the whole definition of one Typeform form and return it. Destructive: a field left out is deleted together with its answers in every response, so start from get_form, change what is needed, and send every field back with its id. Without theme, Typeform applies a new copy of the default theme. settings.is_public publishes or unpublishes the form. Needs the forms:write scope.",
   schema: {
     "type": "object",
@@ -416,6 +422,7 @@ export const deleteForm = defineFunction({
   name: "typeform.delete_form",
   connector: "typeform",
   class: "sensitive",
+  act: true,
   description: "Delete one Typeform form and all its responses, irreversibly. Returns nothing. To stop collecting answers but keep them, unpublish the form instead (settings.is_public false). Needs the forms:write scope.",
   schema: {
     "type": "object",
@@ -452,6 +459,7 @@ export const deleteResponses = defineFunction({
   name: "typeform.delete_responses",
   connector: "typeform",
   class: "sensitive",
+  act: true,
   description: "Delete responses of one Typeform form by response_id, up to 1000 at a time, irreversibly. The deletion is asynchronous: success means it was registered, not done, and ids that match no response are ignored without error; check with list_responses and included_response_ids. Like list_responses, it must reach the account's data center (see get_form's _links.responses). Needs the responses:write scope.",
   schema: {
     "type": "object",
@@ -496,6 +504,7 @@ export const listWebhooks = defineFunction({
   name: "typeform.list_webhooks",
   connector: "typeform",
   class: "read",
+  act: false,
   description: "List the webhooks of one Typeform form: each {id, tag, url, enabled, event_types: {form_response, form_response_partial}, verify_ssl, form_id, created_at, updated_at}. The tag names a webhook within its form. The signing secret is never returned. Needs the webhooks:read scope.",
   schema: {
     "type": "object",
@@ -532,6 +541,7 @@ export const getWebhook = defineFunction({
   name: "typeform.get_webhook",
   connector: "typeform",
   class: "read",
+  act: false,
   description: "Get one webhook of a Typeform form by its tag: {id, tag, url, enabled, event_types, verify_ssl, form_id, created_at, updated_at}. The signing secret is never returned. Needs the webhooks:read scope.",
   schema: {
     "type": "object",
@@ -574,6 +584,7 @@ export const upsertWebhook = defineFunction({
   name: "typeform.upsert_webhook",
   connector: "typeform",
   class: "sensitive",
+  act: true,
   description: "Create the webhook named tag on one Typeform form, or replace it if the tag exists, and return it without its secret. Once enabled, every new response of the form, with all its answers, is posted to url: form_response on submission, form_response_partial on a partial submission. Set secret to have the payloads signed with HMAC SHA256. Needs the webhooks:write scope.",
   schema: {
     "type": "object",
@@ -637,6 +648,7 @@ export const deleteWebhook = defineFunction({
   name: "typeform.delete_webhook",
   connector: "typeform",
   class: "sensitive",
+  act: true,
   description: "Delete one webhook of a Typeform form: its endpoint stops receiving responses, and the integration behind it with it. To pause it instead, upsert it with enabled false. Returns nothing. Needs the webhooks:write scope.",
   schema: {
     "type": "object",
@@ -683,7 +695,7 @@ export const connector = defineConnector({
   apiVersion: "Create API, Responses API and Webhooks API (unversioned)",
   baseUrls: {"setting": "region", "values": {"us": "https://api.typeform.com", "eu": "https://api.eu.typeform.com", "eu2": "https://api.typeform.eu"}},
   auth: {"kind": "bearer", "token": "access_token"},
-  credential: [{"name": "access_token", "label": "Personal access token", "secret": true}],
+  credential: [{"name": "access_token", "label": "Personal access token", "secret": true, "holder": "account"}],
   settings: [
     {
       "name": "region",

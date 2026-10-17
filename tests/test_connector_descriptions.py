@@ -257,3 +257,257 @@ def test_invalid_description_is_rejected(mutate):
     mutate(description)
     with pytest.raises(ValidationError):
         _validate(description)
+
+
+# --- Niveaux d'accès (docs/conception/niveaux-d-acces.md) ----------------------------
+
+READ = "Estimates.READ"
+ALL = "Estimates.ALL"
+
+
+def _with_levels(d):
+    """Sellsy en consentement d'une personne, avec un niveau `read` et un niveau `full`."""
+    _oauth2_user(d, access_levels={"read": {"scopes": [READ]}, "full": {"scopes": [ALL]}}, scope_implies={ALL: [READ]})
+    for function in d["functions"]:
+        function["scopes"] = [READ]
+
+
+def test_access_levels_base_is_valid():
+    """Les variantes ci-dessous partent d'une description à niveaux valide : chacune n'échoue que par sa faute."""
+    description = _sellsy()
+    _with_levels(description)
+    _validate(description)
+
+
+def test_scope_implies_is_optional():
+    description = _sellsy()
+    _with_levels(description)
+    del description["connector"]["auth"]["scope_implies"]
+    description["connector"]["auth"]["access_levels"]["full"]["scopes"] = [ALL, READ]
+    _validate(description)
+
+
+@pytest.mark.parametrize("path", [p for p in DESCRIPTIONS if "access_levels" not in _load(p)["connector"]["auth"]],
+                         ids=lambda p: p.parent.name)
+def test_connector_without_levels_declares_no_function_scopes(path):
+    """Un connecteur sans niveaux ne change pas : ni `scope_implies`, ni `scopes` sur une fonction."""
+    description = _load(path)
+    assert "scope_implies" not in description["connector"]["auth"]
+    assert all("scopes" not in function for function in description["functions"])
+
+
+def _levels_and_scopes(d):
+    _with_levels(d)
+    d["connector"]["auth"]["scopes"] = [ALL]
+
+
+def _levels_without_full(d):
+    _with_levels(d)
+    d["connector"]["auth"]["access_levels"] = {"read": {"scopes": [READ]}, "write": {"scopes": [ALL]}}
+
+
+def _full_level_only(d):
+    _with_levels(d)
+    d["connector"]["auth"]["access_levels"] = {"full": {"scopes": [ALL]}}
+
+
+def _level_without_scopes(d):
+    _with_levels(d)
+    d["connector"]["auth"]["access_levels"]["read"] = {}
+
+
+def _level_with_empty_scopes(d):
+    _with_levels(d)
+    d["connector"]["auth"]["access_levels"]["read"]["scopes"] = []
+
+
+def _level_unknown_key(d):
+    _with_levels(d)
+    d["connector"]["auth"]["access_levels"]["read"]["default"] = True
+
+
+def _level_name_not_an_identifier(d):
+    _with_levels(d)
+    d["connector"]["auth"]["access_levels"]["Read only"] = {"scopes": [READ]}
+
+
+def _scope_implies_without_levels(d):
+    _oauth2_user(d, scopes=[ALL], scope_implies={ALL: [READ]})
+
+
+def _scope_implies_empty(d):
+    _with_levels(d)
+    d["connector"]["auth"]["scope_implies"] = {ALL: []}
+
+
+def _levels_outside_a_consent(d):
+    d["connector"]["auth"]["access_levels"] = {"read": {"scopes": [READ]}, "full": {"scopes": [ALL]}}
+
+
+def _function_scopes_without_levels(d):
+    d["functions"][0]["scopes"] = [READ]
+
+
+def _function_without_scopes_with_levels(d):
+    _with_levels(d)
+    del d["functions"][1]["scopes"]
+
+
+def _function_with_empty_scopes(d):
+    _with_levels(d)
+    d["functions"][1]["scopes"] = []
+
+
+@pytest.mark.parametrize("mutate", [
+    _levels_and_scopes, _levels_without_full, _full_level_only, _level_without_scopes, _level_with_empty_scopes,
+    _level_unknown_key, _level_name_not_an_identifier, _scope_implies_without_levels, _scope_implies_empty,
+    _levels_outside_a_consent, _function_scopes_without_levels, _function_without_scopes_with_levels,
+    _function_with_empty_scopes,
+], ids=lambda f: f.__name__.lstrip("_"))
+def test_invalid_access_levels_are_rejected(mutate):
+    description = _sellsy()
+    mutate(description)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Identité lue à une adresse complète --------------------------------------------
+
+USERINFO = "https://openid.example/userinfo"
+
+
+def _with_url_identity(d):
+    """Sellsy à niveaux, l'identité lue sur un service d'identité commun, dont chaque niveau demande les droits."""
+    _with_levels(d)
+    auth = d["connector"]["auth"]
+    auth["identity"] = {"url": USERINFO, "path": "email", "scopes": ["openid", "email"]}
+    for level in auth["access_levels"].values():
+        level["scopes"] += ["openid", "email"]
+
+
+def test_url_identity_base_is_valid():
+    description = _sellsy()
+    _with_url_identity(description)
+    _validate(description)
+
+
+def _url_identity_without_scopes(d):
+    _with_url_identity(d)
+    del d["connector"]["auth"]["identity"]["scopes"]
+
+
+def _url_identity_with_empty_scopes(d):
+    _with_url_identity(d)
+    d["connector"]["auth"]["identity"]["scopes"] = []
+
+
+def _url_identity_with_a_function(d):
+    _with_url_identity(d)
+    d["connector"]["auth"]["identity"]["function"] = "list_estimates"
+
+
+def _url_identity_not_https(d):
+    _with_url_identity(d)
+    d["connector"]["auth"]["identity"]["url"] = "http://openid.example/userinfo"
+
+
+def _url_identity_with_a_query(d):
+    _with_url_identity(d)
+    d["connector"]["auth"]["identity"]["url"] = USERINFO + "?fields=email"
+
+
+def _url_identity_with_a_template(d):
+    _with_url_identity(d)
+    d["connector"]["auth"]["identity"]["url"] = "https://{domain}.example/userinfo"
+
+
+def _url_identity_without_path(d):
+    _with_url_identity(d)
+    del d["connector"]["auth"]["identity"]["path"]
+
+
+@pytest.mark.parametrize("mutate", [
+    _url_identity_without_scopes, _url_identity_with_empty_scopes, _url_identity_with_a_function, _url_identity_not_https,
+    _url_identity_with_a_query, _url_identity_with_a_template, _url_identity_without_path,
+], ids=lambda f: f.__name__.lstrip("_"))
+def test_invalid_url_identity_is_rejected(mutate):
+    description = _sellsy()
+    mutate(description)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Compte de l'hôte et compte rattaché ---------------------------------------------
+
+IDENTITY = {"name": "account_id", "label": "Hosted account", "pattern": "^[A-Za-z0-9_-]{1,64}$"}
+
+
+def _hosted(d):
+    """Sellsy, chaque champ du credential fourni par l'hôte, et un compte rattaché cité par l'adresse de base."""
+    for field in d["connector"]["credential"]:
+        field["holder"] = "host"
+    d["connector"]["account_identity"] = dict(IDENTITY)
+    d["connector"]["base_url"] += "/{account_id}"
+
+
+def test_hosted_account_base_is_valid():
+    """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
+    description = _sellsy()
+    _hosted(description)
+    _validate(description)
+
+
+def test_holder_defaults_to_account():
+    description = _sellsy()
+    description["connector"]["credential"][0]["holder"] = "account"
+    _validate(description)
+
+
+def _holder_unknown(d):
+    _hosted(d)
+    d["connector"]["credential"][0]["holder"] = "organisation"
+
+
+def _host_holder_in_a_consent(d):
+    _oauth2_user(d)
+    d["connector"]["credential"] = [{"name": "api_key", "label": "API key", "secret": True, "holder": "host"}]
+
+
+def _identity_pattern_not_anchored(d):
+    _hosted(d)
+    d["connector"]["account_identity"]["pattern"] = "[A-Za-z0-9_-]+"
+
+
+def _identity_name_not_an_identifier(d):
+    _hosted(d)
+    d["connector"]["account_identity"]["name"] = "Account-Id"
+
+
+def _identity_without_pattern(d):
+    _hosted(d)
+    del d["connector"]["account_identity"]["pattern"]
+
+
+def _identity_unknown_key(d):
+    _hosted(d)
+    d["connector"]["account_identity"]["default"] = "abc"
+
+
+@pytest.mark.parametrize("mutate", [
+    _holder_unknown, _host_holder_in_a_consent, _identity_pattern_not_anchored, _identity_name_not_an_identifier,
+    _identity_without_pattern, _identity_unknown_key,
+], ids=lambda f: f.__name__.lstrip("_"))
+def test_invalid_hosted_account_is_rejected(mutate):
+    description = _sellsy()
+    mutate(description)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+def test_act_is_a_boolean():
+    description = _sellsy()
+    description["functions"][0]["act"] = False
+    _validate(description)
+    description["functions"][0]["act"] = "no"
+    with pytest.raises(ValidationError):
+        _validate(description)

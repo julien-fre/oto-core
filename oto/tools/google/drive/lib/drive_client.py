@@ -1,5 +1,6 @@
 """Google Drive API client with caching and rate limiting support."""
 
+import io
 import json
 import hashlib
 from pathlib import Path
@@ -16,6 +17,28 @@ from oto.tools.common.local_dirs import get_cache_dir
 class DriveClientError(Exception):
     """Custom exception for Drive client errors."""
     pass
+
+
+_SHEET = 'application/vnd.google-apps.spreadsheet'
+_DOC = 'application/vnd.google-apps.document'
+_SLIDES = 'application/vnd.google-apps.presentation'
+
+#: Upload mime → the Google-native type Drive's import converts it to.
+_NATIVE_TARGET = {
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': _SHEET,
+    'application/vnd.ms-excel': _SHEET,
+    'application/vnd.oasis.opendocument.spreadsheet': _SHEET,
+    'text/csv': _SHEET,
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': _DOC,
+    'application/msword': _DOC,
+    'application/vnd.oasis.opendocument.text': _DOC,
+    'application/rtf': _DOC,
+    'text/plain': _DOC,
+    'text/html': _DOC,
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': _SLIDES,
+    'application/vnd.ms-powerpoint': _SLIDES,
+    'application/vnd.oasis.opendocument.presentation': _SLIDES,
+}
 
 
 class DriveClient:
@@ -398,6 +421,53 @@ class DriveClient:
         except Exception as e:
             raise DriveClientError(f"Failed to upload file: {e}")
 
+    def upload_bytes(
+        self,
+        data: bytes,
+        file_name: str,
+        mime_type: Optional[str] = None,
+        folder_id: Optional[str] = None,
+        convert: bool = False,
+    ) -> Dict:
+        """Upload bytes held in memory (no FS: an MCP server's file reference).
+
+        `convert=True` turns an office file into its Google-native counterpart —
+        .xlsx/.xls/.ods/.csv → Sheets, .docx/.doc/.odt/.rtf/.txt/.html → Docs,
+        .pptx/.ppt/.odp → Slides —, formatting kept as Google's import keeps it. A
+        file with no native counterpart is refused with `convert=True`, never
+        uploaded as is in its place. The mime is read from `mime_type`, else from
+        the name's extension."""
+        mime = mime_type if mime_type and mime_type != 'application/octet-stream' \
+            else self._guess_mime_type(Path(file_name))
+        body: Dict[str, Any] = {'name': file_name}
+        if folder_id:
+            body['parents'] = [folder_id]
+        if convert:
+            target = _NATIVE_TARGET.get(mime)
+            if target is None:
+                raise DriveClientError(
+                    f"{file_name!r} ({mime}) has no Google-native counterpart: "
+                    "upload it without convert")
+            body['mimeType'] = target
+        from googleapiclient.http import MediaIoBaseUpload
+        media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime, resumable=True)
+        try:
+            created = self.service.files().create(
+                body=body, media_body=media,
+                fields='id,name,mimeType,webViewLink,size',
+                supportsAllDrives=True,
+            ).execute()
+        except Exception as e:
+            raise DriveClientError(f"Failed to upload {file_name!r}: {e}")
+        return {
+            'id': created['id'],
+            'name': created['name'],
+            'mimeType': created['mimeType'],
+            'webViewLink': created.get('webViewLink'),
+            'size': created.get('size'),
+            'converted': convert,
+        }
+
     def get_file_metadata(self, file_id: str) -> Dict:
         """
         Get metadata for a specific file.
@@ -595,6 +665,11 @@ class DriveClient:
             '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             '.ppt': 'application/vnd.ms-powerpoint',
             '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+            '.odt': 'application/vnd.oasis.opendocument.text',
+            '.odp': 'application/vnd.oasis.opendocument.presentation',
+            '.rtf': 'application/rtf',
+            '.html': 'text/html',
             '.txt': 'text/plain',
             '.csv': 'text/csv',
             '.json': 'application/json',

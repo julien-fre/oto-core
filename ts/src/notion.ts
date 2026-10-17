@@ -5,6 +5,7 @@ export const searchWorkspace = defineFunction({
   name: "notion.search_workspace",
   connector: "notion",
   class: "read",
+  act: false,
   description: "Search the pages and databases shared with the integration, one page of results at a time (at most 100). The integration sees only what was shared with it in Notion: an empty result with an empty query and no filter means nothing is shared, not that the workspace is empty. Databases come back as data_source objects. Pass next_cursor as start_cursor to read the next page.",
   schema: {
     "type": "object",
@@ -58,6 +59,7 @@ export const getPage = defineFunction({
   name: "notion.get_page",
   connector: "notion",
   class: "read",
+  act: false,
   description: "Get a page's metadata and property values, not its content (see get_page_markdown or list_block_children for the content).",
   schema: {
     "type": "object",
@@ -92,6 +94,7 @@ export const listBlockChildren = defineFunction({
   name: "notion.list_block_children",
   connector: "notion",
   class: "read",
+  act: false,
   description: "List the blocks directly inside a page or a block, one level only, one page of results at a time. A block with has_children true is read the same way with its own id.",
   schema: {
     "type": "object",
@@ -136,6 +139,7 @@ export const queryDataSource = defineFunction({
   name: "notion.query_data_source",
   connector: "notion",
   class: "read",
+  act: false,
   description: "Query the rows of a database through its data source, one page at a time. Pass the data source id that search_workspace returns for a database, not the database id.",
   schema: {
     "type": "object",
@@ -189,6 +193,7 @@ export const createPage = defineFunction({
   name: "notion.create_page",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Create a page under a page, or a row in a database through its data source. For a row, properties are keyed by column name and must set the title column (whatever its name). children holds at most 100 blocks; add more with append_block_children.",
   schema: {
     "type": "object",
@@ -258,6 +263,7 @@ export const updatePage = defineFunction({
   name: "notion.update_page",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Update a page's property values, icon or cover, or move it to the trash (in_trash true) and back (in_trash false). The trash can be emptied from Notion.",
   schema: {
     "type": "object",
@@ -299,6 +305,7 @@ export const movePage = defineFunction({
   name: "notion.move_page",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Move a page under another page, or into a database through its data source.",
   schema: {
     "type": "object",
@@ -361,6 +368,7 @@ export const appendBlockChildren = defineFunction({
   name: "notion.append_block_children",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Add at most 100 blocks inside a page or a block: at the end (default), at the start, or right after an existing child block.",
   schema: {
     "type": "object",
@@ -431,6 +439,7 @@ export const deleteBlock = defineFunction({
   name: "notion.delete_block",
   connector: "notion",
   class: "sensitive",
+  act: true,
   description: "Move one block to the trash, with its children. It can be restored from Notion until the trash is emptied.",
   schema: {
     "type": "object",
@@ -466,6 +475,7 @@ export const getPageMarkdown = defineFunction({
   name: "notion.get_page_markdown",
   connector: "notion",
   class: "read",
+  act: false,
   description: "Get a page's whole content as Notion-flavoured Markdown, lighter than reading blocks. truncated true with unknown_block_ids: some parts were not loaded (very large page, or child pages not shared); each id can be read the same way.",
   schema: {
     "type": "object",
@@ -500,6 +510,7 @@ export const editPageMarkdown = defineFunction({
   name: "notion.edit_page_markdown",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Edit a page's content as Markdown, in exactly one mode named by type: update_content (search and replace, at most 100 replacements, each old_str matching once unless replace_all_matches), replace_content (the whole page) or insert_content (at the start or the end). An edit that would remove child pages or databases is refused unless allow_deleting_content is true.",
   schema: {
     "type": "object",
@@ -594,6 +605,7 @@ export const listComments = defineFunction({
   name: "notion.list_comments",
   connector: "notion",
   class: "read",
+  act: false,
   description: "List the open (unresolved) comments on a page or a block, one page at a time. Each comment carries its discussion_id, to reply in the thread with add_comment. The integration needs the read comments capability, off by default in Notion.",
   schema: {
     "type": "object",
@@ -640,6 +652,7 @@ export const addComment = defineFunction({
   name: "notion.add_comment",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Comment on a page or a block, or reply in an existing discussion: give parent or discussion_id, not both. text is Markdown, inline formatting only. The integration needs the insert comments capability, off by default in Notion.",
   schema: {
     "type": "object",
@@ -702,6 +715,7 @@ export const updateComment = defineFunction({
   name: "notion.update_comment",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Rewrite a comment the integration wrote. text is Markdown, inline formatting only.",
   schema: {
     "type": "object",
@@ -737,6 +751,7 @@ export const deleteComment = defineFunction({
   name: "notion.delete_comment",
   connector: "notion",
   class: "sensitive",
+  act: true,
   description: "Delete a comment the integration wrote.",
   schema: {
     "type": "object",
@@ -772,6 +787,7 @@ export const createDatabase = defineFunction({
   name: "notion.create_database",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Create a database inside a page, with its column schema (initial_data_source.properties, which must contain one title column) or with one of Notion's own schemas (database_type), not both.",
   schema: {
     "type": "object",
@@ -835,6 +851,7 @@ export const listViews = defineFunction({
   name: "notion.list_views",
   connector: "notion",
   class: "read",
+  act: false,
   description: "List the views (tabs) of a database, by database id or by data source id, not both.",
   schema: {
     "type": "object",
@@ -884,6 +901,7 @@ export const getView = defineFunction({
   name: "notion.get_view",
   connector: "notion",
   class: "read",
+  act: false,
   description: "Get one database view: its type, filter, sorts and configuration.",
   schema: {
     "type": "object",
@@ -918,6 +936,7 @@ export const createView = defineFunction({
   name: "notion.create_view",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Add a view (tab) to a database, on one of its data sources. filter and sorts take the same format as query_data_source; configuration holds type-specific settings (shown columns, group by) as get_view returns them.",
   schema: {
     "type": "object",
@@ -962,6 +981,7 @@ export const updateView = defineFunction({
   name: "notion.update_view",
   connector: "notion",
   class: "write",
+  act: true,
   description: "Change a view's name, filter, sorts or configuration. filter or sorts set to null resets them.",
   schema: {
     "type": "object",
@@ -999,6 +1019,7 @@ export const deleteView = defineFunction({
   name: "notion.delete_view",
   connector: "notion",
   class: "sensitive",
+  act: true,
   description: "Delete a database view. The data is untouched; the last view of a database cannot be deleted.",
   schema: {
     "type": "object",
@@ -1032,6 +1053,7 @@ export const listUsers = defineFunction({
   name: "notion.list_users",
   connector: "notion",
   class: "read",
+  act: false,
   description: "List the workspace members, guests and bots, one page at a time: their ids fill people properties and mentions.",
   schema: {
     "type": "object",
@@ -1074,7 +1096,7 @@ export const connector = defineConnector({
   apiVersion: "2025-09-03",
   baseUrl: "https://api.notion.com/v1",
   auth: {"kind": "bearer", "token": "token"},
-  credential: [{"name": "token", "label": "Integration token", "secret": true}],
+  credential: [{"name": "token", "label": "Integration token", "secret": true, "holder": "account"}],
   modes: ["byo_user", "byo_org"],
   timeoutMs: 60000,
   headers: {"Notion-Version": "2025-09-03"},

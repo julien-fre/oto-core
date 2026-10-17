@@ -345,6 +345,13 @@ class GmailClient:
             })
         return out
 
+    def send_draft(self, draft_id: str) -> dict:
+        """Send an existing draft as it stands. The draft leaves the drafts list."""
+        sent = self.service.users().drafts().send(
+            userId='me', body={'id': draft_id},
+        ).execute()
+        return {'id': sent['id'], 'threadId': sent.get('threadId', '')}
+
     def delete_draft(self, draft_id: str) -> dict:
         """Delete a draft by its draft ID."""
         self.service.users().drafts().delete(userId='me', id=draft_id).execute()

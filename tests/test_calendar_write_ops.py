@@ -70,6 +70,37 @@ def test_creer_sans_invites_ne_pose_aucune_liste():
     assert "attendees" not in c.service.vus[0][1]["body"]
 
 
+def test_creer_avec_meet_demande_le_lien_et_le_rend():
+    """Le lien Meet se demande dans le corps ET avec `conferenceDataVersion=1`,
+    sans quoi Google l'ignore sans erreur."""
+    c = _client({"id": "evt1", "summary": "Point", "status": "confirmed",
+                 "start": {"dateTime": "2026-09-12T10:00:00+02:00"},
+                 "end": {"dateTime": "2026-09-12T11:00:00+02:00"},
+                 "hangoutLink": "https://meet.google.com/abc-defg-hij"})
+    out = c.create_event("Point", "2026-09-12T10:00:00+02:00", meet=True)
+    kw = c.service.vus[0][1]
+    demande = kw["body"]["conferenceData"]["createRequest"]
+    assert demande["conferenceSolutionKey"] == {"type": "hangoutsMeet"}
+    assert demande["requestId"]
+    assert kw["conferenceDataVersion"] == 1
+    assert out["hangoutLink"] == "https://meet.google.com/abc-defg-hij"
+    assert "meet_status" not in out
+
+
+def test_un_lien_meet_encore_en_creation_est_dit():
+    c = _client({"id": "evt1", "status": "confirmed", "start": {}, "end": {},
+                 "conferenceData": {"createRequest": {"status": {"statusCode": "pending"}}}})
+    assert c.create_event("Point", "2026-09-12T10:00:00+02:00", meet=True)[
+        "meet_status"] == "pending"
+
+
+def test_sans_meet_aucune_conference_n_est_demandee():
+    c = _client()
+    c.create_event("Point", "2026-09-12T10:00:00+02:00")
+    kw = c.service.vus[0][1]
+    assert "conferenceData" not in kw["body"] and "conferenceDataVersion" not in kw
+
+
 def test_corriger_les_invites_remplace_la_liste_entiere():
     """Google REMPLACE un tableau passé à `patch` : la liste donnée est la nouvelle
     liste, `[]` retire tout le monde. Omis, les invités restent (banc suivant)."""

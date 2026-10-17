@@ -5,6 +5,7 @@ export const listCampaigns = defineFunction({
   name: "meta_ads.list_campaigns",
   connector: "meta_ads",
   class: "read",
+  act: false,
   description: "List the campaigns of one ad account, one page at a time. Default fields: id, name, status, effective_status, objective, budgets and dates. To get the next page, pass paging.cursors.after as after, only when paging.next is present.",
   schema: {
     "type": "object",
@@ -53,6 +54,7 @@ export const listAdsets = defineFunction({
   name: "meta_ads.list_adsets",
   connector: "meta_ads",
   class: "read",
+  act: false,
   description: "List the ad sets of one ad account, one page at a time. Default fields: id, name, status, effective_status, campaign_id, budgets, optimization goal, billing event and dates. To get the next page, pass paging.cursors.after as after, only when paging.next is present.",
   schema: {
     "type": "object",
@@ -101,6 +103,7 @@ export const listAds = defineFunction({
   name: "meta_ads.list_ads",
   connector: "meta_ads",
   class: "read",
+  act: false,
   description: "List the ads of one ad account, one page at a time. Default fields: id, name, status, effective_status, campaign_id, adset_id, creative and created_time. To get the next page, pass paging.cursors.after as after, only when paging.next is present.",
   schema: {
     "type": "object",
@@ -149,6 +152,7 @@ export const getObject = defineFunction({
   name: "meta_ads.get_object",
   connector: "meta_ads",
   class: "read",
+  act: false,
   description: "Read one object of the ad tree by its id: a campaign, an ad set, an ad, or an ad account (act_ followed by digits).",
   schema: {
     "type": "object",
@@ -184,6 +188,7 @@ export const getInsights = defineFunction({
   name: "meta_ads.get_insights",
   connector: "meta_ads",
   class: "read",
+  act: false,
   description: "Read performance insights (spend, reach, clicks, conversions) of an ad account, campaign, ad set or ad, synchronously, one page at a time. For long ranges, many breakdowns or ad level over a whole account, start an asynchronous report instead. Pass date_preset or time_range, not both. To get the next page, pass paging.cursors.after as after, only when paging.next is present.",
   schema: {
     "type": "object",
@@ -271,6 +276,7 @@ export const startInsightsReport = defineFunction({
   name: "meta_ads.start_insights_report",
   connector: "meta_ads",
   class: "write",
+  act: true,
   description: "Start an asynchronous insights report on Meta's side and return its report_run_id (valid 30 days). Then poll get_report_status until async_status is Job Completed, and read the rows with get_report_insights. Same parameters as get_insights; the attribution windows default to those of the synchronous call (7d_click, 1d_view), so both modes give the same figures.",
   schema: {
     "type": "object",
@@ -351,6 +357,7 @@ export const getReportStatus = defineFunction({
   name: "meta_ads.get_report_status",
   connector: "meta_ads",
   class: "read",
+  act: false,
   description: "Read the status of an asynchronous insights report: async_status (Job Completed, Job Failed, or still running) and async_percent_completion.",
   schema: {
     "type": "object",
@@ -386,6 +393,7 @@ export const getReportInsights = defineFunction({
   name: "meta_ads.get_report_insights",
   connector: "meta_ads",
   class: "read",
+  act: false,
   description: "Read the rows of a completed asynchronous insights report, one page at a time. To get the next page, pass paging.cursors.after as after, only when paging.next is present.",
   schema: {
     "type": "object",
@@ -423,7 +431,7 @@ export const connector = defineConnector({
   apiVersion: "v25.0",
   baseUrl: "https://graph.facebook.com/v25.0",
   auth: {"kind": "bearer", "token": "access_token"},
-  credential: [{"name": "access_token", "label": "Access token", "secret": true}],
+  credential: [{"name": "access_token", "label": "Access token", "secret": true, "holder": "account"}],
   modes: ["byo_user"],
   timeoutMs: 30000,
   errors: [
