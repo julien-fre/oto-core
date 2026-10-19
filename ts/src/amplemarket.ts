@@ -701,7 +701,8 @@ export const startPersonEnrichment = defineFunction({
     body: {"leads": "leads", "reveal_email": "reveal_email", "reveal_phone_numbers": "reveal_phone_numbers"},
     headers: {},
   },
-  cost: { per: "request" },
+  async: { collect: "amplemarket.get_person_enrichment", jobId: { from: "id", to: "request_id" } },
+  cost: { per: "item", items: "leads", unit: "leads" },
 })
 
 export const getPersonEnrichment = defineFunction({
@@ -823,7 +824,8 @@ export const startCompanyEnrichment = defineFunction({
     body: {"companies": "companies"},
     headers: {},
   },
-  cost: { per: "request" },
+  async: { collect: "amplemarket.get_company_enrichment", jobId: { from: "id", to: "request_id" } },
+  cost: { per: "item", items: "companies", unit: "companies" },
 })
 
 export const getCompanyEnrichment = defineFunction({
@@ -917,7 +919,8 @@ export const startEmailValidation = defineFunction({
     body: {"emails": "emails"},
     headers: {},
   },
-  cost: { per: "request" },
+  async: { collect: "amplemarket.get_email_validation", jobId: { from: "id", to: "validation_id" } },
+  cost: { per: "item", items: "emails", unit: "email_credits" },
 })
 
 export const getEmailValidation = defineFunction({
@@ -1218,7 +1221,8 @@ export const createLeadList = defineFunction({
     body: {"name": "name", "owner": "owner", "type": "type", "shared": "shared", "visible": "visible", "options": "options", "leads": "leads"},
     headers: {},
   },
-  cost: { per: "request" },
+  async: { collect: "amplemarket.get_lead_list", jobId: { from: "id", to: "lead_list_id" } },
+  cost: { per: "item", items: "leads", unit: "leads" },
 })
 
 export const addLeadsToLeadList = defineFunction({
@@ -1266,7 +1270,7 @@ export const addLeadsToLeadList = defineFunction({
     body: {"type": "type", "leads": "leads"},
     headers: {},
   },
-  cost: { per: "request" },
+  cost: { per: "item", items: "leads", unit: "leads" },
 })
 
 export const listSequences = defineFunction({

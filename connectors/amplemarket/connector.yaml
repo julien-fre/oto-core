@@ -21,11 +21,38 @@
 # - per-endpoint rate limits: 500 requests/min overall, 300/min on the people
 #   search, 350/min on the single person enrichment, 30/min on adding leads to
 #   a sequence, one daily-limit change per mailbox per minute and per hour.
-# - batches (enrichment, email validation) are asynchronous: start, then read
-#   the results until the status is final, or cancel.
 # - get_email_validation's page_size/page_after/page_before are not listed on
 #   that endpoint's reference page: they come from the API's pagination guide,
 #   which names email validation as cursor-paged (cursor on the email).
+#
+# Cost and collection of the batches, reference read on 2026-10-19:
+#   https://docs.amplemarket.com/api-reference/people-enrichment/start-enrichment-request.md
+#   https://docs.amplemarket.com/api-reference/email-validation/start-batch-of-email-validations.md
+#   https://docs.amplemarket.com/api-reference/companies-enrichment/start-enrichment-request.md
+#   https://docs.amplemarket.com/guides/lead-lists.md
+# - start_email_validation: "For each email that goes through the validation
+#   process will consume 1 email credit from your account": one email credit
+#   per email, exact.
+# - start_person_enrichment: "0.5 email credits when a person is found,
+#   charged at most once per 24 hours; 1 email credit when an email is
+#   revealed, only charged once; 1 phone credit when a phone number is
+#   revealed, only charged once". Two currencies, a half credit, and a price
+#   set by the top-level reveal_email / reveal_phone_numbers flags and by what
+#   is found: neither one unit nor weights (a list field of each lead) can say
+#   it. The batch is counted in leads, one per lead sent; its price per lead is
+#   the host's to set from that schedule.
+# - start_company_enrichment: the reference documents no credit consumption
+#   and no 402 for this batch; counted in companies, one per company sent.
+# - create_lead_list and add_leads_to_lead_list: the options
+#   reveal_phone_numbers, validate_email and enrich consume credits per lead
+#   (lead-lists guide), at no published rate; counted in leads.
+# - No batch response carries the credits it consumed: no settle, the worst
+#   case is settled. The reference bounds no batch's duration and says nothing
+#   of expiry: no within_s (optional without settle), and no no_deadline,
+#   which needs a source saying the job has none.
+# - Each batch answers 202 with its id, read back by the function named in
+#   its async block until the status is final (queued, processing, then
+#   completed or canceled).
 #
 # Not covered: the Duo custom-signal webhook (a per-workspace URL, not an API
 # route) and call recordings (a binary download).
@@ -557,7 +584,8 @@ functions:
       method: POST
       path: /people/enrichment-requests
       body: { leads: leads, reveal_email: reveal_email, reveal_phone_numbers: reveal_phone_numbers }
-    cost: { per: request }
+    cost: { per: item, items: leads, unit: leads }
+    async: { collect: get_person_enrichment, job_id: { from: id, to: request_id } }
 
   - name: get_person_enrichment
     class: read
@@ -640,7 +668,8 @@ functions:
       method: POST
       path: /companies/enrichment-requests
       body: { companies: companies }
-    cost: { per: request }
+    cost: { per: item, items: companies, unit: companies }
+    async: { collect: get_company_enrichment, job_id: { from: id, to: request_id } }
 
   - name: get_company_enrichment
     class: read
@@ -704,7 +733,8 @@ functions:
       method: POST
       path: /email-validations
       body: { emails: emails }
-    cost: { per: request }
+    cost: { per: item, items: emails, unit: email_credits }
+    async: { collect: get_email_validation, job_id: { from: id, to: validation_id } }
 
   - name: get_email_validation
     class: read
@@ -892,7 +922,8 @@ functions:
       method: POST
       path: /lead-lists
       body: { name: name, owner: owner, type: type, shared: shared, visible: visible, options: options, leads: leads }
-    cost: { per: request }
+    cost: { per: item, items: leads, unit: leads }
+    async: { collect: get_lead_list, job_id: { from: id, to: lead_list_id } }
 
   - name: add_leads_to_lead_list
     class: write
@@ -914,7 +945,7 @@ functions:
       method: POST
       path: "/lead-lists/{lead_list_id}/leads"
       body: { type: type, leads: leads }
-    cost: { per: request }
+    cost: { per: item, items: leads, unit: leads }
 
   # --- Sequences ----------------------------------------------------------
 
