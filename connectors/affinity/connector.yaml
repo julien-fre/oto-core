@@ -24,7 +24,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Affinity rejected the request as invalid: check the arguments." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "Affinity refused the API key: it is invalid or revoked." }
     - { status: 403, code: permission_denied, retryable: false,
         message: "Affinity refused this action: the key's user lacks a permission (reading list entries and writing list fields need Export data from Lists, writing global fields needs Edit Global Field Values), or the plan has no API access." }

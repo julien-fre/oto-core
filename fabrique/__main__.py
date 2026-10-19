@@ -1,4 +1,4 @@
-"""`python -m fabrique` régénère `ts/src/` ; `--check` échoue si la sortie commitée n'est pas à jour."""
+"""`python -m fabrique` régénère `ts/src/` et `oto/connectors/declared.py` ; `--check` échoue si la sortie commitée n'est pas à jour."""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         differ = stale(result)
         if differ:
-            print(f"out of date in {OUTPUT}: {', '.join(differ)} (run `python -m fabrique`)", file=sys.stderr)
+            print(f"out of date ({OUTPUT} and oto/connectors): {', '.join(differ)} (run `python -m fabrique`)", file=sys.stderr)
             return 1
         return 0
     write(result)

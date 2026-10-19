@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from ..common.credentials import require
+from ..common.errors import raise_for_upstream
 
 
 class AshbyClient:
@@ -46,12 +47,7 @@ class AshbyClient:
         not covered by a helper. Raises if `success` is false."""
         url = f"{self.BASE_URL}/{endpoint}"
         resp = self.session.post(url, json=body or {}, timeout=30)
-        if resp.status_code >= 400:
-            try:
-                payload = resp.json()
-            except Exception:
-                payload = resp.text
-            raise Exception(f"Ashby HTTP {resp.status_code}: {payload}")
+        raise_for_upstream(resp, service="ashby")
         data = resp.json() if resp.content else {}
         if isinstance(data, dict) and data.get("success") is False:
             raise Exception(f"Ashby error: {data.get('errors') or data}")

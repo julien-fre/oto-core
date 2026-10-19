@@ -1110,7 +1110,7 @@ export const connector = defineConnector({
   rateLimit: { requests: 100, intervalMs: 60000 },
   errors: [
     { status: 400, code: "invalid_request", message: "Modjo rejected the request as invalid: check the arguments.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Modjo rejected the API key: it is missing, invalid or revoked.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Modjo rejected the API key: it is missing, invalid or revoked.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "not_enabled", message: "This Modjo feature is not enabled for the workspace.", retryable: false },
     { status: 404, code: "not_found", message: "Modjo object not found.", retryable: false },
     { status: 409, code: "conflict", message: "Modjo refused the operation: the object is not ready yet, or already exists.", retryable: false },

@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from ..common.credentials import require
+from ..common.errors import UpstreamHTTPError
 
 
 class LightOnClient:
@@ -87,7 +88,7 @@ class LightOnClient:
                     msg = resp.text
             except Exception:
                 msg = resp.text
-            raise RuntimeError(f"LightOn {resp.status_code}: {msg}")
+            raise UpstreamHTTPError.from_response(resp, service="lighton", body=msg)
         if not resp.content:
             return None
         return resp.json()

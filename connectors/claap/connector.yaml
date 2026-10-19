@@ -20,7 +20,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Claap rejected the request as invalid: check the arguments." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "Claap rejected the API key: check the workspace key." }
     - { status: 403, code: not_allowed, retryable: false,
         message: "Claap refused the operation: the workspace plan or the permissions do not allow it." }

@@ -511,3 +511,241 @@ def test_act_is_a_boolean():
     description["functions"][0]["act"] = "no"
     with pytest.raises(ValidationError):
         _validate(description)
+
+
+# --- Signal de refus du service ------------------------------------------------------
+
+
+def _signal(d, **entry):
+    """Une entrée de la table d'erreurs qui marque le compte, sous une condition sur le corps."""
+    d["connector"]["errors"].insert(0, {"status": 400, "code": "key_refused", "message": "The key is refused.", "retryable": False,
+                                        "body": {"path": "error.code", "equals": ["invalid_key", 190, True]},
+                                        "marks_account": "credential_rejected", **entry})
+
+
+def test_account_signal_base_is_valid():
+    """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
+    description = _sellsy()
+    _signal(description)
+    description["functions"][0].setdefault("refusals", []).append(
+        {"code": "credits_spent", "when": 402, "message": "Credits spent.", "marks_account": "quota_exhausted"})
+    _validate(description)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: _signal(d, marks_account="revoked"),
+    lambda d: _signal(d, body={"path": "error.code"}),
+    lambda d: _signal(d, body={"path": "error.code", "equals": []}),
+    lambda d: _signal(d, body={"path": "error.code", "equals": [{"code": 1}]}),
+    lambda d: _signal(d, body={"path": "error.code", "equals": ["a"], "contains": "b"}),
+    lambda d: _signal(d, body={"path": "", "equals": ["a"]}),
+], ids=["unknown_mark", "body_without_equals", "equals_empty", "equals_not_a_scalar", "body_unknown_key", "empty_path"])
+def test_invalid_account_signal_is_rejected(mutate):
+    description = _sellsy()
+    mutate(description)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Sonde à solde ---------------------------------------------------------------------
+
+
+def _balance(d, **balance):
+    """Une sonde qui lit le solde d'un compte payant."""
+    d["connector"]["probe"] = {"function": "list_estimates", "balance": {"path": "credits.remaining", "min": 1, "unit": "credits", **balance}}
+
+
+def test_probe_balance_base_is_valid():
+    """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
+    description = _sellsy()
+    _balance(description)
+    _validate(description)
+    _balance(description, path="accounts.0.balance", min=0.5)
+    _validate(description)
+    _balance(description, min=0)
+    _validate(description)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: _balance(d, path=""),
+    lambda d: _balance(d, path=".credits"),
+    lambda d: _balance(d, path="credits."),
+    lambda d: _balance(d, path="credits..remaining"),
+    lambda d: _balance(d, path="credits remaining"),
+    lambda d: _balance(d, min="1"),
+    lambda d: _balance(d, min=-1),
+    lambda d: _balance(d, unit=""),
+    lambda d: _balance(d, covers="quota"),
+    lambda d: d["connector"].update(probe={"function": "list_estimates", "balance": {"path": "credits", "unit": "credits"}}),
+    lambda d: d["connector"].update(probe={"function": "list_estimates", "balance": {"path": "credits", "min": 1}}),
+], ids=["empty_path", "leading_dot", "trailing_dot", "empty_segment", "space_in_path", "min_not_a_number", "min_negative",
+        "empty_unit", "unknown_key", "without_min", "without_unit"])
+def test_invalid_probe_balance_is_rejected(mutate):
+    description = _sellsy()
+    mutate(description)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Délai propre à une fonction -------------------------------------------------------
+
+
+def test_function_timeout_base_is_valid():
+    """Même type et mêmes bornes que le délai du connecteur ; l'égalité avec lui est une règle de la fabrique."""
+    description = _sellsy()
+    description["functions"][0]["timeout_s"] = 1
+    _validate(description)
+    description["functions"][0]["timeout_s"] = 300
+    _validate(description)
+
+
+@pytest.mark.parametrize("value", [0, -5, 1.5, "60", None, 301],
+                         ids=["zero", "negative", "not_an_integer", "text", "null", "above_300"])
+def test_invalid_function_timeout_is_rejected(value):
+    description = _sellsy()
+    description["functions"][0]["timeout_s"] = value
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+def test_connector_timeout_has_the_same_bounds():
+    description = _sellsy()
+    description["connector"]["timeout_s"] = 300
+    _validate(description)
+    description["connector"]["timeout_s"] = 301
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Coût : pire cas, quantité relue ---------------------------------------------------
+
+
+def _cost(d, **cost):
+    """Le coût de `get_estimate` ; le schéma seul : l'argument nommé et sa forme sont la règle 12 de la fabrique."""
+    d["functions"][1]["cost"] = cost
+
+
+@pytest.mark.parametrize("cost", [
+    {"per": "request"},
+    {"per": "page"},
+    {"per": "request", "unit": "credits"},
+    {"per": "request", "unit": "credits", "settle": {"path": "credits_used"}},
+    {"per": "item", "items": "embed", "unit": "credits"},
+    {"per": "item", "items": "embed", "times": "fields", "unit": "fields", "settle": {"path": "data.0.found"}},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1, "b": 10}}, "unit": "credits", "settle": {"path": "cost.credits"}},
+], ids=["request", "page", "request_unit", "request_settle", "item", "item_times_settle", "item_weights_settle"])
+def test_cost_base_is_valid(cost):
+    """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
+    description = _sellsy()
+    _cost(description, **cost)
+    _validate(description)
+
+
+@pytest.mark.parametrize("cost", [
+    {"per": "call"},
+    {"per": "item", "unit": "credits"},
+    {"per": "item", "items": "embed"},
+    {"per": "request", "items": "embed"},
+    {"per": "request", "times": "fields"},
+    {"per": "item", "times": "fields", "unit": "credits"},
+    {"per": "request", "settle": {"path": "credits_used"}},
+    {"per": "request", "unit": "credits", "settle": {}},
+    {"per": "request", "unit": "credits", "settle": {"path": ".credits"}},
+    {"per": "request", "unit": "credits", "settle": {"path": "credits used"}},
+    {"per": "request", "unit": "credits", "settle": {"path": "credits_used", "max": 3}},
+    {"per": "request", "unit": ""},
+    {"per": "item", "items": "Embed", "unit": "credits"},
+    {"per": "request", "amount": 2},
+    {"per": "request", "weights": {"field": "fields", "values": {"a": 1, "b": 10}}},
+    {"per": "item", "items": "embed", "times": "fields", "weights": {"field": "fields", "values": {"a": 1, "b": 10}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1, "b": 10}}},
+    {"per": "item", "items": "embed", "weights": {"field": "fields"}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"values": {"a": 1}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 0}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": -1}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1.5}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": "1"}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"": 1}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "Fields", "values": {"a": 1}}, "unit": "credits"},
+    {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1}, "default": 1}, "unit": "credits"},
+], ids=["unknown_per", "item_without_items", "item_without_unit", "items_per_request", "times_per_request",
+        "times_without_items", "settle_without_unit", "settle_without_path", "settle_leading_dot", "settle_space",
+        "settle_unknown_key", "empty_unit", "items_not_an_identifier", "unknown_key",
+        "weights_per_request", "weights_with_times", "weights_without_unit", "weights_without_values",
+        "weights_without_field", "weights_empty_table", "weight_zero", "weight_negative", "weight_not_an_integer",
+        "weight_text", "weight_empty_value", "weights_field_not_an_identifier", "weights_unknown_key"])
+def test_invalid_cost_is_rejected(cost):
+    description = _sellsy()
+    _cost(description, **cost)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Travail asynchrone ----------------------------------------------------------------
+
+
+def _async(d, **declared):
+    """`list_estimates` soumet, `get_estimate` relève ; le schéma seul : la relève elle-même est la règle 13."""
+    d["functions"][0]["async"] = {"collect": "get_estimate", "job_id": {"from": "data.0.id", "to": "id"}, **declared}
+
+
+def test_async_base_is_valid():
+    description = _sellsy()
+    _async(description)
+    _validate(description)
+    _async(description, within_s=86400)
+    _validate(description)
+    description["functions"][0]["cost"] = {"per": "request", "unit": "credits", "settle": {"path": "used"}}
+    _async(description, within_s=600)
+    _validate(description)
+    _async(description, no_deadline=True)
+    _validate(description)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: _async(d, within_s=0),
+    lambda d: _async(d, within_s=86401),
+    lambda d: _async(d, within_s=1.5),
+    lambda d: _async(d, within_s="600"),
+    lambda d: _async(d, poll_s=30),
+    lambda d: _async(d, job_id={"from": "id"}),
+    lambda d: _async(d, job_id={"from": "data..id", "to": "id"}),
+    lambda d: _async(d, job_id={"from": "id", "to": "id", "as": "text"}),
+    lambda d: d["functions"][0].update({"async": {"job_id": {"from": "id", "to": "id"}}}),
+    lambda d: (_async(d), d["functions"][0].update(cost={"per": "request", "unit": "credits", "settle": {"path": "used"}})),
+    lambda d: _async(d, no_deadline=False),
+    lambda d: _async(d, no_deadline="true"),
+    lambda d: _async(d, within_s=600, no_deadline=True),
+    lambda d: (_async(d, no_deadline=False), d["functions"][0].update(cost={"per": "request", "unit": "credits", "settle": {"path": "used"}})),
+], ids=["within_zero", "within_above_a_day", "within_not_an_integer", "within_text", "unknown_key", "job_id_without_to",
+        "job_id_empty_segment", "job_id_unknown_key", "without_collect", "settled_without_within", "no_deadline_false",
+        "no_deadline_text", "no_deadline_and_within", "settled_no_deadline_false"])
+def test_invalid_async_is_rejected(mutate):
+    description = _sellsy()
+    mutate(description)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Fichiers d'un corps multipart -------------------------------------------------------
+
+
+def _files(d, files):
+    """`get_estimate` envoie son `id` en partie fichier ; le schéma seul : la place et la méthode sont la règle 14."""
+    d["functions"][1]["call"]["files"] = files
+
+
+def test_files_base_is_valid():
+    description = _sellsy()
+    _files(description, {"file": "id"})
+    _validate(description)
+
+
+@pytest.mark.parametrize("files", [{}, {"file": "Id"}, {"file": ""}, {"file": 1}, ["id"]],
+                         ids=["empty", "not_an_identifier", "empty_argument", "not_text", "a_list"])
+def test_invalid_files_are_rejected(files):
+    description = _sellsy()
+    _files(description, files)
+    with pytest.raises(ValidationError):
+        _validate(description)

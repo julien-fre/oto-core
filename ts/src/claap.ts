@@ -237,7 +237,7 @@ export const connector = defineConnector({
   queryArrays: "comma",
   errors: [
     { status: 400, code: "invalid_request", message: "Claap rejected the request as invalid: check the arguments.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Claap rejected the API key: check the workspace key.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Claap rejected the API key: check the workspace key.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "not_allowed", message: "Claap refused the operation: the workspace plan or the permissions do not allow it.", retryable: false },
     { status: 404, code: "not_found", message: "Claap object not found, or not visible to this key.", retryable: false },
     { status: 429, code: "rate_limited", message: "Claap rate limit reached (3 per second per endpoint, 3,000 per day per workspace): retry later.", retryable: true },

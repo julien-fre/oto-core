@@ -1,14 +1,22 @@
 // Chaque définition générée porte un nom qualifié et un JSON Schema d'entrée que valide un validateur JSON Schema 2020-12
 // standard (Ajv) : ses exemples passent, une clé inconnue est refusée. `format` reste une annotation, comme dans le test
-// des descriptions côté Python ; le mode strict d'Ajv signale tout mot-clé inconnu ou mal placé.
+// des descriptions côté Python ; le mode strict d'Ajv signale tout mot-clé inconnu ou mal placé, sauf `personal` (une
+// donnée personnelle, règle 14 de la fabrique), qu'il connaît comme le paquet de l'hôte qui ne la journalise pas.
 import { Ajv2020 } from "ajv/dist/2020.js"
 import { describe, expect, it } from "vitest"
 import { connectors } from "../src"
 
 const ajv = new Ajv2020({ strictTypes: false, strictTuples: false, validateFormats: false, allErrors: true })
+ajv.addKeyword({ keyword: "personal", schemaType: "boolean" })
 const functions = connectors.flatMap((connector) => connector.functions.map((fn) => [fn.name, connector, fn] as const))
 
 describe("generated definitions", () => {
+  it("should accept an input property marked personal, and refuse a mark that is not a boolean", () => {
+    const schema = { type: "object", additionalProperties: false, properties: { email: { type: "string", personal: true } } }
+    expect(ajv.validate(schema, { email: "someone@example.test" })).toBe(true)
+    expect(() => ajv.compile({ ...schema, properties: { email: { type: "string", personal: "yes" } } })).toThrow()
+  })
+
   it("should generate at least one function per connector", () => {
     for (const connector of connectors) expect(connector.functions.length, connector.name).toBeGreaterThan(0)
   })
@@ -30,7 +38,8 @@ describe("generated definitions", () => {
   it.each(functions)("%s: every path parameter and mapped argument names a schema key", (_name, _connector, fn) => {
     const keys = Object.keys(fn.schema.properties as object)
     for (const param of fn.request.pathParams) expect(keys).toContain(param)
-    for (const argument of [...Object.values(fn.request.query), ...Object.values(fn.request.body), ...Object.values(fn.request.headers)]) {
+    const mapped = [fn.request.query, fn.request.body, fn.request.headers, fn.request.files ?? {}].flatMap((names) => Object.values(names))
+    for (const argument of mapped) {
       expect(keys).toContain(argument)
     }
     for (const argument of Object.keys(fn.request.encode ?? {})) expect(keys).toContain(argument)
@@ -108,6 +117,27 @@ describe("generated definitions", () => {
     },
   )
 
+  // Signal de refus du service : un 2xx n'est un refus que sous une condition sur le corps ; un 403 seul ne dit jamais une
+  // clé refusée, ni un 429 seul des crédits épuisés ; ce qui marque le compte ne se rejoue pas.
+  it.each(connectors.map((c) => [c.name, c] as const))("%s: what marks the account is declared under a status, with a body condition where it must", (_name, connector) => {
+    const entries = [
+      ...connector.errors.map((e) => ({ statuses: typeof e.status === "number" ? [e.status] : e.status, body: e.body, mark: e.marksAccount, retryable: e.retryable })),
+      ...connector.functions.flatMap((fn) =>
+        fn.refusals.flatMap((r) => (typeof r.when === "number" ? [{ statuses: [r.when], body: r.body, mark: r.marksAccount, retryable: false }] : [])),
+      ),
+    ]
+    for (const { statuses, body, mark, retryable } of entries) {
+      if (statuses.some((status) => status >= 200 && status < 300)) expect(body).toBeDefined()
+      if (mark === "credential_rejected" && body === undefined) expect(statuses).not.toContain(403)
+      if (mark === "quota_exhausted" && body === undefined) expect(statuses).not.toContain(429)
+      if (mark !== undefined) expect(retryable).toBe(false)
+      if (body !== undefined) expect(body.equals.length).toBeGreaterThan(0)
+    }
+    for (const fn of connector.functions) {
+      for (const r of fn.refusals) if (typeof r.when === "string") expect(r.body ?? r.marksAccount, `${fn.name}: ${r.code}`).toBeUndefined()
+    }
+  })
+
   it.each(connectors.filter((c) => c.baseUrls).map((c) => [c.name, c] as const))("%s: base URLs give one address per choice", (_name, connector) => {
     const setting = connector.settings?.find((s) => s.name === connector.baseUrls?.setting)
     expect(setting?.type).toBe("choice")
@@ -115,5 +145,51 @@ describe("generated definitions", () => {
     expect(Object.keys(connector.baseUrls?.values ?? {}).sort()).toEqual([...setting.choices].sort())
     if (setting.default !== undefined) expect(setting.choices).toContain(setting.default)
     expect(connector.baseUrl).toBeUndefined()
+  })
+
+  const asyncJobs = functions.flatMap(([name, connector, fn]) => (fn.async ? [[name, connector, fn.async] as const] : []))
+  it.each(asyncJobs)("%s: the job is collected by a read function of the connector whose only required argument is the job id", (name, connector, job) => {
+    const collect = connector.functions.find((fn) => fn.name === job.collect)
+    expect(collect?.class).toBe("read")
+    expect(collect?.name).not.toBe(name)
+    expect(collect?.schema.required).toEqual([job.jobId.to])
+  })
+
+  const uploads = functions.flatMap(([name, , fn]) => (fn.request.files ? [[name, fn, fn.request.files] as const] : []))
+  it("should declare at least one function that sends a file", () => {
+    expect(uploads.map(([name]) => name)).toContain("pennylane_firm.upload_dms_file")
+  })
+
+  it.each(uploads)("%s: each file part is a text argument, sent once in a body", (_name, fn, files) => {
+    expect(["POST", "PUT", "PATCH"]).toContain(fn.request.method)
+    expect(fn.pagination).toBeUndefined()
+    const properties = fn.schema.properties as Record<string, { type?: unknown }>
+    for (const [part, argument] of Object.entries(files)) {
+      expect(properties[argument]?.type).toBe("string")
+      expect(Object.keys(fn.request.body)).not.toContain(part)
+      expect(fn.request.encode?.[argument]).toBeUndefined()
+    }
+  })
+
+  it("should give each item cost two required list arguments", () => {
+    for (const [name, , fn] of functions) {
+      if (fn.cost?.per !== "item") continue
+      const lists = [fn.cost.items, ...(fn.cost.times === undefined ? [] : [fn.cost.times])]
+      for (const argument of lists) expect(fn.schema.required, name).toContain(argument)
+    }
+  })
+
+  it("should weigh every allowed value of a weighted cost, and nothing else", () => {
+    const weighted = functions.filter(([, , fn]) => fn.cost?.per === "item" && fn.cost.weights !== undefined)
+    expect(weighted.length).toBeGreaterThan(0)
+    for (const [name, , fn] of weighted) {
+      if (fn.cost?.per !== "item" || fn.cost.weights === undefined) continue
+      const properties = fn.schema.properties as Record<string, { items?: { required?: string[]; properties?: Record<string, { items?: { enum?: string[] } }> } }>
+      const element = properties[fn.cost.items]?.items
+      expect(element?.required, name).toContain(fn.cost.weights.field)
+      const allowed = element?.properties?.[fn.cost.weights.field]?.items?.enum ?? []
+      expect([...allowed].sort(), name).toEqual(Object.keys(fn.cost.weights.values).sort())
+      for (const weight of Object.values(fn.cost.weights.values)) expect(Number.isInteger(weight) && weight >= 1, name).toBe(true)
+    }
   })
 })

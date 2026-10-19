@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from ..common.credentials import require
+from ..common.errors import raise_for_upstream
 
 
 class GreenhouseClient:
@@ -45,12 +46,7 @@ class GreenhouseClient:
         if on_behalf_of is not None:
             headers["On-Behalf-Of"] = str(on_behalf_of)
         resp = self.session.request(method, url, headers=headers, timeout=30, **kwargs)
-        if resp.status_code >= 400:
-            try:
-                body = resp.json()
-            except Exception:
-                body = resp.text
-            raise Exception(f"Greenhouse HTTP {resp.status_code}: {body}")
+        raise_for_upstream(resp, service="greenhouse")
         return resp.json() if resp.content else {}
 
     # --- Candidates ---------------------------------------------------------

@@ -457,8 +457,8 @@ export const listCohorts = defineFunction({
 export const requestCohortDownload = defineFunction({
   name: "amplitude.request_cohort_download",
   connector: "amplitude",
-  class: "write",
-  act: true,
+  class: "read",
+  act: false,
   description: "Start a download job for one cohort and return its request_id. Each request counts against the project's 500 cohort downloads per month. Poll get_cohort_download_status with the request_id until JOB COMPLETED.",
   schema: {
     "type": "object",
@@ -486,6 +486,7 @@ export const requestCohortDownload = defineFunction({
     body: {},
     headers: {},
   },
+  async: { collect: "amplitude.get_cohort_download_status", jobId: { from: "request_id", to: "request_id" } },
 })
 
 export const getCohortDownloadStatus = defineFunction({
@@ -520,7 +521,7 @@ export const connector = defineConnector({
   name: "amplitude",
   label: "Amplitude",
   namespace: "amplitude",
-  version: "1.1.0",
+  version: "1.2.0",
   apiVersion: "Dashboard REST and Taxonomy api/2; charts and cohort list api/3; cohort download api/5",
   baseUrls: {"setting": "region", "values": {"us": "https://amplitude.com", "eu": "https://analytics.eu.amplitude.com"}},
   auth: {"kind": "basic", "username": "api_key", "password": "secret_key"},

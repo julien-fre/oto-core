@@ -4,7 +4,9 @@ import * as aircall from "./aircall"
 import * as amplemarket from "./amplemarket"
 import * as amplitude from "./amplitude"
 import * as claap from "./claap"
+import * as elevenlabs from "./elevenlabs"
 import * as fod from "./fod"
+import * as fullenrich from "./fullenrich"
 import * as gmail from "./gmail"
 import * as googleCalendar from "./google_calendar"
 import * as googleDrive from "./google_drive"
@@ -12,10 +14,12 @@ import * as googleSheets from "./google_sheets"
 import * as klaviyo from "./klaviyo"
 import * as linkedinUnipile from "./linkedin_unipile"
 import * as mailpool from "./mailpool"
+import * as malibou from "./malibou"
 import * as metaAds from "./meta_ads"
 import * as microsoft from "./microsoft"
 import * as microsoftApp from "./microsoft_app"
 import * as modjo from "./modjo"
+import * as mux from "./mux"
 import * as nextmotion from "./nextmotion"
 import * as notion from "./notion"
 import * as pappers from "./pappers"
@@ -33,7 +37,9 @@ export { aircall }
 export { amplemarket }
 export { amplitude }
 export { claap }
+export { elevenlabs }
 export { fod }
+export { fullenrich }
 export { gmail }
 export { googleCalendar }
 export { googleDrive }
@@ -41,10 +47,12 @@ export { googleSheets }
 export { klaviyo }
 export { linkedinUnipile }
 export { mailpool }
+export { malibou }
 export { metaAds }
 export { microsoft }
 export { microsoftApp }
 export { modjo }
+export { mux }
 export { nextmotion }
 export { notion }
 export { pappers }
@@ -65,7 +73,9 @@ export const connectors: readonly Connector[] = [
   amplemarket.connector,
   amplitude.connector,
   claap.connector,
+  elevenlabs.connector,
   fod.connector,
+  fullenrich.connector,
   gmail.connector,
   googleCalendar.connector,
   googleDrive.connector,
@@ -73,10 +83,12 @@ export const connectors: readonly Connector[] = [
   klaviyo.connector,
   linkedinUnipile.connector,
   mailpool.connector,
+  malibou.connector,
   metaAds.connector,
   microsoft.connector,
   microsoftApp.connector,
   modjo.connector,
+  mux.connector,
   nextmotion.connector,
   notion.connector,
   pappers.connector,

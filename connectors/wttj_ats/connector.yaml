@@ -17,7 +17,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Welcome to the Jungle rejected the request as invalid (validation_failed): check the arguments." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "Welcome to the Jungle rejected the API token: it is wrong or revoked." }
     - { status: 403, code: forbidden, retryable: false,
         message: "Welcome to the Jungle refused access: the token lacks the scope this call needs (invalid_scope), or the resource is not reachable with it." }

@@ -73,8 +73,7 @@ class MistralClient:
             timeout=60,
         )
 
-        if not resp.ok:
-            raise Exception(f"Mistral API error: {resp.status_code} {resp.text}")
+        raise_for_upstream(resp, service="Mistral")
 
         return resp.json()
 
@@ -154,8 +153,7 @@ class MistralClient:
             timeout=120,
         )
 
-        if not resp.ok:
-            raise Exception(f"Mistral API error: {resp.status_code} {resp.text}")
+        raise_for_upstream(resp, service="Mistral")
 
         return resp.json()
 

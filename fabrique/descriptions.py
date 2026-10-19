@@ -4,9 +4,9 @@ Un fichier est lu, validé contre `connectors/connector.schema.json` (chaque exe
 contre l'entrée de sa fonction), puis contre les règles que le schéma JSON ne sait
 pas dire :
 
-1. chaque argument d'entrée va à un seul endroit de `call` (chemin, query, corps ou
-   en-tête), chaque `{param}` du chemin et chaque valeur de `query`, `body` et
-   `headers` nomme un argument déclaré, un argument du chemin est requis, aucun
+1. chaque argument d'entrée va à un seul endroit de `call` (chemin, query, corps,
+   en-tête ou partie fichier), chaque `{param}` du chemin et chaque valeur de `query`,
+   `body`, `headers` et `files` nomme un argument déclaré, un argument du chemin est requis, aucun
    argument n'est sans place, et le `request_param` d'une pagination est un
    argument ;
 2. chaque référence de `auth` (`key`, `token`, `username`, `password`, `client_id`,
@@ -20,8 +20,9 @@ pas dire :
 4. chaque contrôle (`checks`, `expect`) nomme un refus de sa fonction ; `equal_sums`
    porte sur un argument liste dont les éléments déclarent les deux champs ;
 5. la sonde, et l'identité d'un `oauth2_user` lue par une fonction, nomment une
-   fonction de lecture du connecteur, appelée par `call`, sans argument requis ;
-   l'identité lue à une adresse complète exige des droits que le consentement
+   fonction de lecture du connecteur, appelée par `call`, sans argument requis ; la
+   fonction d'une sonde qui lit un solde (`balance`) ne déclare pas de coût (`cost`) :
+   on ne paie pas pour savoir si l'on peut payer ; l'identité lue à une adresse complète exige des droits que le consentement
    demande (ses `scopes`, quand le connecteur n'a pas de niveaux ; à chaque niveau
    sinon, règle 7) ;
 6. les réglages : un nom n'est déclaré qu'une fois parmi `credential`, `settings` et
@@ -46,7 +47,48 @@ pas dire :
    API de `call` (paramètre du chemin, de query, de corps, en-tête), aucune constante
    ni aucun en-tête constant ne porte son nom : l'agent ne la fournit jamais ;
 9. `act` suit la classe : jamais `false` sur une fonction `sensitive`, jamais `true`
-   sur une fonction `read` ; absent, il vaut `false` pour `read`, `true` sinon.
+   sur une fonction `read` ; absent, il vaut `false` pour `read`, `true` sinon ;
+10. le signal de refus du service (une entrée de `errors` ou un refus qui porte
+   `marks_account`, une condition sur le corps `body`) : un refus qui porte l'un ou
+   l'autre a un statut pour `when`, jamais une condition en texte ; un statut 2xx
+   exige une condition sur le corps (sinon chaque succès serait un refus) ; un 403
+   sans condition sur le corps ne marque jamais `credential_rejected` (un droit
+   manquant n'est pas une clé refusée), ni un 429 sans condition `quota_exhausted`
+   (un débit dépassé n'est pas un crédit épuisé) ; une entrée qui marque le compte
+   n'est pas rejouable ; dans une même table, une entrée à condition ne vient pas
+   après une entrée sans condition qui partage un de ses statuts (elle ne serait
+   jamais lue) ;
+11. le délai propre à une fonction (`timeout_s`) remplace celui du connecteur pour
+   chacun de ses appels, plus court ou plus long ; il n'est jamais égal au délai du
+   connecteur (déclaré, ou 30 s par défaut) : il ne dirait rien ;
+12. le coût (`cost`) : `items` et `times` (`per: item`) nomment deux arguments
+   distincts de l'entrée, des listes (`type: array`) requises d'au moins un élément
+   (`minItems` d'un ou plus), de sorte que le pire cas se calcule toujours, jamais
+   nul ni deviné ; une fonction paginée ne coûte ni à l'élément ni à la quantité
+   relue (`settle`) : chaque page est une requête, et une quantité lue dans une seule
+   réponse ne dirait pas celle de l'appel ;
+13. le travail asynchrone (`async`) : `collect` nomme une autre fonction de lecture du
+   connecteur, appelée par `call`, qui n'est pas elle-même asynchrone ; `job_id.to`
+   en est le seul argument requis (la relève se fait sans rien d'autre que
+   l'identifiant du travail) ; quand le coût se règle (`settle`), la quantité se lit
+   dans les réponses de la relève : elle n'est pas paginée et ne déclare pas de
+   `settle` à elle ; le délai de relève (`within_s`, exigé par le schéma dans ce cas,
+   sauf `no_deadline` quand la référence de l'éditeur dit qu'un travail n'a pas
+   d'échéance) est plus long que le délai de la soumission, quand il est déclaré ;
+14. les fichiers (`call.files`, une partie d'un corps multipart par argument qui
+   porte l'identifiant d'un fichier en transit de l'appelant) : la méthode envoie un
+   corps (`POST`, `PUT`, `PATCH`) ; la fonction n'est pas paginée ; chaque argument
+   fichier est un texte (`type: string`), jamais encodé ; un nom de partie fichier
+   n'est ni un nom de `body` ni une constante de corps (une partie, une valeur) ;
+15. la donnée personnelle (`personal`) : dans l'entrée, sur une propriété seulement,
+   jamais à la racine, et toujours `true` ; jamais dans le schéma de la sortie, où elle
+   ne voudrait rien dire. L'hôte ne journalise pas sa valeur ;
+16. le poids d'une valeur (`cost.weights`, à la place de `times`) : `field` nomme un
+   champ de chaque élément de `items`, requis dans l'élément, une liste d'au moins un
+   élément aux valeurs uniques, dont les valeurs admises (`enum`) sont exactement les
+   clés de la table de poids : une valeur sans poids est refusée par le schéma
+   d'entrée, avant l'appel, jamais comptée pour rien, et un poids ne vaut que pour une
+   valeur admise.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -66,8 +108,12 @@ CONNECTORS = REPO / "connectors"
 SCHEMA_PATH = CONNECTORS / "connector.schema.json"
 
 PATH_PARAM = re.compile(r"\{([^{}]*)\}")
+# Le délai d'un appel quand le connecteur n'en déclare pas (le `default` du schéma).
+DEFAULT_TIMEOUT_S = 30
 AUTH_REFERENCES = ("key", "token", "username", "password", "client_id", "client_secret")
-PLACES = ("query", "body", "headers")
+PLACES = ("query", "body", "headers", "files")
+# Les méthodes qui envoient un corps multipart.
+FILE_METHODS = ("POST", "PUT", "PATCH")
 # Ce qui précède l'identité d'un compte dans une adresse : le schéma et l'hôte (ou une adresse libre en tête), puis `/`.
 AFTER_HOST = re.compile(r"^(https://[^/{}]+|\{[a-z][a-z0-9_]*\})/")
 
@@ -152,9 +198,10 @@ def check_arguments(function: dict, where: str) -> None:
             f"{where}: function {name}: pagination request_param {pagination['request_param']!r} is not an input argument"
         )
     for argument in call.get("encode") or {}:
-        if argument not in placed or placed[argument] == "the path":
+        if argument not in placed or placed[argument] == "the path" or placed[argument].startswith("files "):
             raise DescriptionError(
                 f"{where}: function {name}: encode names {argument!r}, which is not placed in query, body or headers"
+                " (a file is never encoded)"
             )
 
 
@@ -232,6 +279,216 @@ def check_act(function: dict, where: str) -> None:
         raise DescriptionError(f"{where}: function {function['name']}: a read function cannot declare act: true")
 
 
+def check_timeout(connector: dict, function: dict, where: str) -> None:
+    """Règle 11 : le délai d'une fonction n'est pas celui du connecteur."""
+    own = function.get("timeout_s")
+    if own is not None and own == connector.get("timeout_s", DEFAULT_TIMEOUT_S):
+        raise DescriptionError(
+            f"{where}: function {function['name']}: timeout_s {own} is the connector's timeout: declare none"
+        )
+
+
+def _check_cost_list(function: dict, key: str, where: str) -> None:
+    """Un argument que le coût compte : une liste requise, d'au moins un élément."""
+    argument = function["cost"][key]
+    schema = function["input"]["properties"].get(argument)
+    if schema is None:
+        raise DescriptionError(f"{where}: function {function['name']}: cost.{key} names {argument!r}, which is not an input argument")
+    listed = schema.get("type") == "array" and isinstance(schema.get("minItems"), int) and schema["minItems"] >= 1
+    if not listed or argument not in function["input"].get("required", []):
+        raise DescriptionError(
+            f"{where}: function {function['name']}: cost.{key} {argument!r} must be a required list argument "
+            "(type: array, minItems 1 or more), so that the worst case is never zero nor guessed"
+        )
+
+
+def _check_cost_weights(function: dict, where: str) -> None:
+    """Règle 16, le poids d'une valeur : le champ qui porte les valeurs est, dans chaque élément de `items`, une liste requise
+    d'au moins un élément, aux valeurs uniques, dont les valeurs admises sont exactement les clés de la table."""
+    cost = function["cost"]
+    field = cost["weights"]["field"]
+    element = function["input"]["properties"][cost["items"]].get("items")
+    prefix = f"{where}: function {function['name']}: cost.weights.field {field!r}"
+    if not isinstance(element, dict) or not isinstance(element.get("properties"), dict) or field not in element["properties"]:
+        raise DescriptionError(f"{prefix} must be a property of each element of {cost['items']!r} (an object schema)")
+    schema = element["properties"][field]
+    listed = (schema.get("type") == "array" and isinstance(schema.get("minItems"), int) and schema["minItems"] >= 1
+              and schema.get("uniqueItems") is True)
+    if not listed or field not in element.get("required", []):
+        raise DescriptionError(
+            f"{prefix} must be a required list of each element (type: array, minItems 1 or more, uniqueItems: true), "
+            "so that each element counts at least one weight, each value once"
+        )
+    allowed = schema.get("items", {}).get("enum") if isinstance(schema.get("items"), dict) else None
+    table = set(cost["weights"]["values"])
+    if not isinstance(allowed, list) or not all(isinstance(v, str) for v in allowed) or set(allowed) != table:
+        raise DescriptionError(
+            f"{prefix}: its allowed values (items.enum, texts) must be exactly the keys of cost.weights.values "
+            f"({', '.join(sorted(table))}), so that a value without a weight is refused before the call"
+        )
+
+
+def check_cost(function: dict, where: str) -> None:
+    """Règle 12 : le coût à l'élément compte des listes requises et non vides, distinctes ; ni l'élément ni la quantité
+    relue sur une fonction paginée. Les valeurs pesées dans chaque élément sont la règle 16."""
+    cost = function.get("cost")
+    if cost is None:
+        return
+    name = function["name"]
+    if cost["per"] == "item":
+        _check_cost_list(function, "items", where)
+        if "weights" in cost:
+            _check_cost_weights(function, where)
+        if "times" in cost:
+            if cost["times"] == cost["items"]:
+                raise DescriptionError(f"{where}: function {name}: cost.times names the items argument {cost['items']!r} again")
+            _check_cost_list(function, "times", where)
+    if "pagination" in function and (cost["per"] == "item" or "settle" in cost):
+        raise DescriptionError(
+            f"{where}: function {name}: a paginated function costs per request or per page, without settle: "
+            "each page is a request, and one response does not tell the quantity of the call"
+        )
+
+
+def check_async(data: dict, function: dict, where: str) -> None:
+    """Règle 13 : la relève d'un travail asynchrone est une autre lecture du connecteur, appelable avec l'identifiant du
+    travail seul ; une quantité réglée se lit dans ses réponses, dans le délai de relève."""
+    declared = function.get("async")
+    if declared is None:
+        return
+    name = function["name"]
+    collect = next((f for f in data["functions"] if f["name"] == declared["collect"]), None)
+    if collect is None or collect is function:
+        raise DescriptionError(f"{where}: function {name}: async.collect names {declared['collect']!r}, which is not another function of the connector")
+    if collect["class"] != "read" or "call" not in collect or "async" in collect:
+        raise DescriptionError(
+            f"{where}: function {name}: async.collect {collect['name']!r} must be a read function with a call, not asynchronous itself"
+        )
+    to = declared["job_id"]["to"]
+    if collect["input"].get("required", []) != [to] or to not in collect["input"]["properties"]:
+        raise DescriptionError(
+            f"{where}: function {name}: async.job_id.to {to!r} must be the only required argument of {collect['name']!r}"
+        )
+    timeout = function.get("timeout_s", data["connector"].get("timeout_s", DEFAULT_TIMEOUT_S))
+    if "within_s" in declared and declared["within_s"] <= timeout:
+        raise DescriptionError(
+            f"{where}: function {name}: async.within_s {declared['within_s']} must exceed the timeout of the submission ({timeout} s)"
+        )
+    if "settle" in function.get("cost", {}) and ("pagination" in collect or "settle" in collect.get("cost", {})):
+        raise DescriptionError(
+            f"{where}: function {name}: its quantity is read in the responses of {collect['name']!r}, "
+            "which must be neither paginated nor settled on its own"
+        )
+
+
+def check_files(function: dict, where: str) -> None:
+    """Règle 14 : les parties fichier d'un corps multipart, dans une requête qui envoie un corps, une fois, sans
+    pagination ; l'argument d'une partie porte l'identifiant d'un fichier en transit, un texte."""
+    call = function.get("call") or {}
+    files = call.get("files")
+    if not files:
+        return
+    name = function["name"]
+    if call["method"] not in FILE_METHODS:
+        raise DescriptionError(f"{where}: function {name}: call.files needs a method that sends a body ({', '.join(FILE_METHODS)})")
+    if "pagination" in function:
+        raise DescriptionError(f"{where}: function {name}: a function that sends files is not paginated: a file is sent once")
+    texts = set(call.get("body") or {}) | set((call.get("constants") or {}).get("body") or {})
+    for part, argument in files.items():
+        if part in texts:
+            raise DescriptionError(f"{where}: function {name}: multipart part {part!r} is both a file and a body value")
+        if function["input"]["properties"][argument].get("type") != "string":
+            raise DescriptionError(
+                f"{where}: function {name}: file argument {argument!r} must be type: string, the id of a transit file"
+            )
+
+
+# Les mots d'un JSON Schema dont la valeur est un schéma, une liste de schémas, ou des schémas par nom : la donnée
+# personnelle se cherche là seulement, jamais dans `examples`, `default`, `const` ni `enum`, et le nom d'une propriété
+# (une propriété qui s'appellerait `personal`) n'est jamais lu comme un mot.
+SCHEMA_KEYWORDS = ("items", "additionalProperties", "not", "if", "then", "else", "contains", "propertyNames",
+                   "unevaluatedItems", "unevaluatedProperties")
+SCHEMA_LISTS = ("allOf", "anyOf", "oneOf", "prefixItems")
+SCHEMA_MAPS = ("properties", "patternProperties", "$defs", "dependentSchemas")
+
+
+def _personal_marks(schema: object, at: str) -> list[tuple[str, object]]:
+    """Chaque `personal` d'un schéma, avec sa place (`input.properties.email`)."""
+    if not isinstance(schema, dict):
+        return []
+    found = [(at, schema["personal"])] if "personal" in schema else []
+    for key in SCHEMA_KEYWORDS:
+        found += _personal_marks(schema.get(key), f"{at}.{key}")
+    for key in SCHEMA_LISTS:
+        for index, child in enumerate(schema.get(key) or []):
+            found += _personal_marks(child, f"{at}.{key}[{index}]")
+    for key in SCHEMA_MAPS:
+        for name, child in (schema.get(key) or {}).items():
+            found += _personal_marks(child, f"{at}.{key}.{name}")
+    return found
+
+
+def check_personal(function: dict, where: str) -> None:
+    """Règle 15 : `personal` marque une propriété de l'entrée, toujours `true` ; ni la racine ni la sortie."""
+    name = function["name"]
+    for at, value in _personal_marks(function["input"], "input"):
+        if at == "input":
+            raise DescriptionError(f"{where}: function {name}: personal marks a property of input, not input itself")
+        if value is not True:
+            raise DescriptionError(f"{where}: function {name}: {at}: personal must be true (declare it only where it applies)")
+    schema = (function.get("output") or {}).get("schema")
+    for at, _ in _personal_marks(schema, "output.schema"):
+        raise DescriptionError(f"{where}: function {name}: {at}: personal marks an input argument, not an output field")
+
+
+def _statuses(entry: dict) -> list[int]:
+    status = entry["status"] if "status" in entry else entry["when"]
+    return status if isinstance(status, list) else [status]
+
+
+def _check_signal_table(entries: list[dict], at: str, where: str) -> None:
+    """Règle 10, sur une table (`errors` du connecteur, ou les refus d'une fonction)."""
+    plain: set[int] = set()
+    for entry in entries:
+        label = f"{at} {entry['code']!r}"
+        if "status" not in entry and not isinstance(entry["when"], int):
+            if "body" in entry or "marks_account" in entry:
+                raise DescriptionError(
+                    f"{where}: {label}: a refusal with body or marks_account needs an HTTP status in when, not a text condition"
+                )
+            continue
+        statuses = _statuses(entry)
+        body = "body" in entry
+        mark = entry.get("marks_account")
+        if not body and any(200 <= status < 300 for status in statuses):
+            raise DescriptionError(f"{where}: {label}: a 2xx status needs a body condition, or every success would be refused")
+        if mark == "credential_rejected" and not body and 403 in statuses:
+            raise DescriptionError(
+                f"{where}: {label}: a 403 without a body condition cannot mark credential_rejected (a missing right is not a refused key)"
+            )
+        if mark == "quota_exhausted" and not body and 429 in statuses:
+            raise DescriptionError(
+                f"{where}: {label}: a 429 without a body condition cannot mark quota_exhausted (a rate limit is not spent credits)"
+            )
+        if mark is not None and entry.get("retryable") is True:
+            raise DescriptionError(f"{where}: {label}: an entry that marks the account is not retryable")
+        shadowed = sorted(plain.intersection(statuses))
+        if body and shadowed:
+            raise DescriptionError(
+                f"{where}: {label}: its body condition comes after an entry without one for status "
+                f"{', '.join(map(str, shadowed))}, so it is never read"
+            )
+        if not body:
+            plain.update(statuses)
+
+
+def check_signals(data: dict, where: str) -> None:
+    """Règle 10 : le signal de refus du service, dans la table du connecteur et dans les refus de chaque fonction."""
+    _check_signal_table(data["connector"]["errors"], "errors", where)
+    for function in data["functions"]:
+        _check_signal_table(function.get("refusals", []), f"function {function['name']}: refusal", where)
+
+
 def check_checks(function: dict, where: str) -> None:
     """Règle 4 : un contrôle nomme un refus de sa fonction, et `equal_sums` une liste qui a ses deux champs."""
     name = function["name"]
@@ -263,10 +520,16 @@ def _plain_read(data: dict, role: str, name: str, where: str) -> None:
 
 
 def check_probe(data: dict, where: str) -> None:
-    """Règle 5 : la sonde et l'identité d'un consentement sont des lectures par `call`, appelables sans argument."""
+    """Règle 5 : la sonde et l'identité d'un consentement sont des lectures par `call`, appelables sans argument ; la
+    fonction d'une sonde qui lit un solde ne coûte rien."""
     probe = data["connector"].get("probe")
     if probe is not None:
         _plain_read(data, "probe", probe["function"], where)
+        function = next(f for f in data["functions"] if f["name"] == probe["function"])
+        if "balance" in probe and "cost" in function:
+            raise DescriptionError(
+                f"{where}: probe {probe['function']!r} reads a balance, so it must declare no cost: one never pays to learn whether one can pay"
+            )
     auth = data["connector"]["auth"]
     identity = auth.get("identity")
     if identity is not None and "function" in identity:
@@ -478,6 +741,12 @@ def check(data: dict, path: pathlib.Path) -> Description:
     check_schema(data, where)
     if data["connector"]["name"] != path.parent.name:
         raise DescriptionError(f"{where}: connector.name {data['connector']['name']!r} is not the folder name")
+    check_rules(data, where)
+    return Description(path=path, data=data)
+
+
+def check_rules(data: dict, where: str) -> None:
+    """Les règles hors schéma, sur une description déjà validée par le schéma (`check`, et les cas du coût)."""
     check_auth(data["connector"], where)
     check_account_identity(data, where)
     check_settings(data["connector"], where)
@@ -486,13 +755,18 @@ def check(data: dict, path: pathlib.Path) -> Description:
         check_constants(data["connector"], function, where)
         check_checks(function, where)
         check_act(function, where)
+        check_timeout(data["connector"], function, where)
+        check_cost(function, where)
+        check_async(data, function, where)
+        check_files(function, where)
+        check_personal(function, where)
     names = [function["name"] for function in data["functions"]]
     twice = sorted({n for n in names if names.count(n) > 1})
     if twice:
         raise DescriptionError(f"{where}: function name(s) declared twice: {', '.join(twice)}")
     check_probe(data, where)
     check_access_levels(data, where)
-    return Description(path=path, data=data)
+    check_signals(data, where)
 
 
 def load(path: pathlib.Path) -> Description:

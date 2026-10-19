@@ -14,6 +14,7 @@ from typing import Optional, List, Dict, Any
 import requests
 
 from ..common.credentials import require
+from ..common.errors import raise_for_upstream
 from ..http.client import refuse_redirect
 
 # Pricing per million tokens (USD) — updated 2026-02
@@ -101,8 +102,7 @@ class AnthropicAdminClient:
             allow_redirects=False,
         )
         refuse_redirect(resp)
-        if not resp.ok:
-            raise Exception(f"Anthropic Admin API error: {resp.status_code} {resp.text}")
+        raise_for_upstream(resp, service="anthropic")
         return resp.json()
 
     def _get_all(self, path: str, params: dict = None) -> list:

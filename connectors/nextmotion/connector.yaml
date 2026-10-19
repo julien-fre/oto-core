@@ -24,6 +24,7 @@ connector:
   - status: 401
     code: access_rejected
     retryable: false
+    marks_account: credential_rejected
     message: 'Nextmotion rejected the API key: it is invalid, rerolled or deleted.'
   - status: 403
     code: forbidden

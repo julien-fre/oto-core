@@ -17,14 +17,12 @@
 # - starting a new thread (send_message with attendee_id): its route depends
 #   on whether the provider sorts messaging by inbox, with a fallback on 501;
 #   list_chats takes the inbox route, the one the client declares for LinkedIn;
-# - the attendee names that list_chats can add (contacts book, several calls);
-# - the shorter read timeout of get_company (60 s), the connector having one
-#   timeout only.
+# - the attendee names that list_chats can add (contacts book, several calls).
 connector:
   name: linkedin_unipile
   label: LinkedIn (Unipile)
   namespace: linkedin_unipile
-  version: 1.0.0
+  version: 1.1.0
   api_version: v2
   base_url: https://api.unipile.com/v2/{account_id}
   auth: { kind: api_key, in: header, name: X-API-KEY, key: api_key }
@@ -38,7 +36,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Unipile rejected the request as invalid: check the arguments." }
-    - { status: 401, code: account_disconnected, retryable: false,
+    - { status: 401, code: account_disconnected, retryable: false, marks_account: credential_rejected,
         message: "The LinkedIn session of this account is disconnected: reconnect your LinkedIn account." }
     - { status: 403, code: forbidden, retryable: false,
         message: "This action is out of the scope of this LinkedIn account (a LinkedIn product or permission it does not have)." }
@@ -130,6 +128,8 @@ functions:
     refusals:
       - { code: company_not_found, when: 404, message: "No LinkedIn company with this identifier: check the slug in the company page URL." }
     call: { method: GET, path: "/linkedin/company/{identifier}" }
+    # Company pages can hang while LinkedIn queues the request: fail at 60 s, as the Python client does.
+    timeout_s: 60
 
   - name: list_relations
     class: read

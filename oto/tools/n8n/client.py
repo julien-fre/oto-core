@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 import requests
 
 from ..common.credentials import require
+from ..common.errors import raise_for_upstream
 from ..http.client import refuse_redirect
 
 
@@ -54,12 +55,7 @@ class N8nClient:
         resp = self.session.request(method, url, timeout=30, allow_redirects=False,
                                     **kwargs)
         refuse_redirect(resp)
-        if resp.status_code >= 400:
-            try:
-                body = resp.json()
-            except Exception:
-                body = resp.text
-            raise Exception(f"n8n HTTP {resp.status_code}: {body}")
+        raise_for_upstream(resp, service="n8n")
         return resp.json() if resp.content else {}
 
     # --- Workflows ----------------------------------------------------------

@@ -15,7 +15,11 @@ from typing import Any, Dict, Optional
 import requests
 
 from ..common.credentials import require
+from ..common.errors import raise_for_upstream
 from ..http.client import refuse_redirect
+
+# HTTP calls per request: a 429 is replayed after `Retry-After` until they are spent.
+_ATTEMPTS = 3
 
 
 class TopographClient:
@@ -40,22 +44,17 @@ class TopographClient:
         headers = {"x-api-key": self.api_key, "Accept": "application/json"}
         if method.upper() != "GET":
             headers["Content-Type"] = "application/json"
-        for attempt in range(3):
+        for attempt in range(_ATTEMPTS):
             resp = requests.request(method, url, headers=headers, timeout=60,
                                     allow_redirects=False, **kwargs)
             refuse_redirect(resp)
-            if resp.status_code == 429:
+            if resp.status_code == 429 and attempt < _ATTEMPTS - 1:
                 wait = int(resp.headers.get("Retry-After", 2))
                 time.sleep(wait)
                 continue
-            if resp.status_code >= 400:
-                try:
-                    body = resp.json()
-                except Exception:
-                    body = resp.text
-                raise Exception(f"HTTP {resp.status_code}: {body}")
+            # The last 429 (attempts spent) leaves as an error too, with its `retry_after`.
+            raise_for_upstream(resp, service="topograph")
             return resp.json() if resp.content else {}
-        raise Exception("Topograph: rate-limited (429) after retries")
 
     def search(
         self,

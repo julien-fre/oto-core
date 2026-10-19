@@ -16,6 +16,7 @@ from typing import Optional, List, Dict, Any
 import requests
 
 from ..common.credentials import require
+from ..common.errors import raise_for_upstream
 from ..http.client import refuse_redirect
 
 
@@ -92,8 +93,7 @@ class GeminiClient:
             }
 
         resp = self._post(self._url(model or self.model, "generateContent"), payload, 60)
-        if not resp.ok:
-            raise Exception(f"Gemini API error: {resp.status_code} {resp.text}")
+        raise_for_upstream(resp, service="gemini")
 
         return resp.json()
 

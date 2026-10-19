@@ -13,10 +13,14 @@
 # Covered: companies, fiscal years and the DMS (folders, files, file changes).
 # The DMS has no single-item read, no update, no delete and no move.
 #
-# Not described here: uploading a file into the DMS (multipart POST
-# /companies/{company_id}/dms/files). The format has no multipart body. The
-# upload is served by the Python client (PennylaneFirmClient.upload_dms_file)
-# behind a relay of the host's own.
+# Uploading a file into the DMS (multipart POST /companies/{company_id}/dms/files,
+# upload_dms_file) takes the id of a transit file of the caller (call.files):
+# the host reads it under the caller's identity and sends it under its own
+# name and type. Reference (2026-10-19): file required, name (255 characters at
+# most) and parent_folder_id optional, 201 with id, name, path, parent_folder,
+# url, created_at, updated_at. The Python client requires parent_folder_id
+# (nothing at the root) and this file follows it; the url, a download link to
+# the content, is stripped from the answer.
 #
 # list_companies and list_fiscal_years are paged by page number (page,
 # per_page): the response gives current_page and total_pages but no next page,
@@ -29,7 +33,7 @@ connector:
   name: pennylane_firm
   label: Pennylane (firm)
   namespace: pennylane_firm
-  version: 1.0.0
+  version: 1.1.0
   api_version: v1
   base_url: https://app.pennylane.com/api/external/firm/v1
   auth:
@@ -44,7 +48,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Pennylane rejected the request as invalid: check the arguments." }
-    - { status: 401, code: token_invalid, retryable: false,
+    - { status: 401, code: token_invalid, retryable: false, marks_account: credential_rejected,
         message: "Pennylane refused the firm token as invalid: a valid token is needed, and retrying unchanged fails the same way." }
     - { status: 403, code: scope_missing, retryable: false,
         message: "The firm token lacks the scope this action requires; Pennylane names it in its message. A missing right is not an argument to fix: tell the user which scope the token needs." }
@@ -283,6 +287,44 @@ functions:
       path: "/companies/{company_id}/dms/folders"
       body: { name: name, parent_folder_id: parent_folder_id }
     cost: { per: request }
+
+  - name: upload_dms_file
+    class: sensitive
+    description: >-
+      Upload a file into a folder of one company's DMS. file is the id of a
+      transit file of yours (sent to the platform beforehand, or produced by
+      another connector): it is sent as is, under its own name and type, and
+      consumed once Pennylane accepts it; after a refusal it stays yours until
+      it expires. name is the name shown in the DMS, the file's own name
+      without it. parent_folder_id is required: list the folders first. The
+      DMS has no delete through the API: an upload cannot be undone. Returns
+      the file with its id, name and full path. Scope dms_files:all.
+    input:
+      type: object
+      additionalProperties: false
+      required: [company_id, parent_folder_id, file]
+      properties:
+        company_id: *company_id
+        parent_folder_id: { type: integer, minimum: 1, description: "Folder that receives the file: nothing is uploaded at the root." }
+        file: { type: string, format: uuid, description: "Id of a transit file of yours: the file to upload." }
+        name: { type: string, minLength: 1, maxLength: 255, description: "Name shown in the DMS; the file's own name without it." }
+    examples:
+      - title: A file into an existing folder
+        input: { company_id: 1234, parent_folder_id: 567, file: "0f8fad5b-d9cb-469f-a165-70867728950e" }
+      - title: The same file under another name
+        input: { company_id: 1234, parent_folder_id: 567, file: "0f8fad5b-d9cb-469f-a165-70867728950e", name: "Invoice 2026-10.pdf" }
+    refusals:
+      - { code: file_rejected, when: 422, message: "Pennylane refused this file: check its name, its type and the parent folder." }
+    call:
+      method: POST
+      path: "/companies/{company_id}/dms/files"
+      body: { parent_folder_id: parent_folder_id, name: name }
+      files: { file: file }
+    timeout_s: 300
+    output: { strip: [url] }
+    cost: { per: request }
+    confirm:
+      summary: "Upload transit file {file} into folder {parent_folder_id} of the DMS of company {company_id}, named {name}: Pennylane has no delete, it cannot be undone."
 
   - name: list_dms_file_changes
     class: read

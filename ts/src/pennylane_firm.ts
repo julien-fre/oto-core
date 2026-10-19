@@ -301,6 +301,62 @@ export const createDmsFolder = defineFunction({
   cost: { per: "request" },
 })
 
+export const uploadDmsFile = defineFunction({
+  name: "pennylane_firm.upload_dms_file",
+  connector: "pennylane_firm",
+  class: "sensitive",
+  act: true,
+  description: "Upload a file into a folder of one company's DMS. file is the id of a transit file of yours (sent to the platform beforehand, or produced by another connector): it is sent as is, under its own name and type, and consumed once Pennylane accepts it; after a refusal it stays yours until it expires. name is the name shown in the DMS, the file's own name without it. parent_folder_id is required: list the folders first. The DMS has no delete through the API: an upload cannot be undone. Returns the file with its id, name and full path. Scope dms_files:all.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["company_id", "parent_folder_id", "file"],
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Firm-side company id, from list_companies. Not a Company API id."
+      },
+      "parent_folder_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Folder that receives the file: nothing is uploaded at the root."
+      },
+      "file": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Id of a transit file of yours: the file to upload."
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Name shown in the DMS; the file's own name without it."
+      }
+    }
+  },
+  examples: [
+    { title: "A file into an existing folder", input: {"company_id": 1234, "parent_folder_id": 567, "file": "0f8fad5b-d9cb-469f-a165-70867728950e"} },
+    { title: "The same file under another name", input: {"company_id": 1234, "parent_folder_id": 567, "file": "0f8fad5b-d9cb-469f-a165-70867728950e", "name": "Invoice 2026-10.pdf"} },
+  ],
+  refusals: [
+    { code: "file_rejected", when: 422, message: "Pennylane refused this file: check its name, its type and the parent folder." },
+  ],
+  request: {
+    method: "POST",
+    path: "/companies/{company_id}/dms/files",
+    pathParams: ["company_id"],
+    query: {},
+    body: {"parent_folder_id": "parent_folder_id", "name": "name"},
+    headers: {},
+    files: {"file": "file"},
+  },
+  timeoutMs: 300000,
+  output: { strip: ["url"] },
+  cost: { per: "request" },
+  confirm: { summary: "Upload transit file {file} into folder {parent_folder_id} of the DMS of company {company_id}, named {name}: Pennylane has no delete, it cannot be undone." },
+})
+
 export const listDmsFileChanges = defineFunction({
   name: "pennylane_firm.list_dms_file_changes",
   connector: "pennylane_firm",
@@ -348,7 +404,7 @@ export const connector = defineConnector({
   name: "pennylane_firm",
   label: "Pennylane (firm)",
   namespace: "pennylane_firm",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "v1",
   baseUrl: "https://app.pennylane.com/api/external/firm/v1",
   auth: {"kind": "bearer", "token": "token"},
@@ -358,7 +414,7 @@ export const connector = defineConnector({
   rateLimit: { requests: 5, intervalMs: 1000 },
   errors: [
     { status: 400, code: "invalid_request", message: "Pennylane rejected the request as invalid: check the arguments.", retryable: false },
-    { status: 401, code: "token_invalid", message: "Pennylane refused the firm token as invalid: a valid token is needed, and retrying unchanged fails the same way.", retryable: false },
+    { status: 401, code: "token_invalid", message: "Pennylane refused the firm token as invalid: a valid token is needed, and retrying unchanged fails the same way.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "scope_missing", message: "The firm token lacks the scope this action requires; Pennylane names it in its message. A missing right is not an argument to fix: tell the user which scope the token needs.", retryable: false },
     { status: 404, code: "not_found", message: "No such object for this firm: company_id is the firm-side id from the list of companies, and folder or file ids belong to that one company.", retryable: false },
     { status: 422, code: "content_rejected", message: "Pennylane rejected the content: the values sent fail its checks. Fix them before calling again.", retryable: false },
@@ -373,6 +429,7 @@ export const connector = defineConnector({
     listDmsFolders,
     listDmsFiles,
     createDmsFolder,
+    uploadDmsFile,
     listDmsFileChanges,
   ],
 })

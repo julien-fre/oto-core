@@ -710,7 +710,7 @@ export const connector = defineConnector({
   queryArrays: "comma",
   errors: [
     { status: 400, code: "invalid_request", message: "Typeform rejected the request as invalid: check the arguments.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Typeform rejected the token: unknown, revoked, or issued by another data center.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Typeform rejected the token: unknown, revoked, or issued by another data center.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "scope_missing", message: "The Typeform token lacks the scope this call needs (named in the function description): the token must be reissued with it; retrying unchanged fails the same way.", retryable: false },
     { status: 404, code: "not_found", message: "Typeform object not found: check the id.", retryable: false },
     { status: 429, code: "rate_limited", message: "Typeform rate limit reached: retry later.", retryable: true },

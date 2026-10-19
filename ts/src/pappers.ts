@@ -265,7 +265,7 @@ export const connector = defineConnector({
   queryArrays: "comma",
   errors: [
     { status: 400, code: "invalid_request", message: "Pappers rejected the request as invalid: check the arguments (SIREN 9 digits, SIRET 14 digits, dates DD-MM-YYYY).", retryable: false },
-    { status: 401, code: "access_rejected", message: "Pappers rejected the API key: unknown or revoked.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Pappers rejected the API key: unknown or revoked.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "plan_exceeded", message: "Pappers refused the call: the plan's credits are spent, or the key lacks the right this call needs.", retryable: false },
     { status: 404, code: "not_found", message: "Pappers found nothing for these criteria.", retryable: false },
     { status: 429, code: "rate_limited", message: "Pappers rate limit reached: retry later.", retryable: true },

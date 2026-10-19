@@ -4,8 +4,9 @@
 # Every /api/* route needs Authorization: Bearer <key>, one key per consumer.
 # FOD holds no third-party credential for the routes described here.
 #
-# Read only, but for urban_start_regulation_ingestion, which fills FOD's own
-# cache of local-plan regulations and changes nothing elsewhere. Six families,
+# Read only. urban_start_regulation_ingestion starts a background job that fills
+# FOD's own cache of local-plan regulations and changes nothing elsewhere; it is
+# a read. Six families,
 # prefixed in the function names: company_ (company registers, BODACC, INPI
 # accounts), property_ (address, cadastre, DPE, DVF, building permits), urban_
 # (zoning, written regulation of a local plan, natural and technological risks,
@@ -21,7 +22,7 @@ connector:
   name: fod
   label: France Open Data
   namespace: fod
-  version: 1.2.0
+  version: 1.4.0
   api_version: "france-opendata-service 6f69e80 (routes unversioned)"
   base_url: https://data.oto.zone
   auth:
@@ -35,7 +36,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "FOD or its upstream source rejected an argument as invalid; the message names the accepted values when there is a closed list." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "FOD refused the API key: unknown, revoked or missing. Retrying unchanged fails the same way." }
     - { status: 404, code: not_found, retryable: false,
         message: "Not found in FOD: check the identifier." }
@@ -79,7 +80,7 @@ functions:
         - { required: [idcc] }
         - { required: [nature_juridique] }
       properties:
-        query: { type: string, minLength: 1, description: "Name, brand or acronym; also accepts a SIREN or SIRET." }
+        query: { type: string, minLength: 1, personal: true, description: "Name, brand or acronym; also accepts a SIREN or SIRET." }
         naf:
           type: array
           minItems: 1
@@ -267,7 +268,7 @@ functions:
       additionalProperties: false
       required: [adresse]
       properties:
-        adresse: &adresse { type: string, minLength: 3, description: "Free-text address, ideally with postal code and town." }
+        adresse: &adresse { type: string, minLength: 3, personal: true, description: "Free-text address, ideally with postal code and town." }
         limit: { type: integer, minimum: 1, maximum: 50, default: 5 }
         postcode: { type: string, pattern: "^[0-9]{5}$", description: "Only results in this postal code." }
         citycode: { type: string, pattern: "^([0-9]{2}|2A|2B)[0-9]{3}$", description: "Only results in this INSEE commune." }
@@ -290,8 +291,8 @@ functions:
       additionalProperties: false
       required: [lat, lon]
       properties:
-        lat: &lat { type: number, minimum: -90, maximum: 90, description: "Latitude, WGS 84." }
-        lon: &lon { type: number, minimum: -180, maximum: 180, description: "Longitude, WGS 84." }
+        lat: &lat { type: number, minimum: -90, maximum: 90, personal: true, description: "Latitude, WGS 84." }
+        lon: &lon { type: number, minimum: -180, maximum: 180, personal: true, description: "Longitude, WGS 84." }
     examples:
       - title: Address at a point in Lyon
         input: { lat: 45.758381, lon: 4.83276 }
@@ -549,7 +550,7 @@ functions:
     cost: { per: request }
 
   - name: urban_start_regulation_ingestion
-    class: write
+    class: read
     description: >-
       Ask FOD to fetch and index the written regulation of a local plan it does
       not hold yet, from the national town-planning portal (GPU). The work runs
@@ -579,6 +580,8 @@ functions:
       method: POST
       path: "/api/reglements/{idurba}/ingestion"
     cost: { per: request }
+    # The state that comes back at once names the plan, idurba, which also reads the ingestion state.
+    async: { collect: urban_get_regulation_ingestion, job_id: { from: idurba, to: idurba } }
 
   - name: urban_get_regulation_ingestion
     class: read
@@ -958,8 +961,8 @@ functions:
       additionalProperties: false
       required: [nom]
       properties:
-        nom: { type: string, minLength: 2, maxLength: 120, description: "Surname, or name of the legal person: Martin, SCI Les Hortillons." }
-        prenom: { type: string, minLength: 2, maxLength: 120, description: "First name: puts the entries that carry it first, drops none." }
+        nom: { type: string, minLength: 2, maxLength: 120, personal: true, description: "Surname, or name of the legal person: Martin, SCI Les Hortillons." }
+        prenom: { type: string, minLength: 2, maxLength: 120, personal: true, description: "First name: puts the entries that carry it first, drops none." }
         limit: { type: integer, minimum: 1, maximum: 50, default: 10, description: "Most matches listed; the counts stay whole." }
     examples:
       - title: A natural person, surname and first name

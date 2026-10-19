@@ -10,7 +10,7 @@ connector:
   name: amplitude
   label: Amplitude
   namespace: amplitude
-  version: 1.1.0
+  version: 1.2.0
   api_version: "Dashboard REST and Taxonomy api/2; charts and cohort list api/3; cohort download api/5"
   base_urls:
     setting: region
@@ -380,7 +380,7 @@ functions:
     output: { items: cohorts }
 
   - name: request_cohort_download
-    class: write
+    class: read
     description: >-
       Start a download job for one cohort and return its request_id. Each
       request counts against the project's 500 cohort downloads per month.
@@ -399,6 +399,8 @@ functions:
       method: GET
       path: "/api/5/cohorts/request/{cohort_id}"
       query: { props: props }
+    # The job's id comes back as request_id, with cohort_id (behavioral cohorts reference).
+    async: { collect: get_cohort_download_status, job_id: { from: request_id, to: request_id } }
 
   - name: get_cohort_download_status
     class: read

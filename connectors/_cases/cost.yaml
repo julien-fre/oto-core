@@ -1,0 +1,608 @@
+# Common cost cases: the pure cost functions give the same results in Python (oto.connectors.cost: worst_case,
+# settled_quantity, collection_of) and in the host package of oto 2 (costOf, settledQuantity, collectionOf), with the
+# semantics of docs/conception/format-de-description.md, « Coût d'un appel » and « Travail asynchrone ».
+#
+# Synthetic: no real connector, no vendor. The fabrique assembles `connector` and the functions the cases carry
+# (`function`, and `collect` for an asynchronous one) into one description, checked with the schema and the rules of
+# every description, then converts it as it converts a description: oto/connectors/declared.py's form for the pytest
+# (tests/test_cost_cases.py), ts/src/cost-cases.ts for the host package (`@otomata_tech/connectors/cost-cases`). A
+# function shared by several cases is written once, with a YAML anchor; the same name is always the same function.
+#
+# A case:
+# - args: the arguments of the call, as the host receives them (not validated here: some cases are invalid on purpose);
+# - answers: the JSON answers of the call, one per page, or, for an asynchronous job settled at collection, those of its
+#   collect function so far;
+# - submission: for an asynchronous function, the answer of the submission;
+# - worst_case {quantity, unit}, settled {quantity, unit, from, exceeded}, collection {function, args, within_s or
+#   no_deadline}: what each pure function returns; null when the function has no cost (worst_case, settled) or is not
+#   asynchronous (collection); `error` when it refuses (CostError, ConnectorCostError), whatever the message.
+#   collection.function is the short name of the collect function, qualified by the conversion.
+connector:
+  name: cases
+  label: Cost cases
+  namespace: cases
+  version: 1.0.0
+  api_version: v1
+  base_url: https://api.example.test/v1
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  modes: [byo_org]
+  errors:
+    - { status: 429, code: rate_limited, retryable: true, message: "Rate limit reached: retry later." }
+
+cases:
+  # --- per: request ----------------------------------------------------------------------------------------------
+  - name: request_default_unit
+    function: &get_record
+      name: get_record
+      class: read
+      description: Get one record by its id.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One record, input: { id: r-1 } }]
+      call: { method: GET, path: "/records/{id}" }
+      cost: { per: request }
+    args: { id: r-1 }
+    answers: [{ id: r-1 }]
+    worst_case: { quantity: 1, unit: requests }
+    settled: { quantity: 1, unit: requests, from: requests, exceeded: false }
+    collection: null
+
+  - name: request_declared_unit
+    function:
+      name: get_report
+      class: read
+      description: Get one report by its id.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One report, input: { id: p-1 } }]
+      call: { method: GET, path: "/reports/{id}" }
+      cost: { per: request, unit: reports }
+    args: { id: p-1 }
+    answers: [{ id: p-1 }]
+    worst_case: { quantity: 1, unit: reports }
+    settled: { quantity: 1, unit: reports, from: requests, exceeded: false }
+    collection: null
+
+  - name: request_settled_without_answer
+    function: *get_record
+    args: { id: r-1 }
+    answers: []
+    worst_case: { quantity: 1, unit: requests }
+    settled: error
+    collection: null
+
+  - name: request_settle_readable
+    function: &count_usage
+      name: count_usage
+      class: read
+      description: Count the usage of a period, billed in credits.
+      input: { type: object, additionalProperties: false, required: [period], properties: { period: { type: string } } }
+      examples: [{ title: This month, input: { period: "2026-10" } }]
+      call: { method: GET, path: /usage, query: { period: period } }
+      cost: { per: request, unit: credits, settle: { path: meta.credits } }
+    args: { period: "2026-10" }
+    answers: [{ meta: { credits: 1 } }]
+    worst_case: { quantity: 1, unit: credits }
+    settled: { quantity: 1, unit: credits, from: response, exceeded: false }
+    collection: null
+
+  - name: request_settle_exceeded
+    function: *count_usage
+    args: { period: "2026-10" }
+    answers: [{ meta: { credits: 3 } }]
+    worst_case: { quantity: 1, unit: credits }
+    settled: { quantity: 3, unit: credits, from: response, exceeded: true }
+    collection: null
+
+  - name: request_paginated_counts_pages
+    function:
+      name: search_records
+      class: read
+      description: Search the records, one page at a time.
+      input: { type: object, additionalProperties: false, properties: { q: { type: string }, cursor: { type: string } } }
+      examples: [{ title: By text, input: { q: alpha } }]
+      call: { method: GET, path: /records/search, query: { q: q, cursor: cursor } }
+      pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 4 }
+      cost: { per: request }
+    args: { q: alpha, all_pages: true, max_pages: 2 }
+    answers: [{ next_cursor: c-2 }, { next_cursor: null }]
+    worst_case: { quantity: 2, unit: requests }
+    settled: { quantity: 2, unit: requests, from: requests, exceeded: false }
+    collection: null
+
+  # --- per: page -------------------------------------------------------------------------------------------------
+  - name: page_one_page
+    function: &list_records
+      name: list_records
+      class: read
+      description: List the records, one page at a time.
+      input: { type: object, additionalProperties: false, properties: { cursor: { type: string } } }
+      examples: [{ title: First page, input: {} }]
+      call: { method: GET, path: /records, query: { cursor: cursor } }
+      pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 5 }
+      cost: { per: page }
+    args: {}
+    answers: [{ next_cursor: c-2 }]
+    worst_case: { quantity: 1, unit: pages }
+    settled: { quantity: 1, unit: pages, from: requests, exceeded: false }
+    collection: null
+
+  - name: page_all_pages_description_max
+    function: *list_records
+    args: { all_pages: true }
+    answers: [{ next_cursor: c-2 }, { next_cursor: c-3 }, { next_cursor: null }]
+    worst_case: { quantity: 5, unit: pages }
+    settled: { quantity: 3, unit: pages, from: requests, exceeded: false }
+    collection: null
+
+  - name: page_all_pages_call_max
+    function: *list_records
+    args: { all_pages: true, max_pages: 2 }
+    answers: [{ next_cursor: c-2 }, { next_cursor: c-3 }]
+    worst_case: { quantity: 2, unit: pages }
+    settled: { quantity: 2, unit: pages, from: requests, exceeded: false }
+    collection: null
+
+  - name: page_call_max_bounded_by_description
+    function: *list_records
+    args: { all_pages: true, max_pages: 9 }
+    answers: [{}, {}, {}, {}, {}]
+    worst_case: { quantity: 5, unit: pages }
+    settled: { quantity: 5, unit: pages, from: requests, exceeded: false }
+    collection: null
+
+  - name: page_max_pages_without_all_pages
+    function: *list_records
+    args: { max_pages: 3 }
+    answers: [{ next_cursor: c-2 }]
+    worst_case: { quantity: 1, unit: pages }
+    settled: { quantity: 1, unit: pages, from: requests, exceeded: false }
+    collection: null
+
+  - name: page_declared_unit
+    function:
+      name: list_events
+      class: read
+      description: List the events, one page at a time, each page billed as a call.
+      input: { type: object, additionalProperties: false, properties: { page: { type: integer, minimum: 1 } } }
+      examples: [{ title: First page, input: {} }]
+      call: { method: GET, path: /events, query: { page: page } }
+      pagination: { kind: page, request_param: page, next: next_page, max_pages: 3 }
+      cost: { per: page, unit: calls }
+    args: { all_pages: true }
+    answers: [{ next_page: 2 }, { next_page: 3 }, { next_page: null }]
+    worst_case: { quantity: 3, unit: calls }
+    settled: { quantity: 3, unit: calls, from: requests, exceeded: false }
+    collection: null
+
+  # --- per: item -------------------------------------------------------------------------------------------------
+  - name: item_without_times
+    function: &lookup_people
+      name: lookup_people
+      class: read
+      description: Look up a batch of people, billed per person.
+      input:
+        type: object
+        additionalProperties: false
+        required: [people]
+        properties: { people: { type: array, minItems: 1, items: { type: string } } }
+      examples: [{ title: Two people, input: { people: [p-1, p-2] } }]
+      call: { method: POST, path: /people/lookup, body: { people: people } }
+      cost: { per: item, items: people, unit: lookups }
+    args: { people: [p-1, p-2, p-3] }
+    answers: [{ found: 2 }]
+    worst_case: { quantity: 3, unit: lookups }
+    settled: { quantity: 3, unit: lookups, from: worst_case, exceeded: false }
+    collection: null
+
+  - name: item_empty_list
+    function: *lookup_people
+    args: { people: [] }
+    answers: []
+    worst_case: error
+    settled: error
+    collection: null
+
+  - name: item_with_times
+    function: &score_people
+      name: score_people
+      class: read
+      description: Score a batch of people with several models, billed per person and model.
+      input:
+        type: object
+        additionalProperties: false
+        required: [people, models]
+        properties:
+          people: { type: array, minItems: 1, items: { type: string } }
+          models: { type: array, minItems: 1, items: { type: string } }
+      examples: [{ title: "One person, two models", input: { people: [p-1], models: [m-1, m-2] } }]
+      call: { method: POST, path: /people/score, body: { people: people, models: models } }
+      cost: { per: item, items: people, times: models, unit: scores }
+    args: { people: [p-1, p-2], models: [m-1, m-2, m-3] }
+    answers: [{}]
+    worst_case: { quantity: 6, unit: scores }
+    settled: { quantity: 6, unit: scores, from: worst_case, exceeded: false }
+    collection: null
+
+  - name: item_times_missing
+    function: *score_people
+    args: { people: [p-1] }
+    answers: []
+    worst_case: error
+    settled: error
+    collection: null
+
+  - name: item_times_settle_readable
+    function: &enrich_people
+      name: enrich_people
+      class: write
+      description: Enrich a batch of people with the fields asked, billed per field found.
+      input:
+        type: object
+        additionalProperties: false
+        required: [people, fields]
+        properties:
+          people: { type: array, minItems: 1, items: { type: string } }
+          fields: { type: array, minItems: 1, items: { type: string } }
+      examples: [{ title: "One person, one field", input: { people: [p-1], fields: [email] } }]
+      call: { method: POST, path: /people/enrich, body: { people: people, fields: fields } }
+      cost: { per: item, items: people, times: fields, unit: fields, settle: { path: usage.fields } }
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: 3 } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 3, unit: fields, from: response, exceeded: false }
+    collection: null
+
+  # --- settle: readable, absent, unreadable --------------------------------------------------------------------------
+  - name: settle_absent
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: {} }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 4, unit: fields, from: unreadable, exceeded: false }
+    collection: null
+
+  - name: settle_text
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: "12" } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 4, unit: fields, from: unreadable, exceeded: false }
+    collection: null
+
+  - name: settle_negative
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: -1 } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 4, unit: fields, from: unreadable, exceeded: false }
+    collection: null
+
+  - name: settle_infinite
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: .inf } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 4, unit: fields, from: unreadable, exceeded: false }
+    collection: null
+
+  - name: settle_not_a_number
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: .nan } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 4, unit: fields, from: unreadable, exceeded: false }
+    collection: null
+
+  # A JSON integer beyond the range of a double (386 digits, above 1.8e308): a JavaScript host reads Infinity, and a
+  # quantity that is not a finite double is unreadable. (« Nombre JSON fini » read as a finite double: to confirm.)
+  - name: settle_integer_beyond_double
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 4, unit: fields, from: unreadable, exceeded: false }
+    collection: null
+
+  - name: settle_null
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: null } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 4, unit: fields, from: unreadable, exceeded: false }
+    collection: null
+
+  - name: settle_boolean
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: true } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 4, unit: fields, from: unreadable, exceeded: false }
+    collection: null
+
+  - name: settle_zero
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: 0 } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 0, unit: fields, from: response, exceeded: false }
+    collection: null
+
+  - name: settle_fraction
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: 2.5 } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 2.5, unit: fields, from: response, exceeded: false }
+    collection: null
+
+  - name: settle_first_readable_answer
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{}, { usage: { fields: "2" } }, { usage: { fields: 2 } }, { usage: { fields: 3 } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 2, unit: fields, from: response, exceeded: false }
+    collection: null
+
+  - name: settle_exceeded
+    function: *enrich_people
+    args: { people: [p-1, p-2], fields: [email, phone] }
+    answers: [{ usage: { fields: 9 } }]
+    worst_case: { quantity: 4, unit: fields }
+    settled: { quantity: 9, unit: fields, from: response, exceeded: true }
+    collection: null
+
+  - name: settle_at_list_index
+    function:
+      name: tag_records
+      class: write
+      description: Tag a batch of records, billed per tag set, the count read in the first result.
+      input:
+        type: object
+        additionalProperties: false
+        required: [records]
+        properties: { records: { type: array, minItems: 1, items: { type: string } } }
+      examples: [{ title: One record, input: { records: [r-1] } }]
+      call: { method: POST, path: /records/tags, body: { records: records } }
+      cost: { per: item, items: records, unit: tags, settle: { path: results.0.billed } }
+    args: { records: [r-1, r-2] }
+    answers: [{ results: [{ billed: 1 }, { billed: 7 }] }]
+    worst_case: { quantity: 2, unit: tags }
+    settled: { quantity: 1, unit: tags, from: response, exceeded: false }
+    collection: null
+
+  # --- weights ---------------------------------------------------------------------------------------------------
+  - name: weights_sum_of_listed_values
+    function: &verify_people
+      name: verify_people
+      class: read
+      description: Verify a batch of people, each with its own checks, billed in credits per check.
+      input:
+        type: object
+        additionalProperties: false
+        required: [people]
+        properties:
+          people:
+            type: array
+            minItems: 1
+            items:
+              type: object
+              additionalProperties: false
+              required: [id, checks]
+              properties:
+                id: { type: string }
+                checks: { type: array, minItems: 1, uniqueItems: true, items: { enum: [email, phone, address] } }
+      examples: [{ title: One person, input: { people: [{ id: p-1, checks: [email] }] } }]
+      call: { method: POST, path: /people/verify, body: { people: people } }
+      cost:
+        per: item
+        items: people
+        weights: { field: checks, values: { email: 1, phone: 5, address: 2 } }
+        unit: credits
+        settle: { path: usage.credits }
+    args: { people: [{ id: p-1, checks: [email, phone] }, { id: p-2, checks: [address] }] }
+    answers: [{ usage: { credits: 6 } }]
+    worst_case: { quantity: 8, unit: credits }
+    settled: { quantity: 6, unit: credits, from: response, exceeded: false }
+    collection: null
+
+  - name: weights_value_without_weight
+    function: *verify_people
+    args: { people: [{ id: p-1, checks: [email, fax] }] }
+    answers: [{ usage: { credits: 1 } }]
+    worst_case: error
+    settled: error
+    collection: null
+
+  - name: weights_element_without_field
+    function: *verify_people
+    args: { people: [{ id: p-1 }] }
+    answers: []
+    worst_case: error
+    settled: error
+    collection: null
+
+  # --- async -----------------------------------------------------------------------------------------------------
+  - name: async_within_settled_at_collection
+    function: &submit_batch
+      name: submit_batch
+      class: write
+      description: Submit a batch of rows to import, billed per row imported, read when collected.
+      input:
+        type: object
+        additionalProperties: false
+        required: [rows]
+        properties: { rows: { type: array, minItems: 1, items: { type: object } } }
+      examples: [{ title: One row, input: { rows: [{ a: 1 }] } }]
+      call: { method: POST, path: /batches, body: { rows: rows } }
+      cost: { per: item, items: rows, unit: rows, settle: { path: result.rows_billed } }
+      async: { collect: get_batch, job_id: { from: batch.id, to: batch_id }, within_s: 900 }
+    collect: &get_batch
+      name: get_batch
+      class: read
+      description: Get a submitted batch, its state and result.
+      input: { type: object, additionalProperties: false, required: [batch_id], properties: { batch_id: { type: string } } }
+      examples: [{ title: One batch, input: { batch_id: b-1 } }]
+      call: { method: GET, path: "/batches/{batch_id}" }
+    args: { rows: [{ a: 1 }, { a: 2 }, { a: 3 }] }
+    answers: [{ status: running }, { status: done, result: { rows_billed: 2 } }]
+    submission: { batch: { id: b-17 } }
+    worst_case: { quantity: 3, unit: rows }
+    settled: { quantity: 2, unit: rows, from: response, exceeded: false }
+    collection: { function: get_batch, args: { batch_id: b-17 }, within_s: 900 }
+
+  - name: async_within_not_yet_readable
+    function: *submit_batch
+    collect: *get_batch
+    args: { rows: [{ a: 1 }, { a: 2 }, { a: 3 }] }
+    answers: [{ status: running }]
+    submission: { batch: { id: b-17 } }
+    worst_case: { quantity: 3, unit: rows }
+    settled: { quantity: 3, unit: rows, from: unreadable, exceeded: false }
+    collection: { function: get_batch, args: { batch_id: b-17 }, within_s: 900 }
+
+  - name: async_no_deadline_weighted
+    function:
+      name: submit_lookup
+      class: write
+      description: Submit a lookup of people, each with its own fields, billed in credits per value found.
+      input:
+        type: object
+        additionalProperties: false
+        required: [people]
+        properties:
+          people:
+            type: array
+            minItems: 1
+            items:
+              type: object
+              additionalProperties: false
+              required: [id, fields]
+              properties:
+                id: { type: string }
+                fields: { type: array, minItems: 1, uniqueItems: true, items: { enum: [basic, extended] } }
+      examples: [{ title: One person, input: { people: [{ id: p-1, fields: [basic] }] } }]
+      call: { method: POST, path: /lookups, body: { people: people } }
+      cost:
+        per: item
+        items: people
+        weights: { field: fields, values: { basic: 1, extended: 4 } }
+        unit: credits
+        settle: { path: cost.credits }
+      async: { collect: get_lookup, job_id: { from: id, to: lookup_id }, no_deadline: true }
+    collect:
+      name: get_lookup
+      class: read
+      description: Get a submitted lookup, its state and result.
+      input: { type: object, additionalProperties: false, required: [lookup_id], properties: { lookup_id: { type: integer } } }
+      examples: [{ title: One lookup, input: { lookup_id: 42 } }]
+      call: { method: GET, path: "/lookups/{lookup_id}" }
+    args: { people: [{ id: p-1, fields: [basic, extended] }, { id: p-2, fields: [basic] }] }
+    answers: [{ status: running }, { status: done, cost: { credits: 5 } }]
+    submission: { id: 42 }
+    worst_case: { quantity: 6, unit: credits }
+    settled: { quantity: 5, unit: credits, from: response, exceeded: false }
+    collection: { function: get_lookup, args: { lookup_id: 42 }, no_deadline: true }
+
+  - name: async_unsettled_cost_with_within
+    function:
+      name: start_scan
+      class: read
+      description: Start a scan, billed per request, its result collected later.
+      input: { type: object, additionalProperties: false, required: [target], properties: { target: { type: string } } }
+      examples: [{ title: One target, input: { target: t-1 } }]
+      call: { method: POST, path: /scans, body: { target: target } }
+      cost: { per: request }
+      async: { collect: get_scan, job_id: { from: scan_id, to: scan_id }, within_s: 120 }
+    collect:
+      name: get_scan
+      class: read
+      description: Get a started scan.
+      input: { type: object, additionalProperties: false, required: [scan_id], properties: { scan_id: { type: string } } }
+      examples: [{ title: One scan, input: { scan_id: s-1 } }]
+      call: { method: GET, path: "/scans/{scan_id}" }
+    args: { target: t-1 }
+    answers: [{ scan_id: s-9 }]
+    submission: { scan_id: s-9 }
+    worst_case: { quantity: 1, unit: requests }
+    settled: { quantity: 1, unit: requests, from: requests, exceeded: false }
+    collection: { function: get_scan, args: { scan_id: s-9 }, within_s: 120 }
+
+  - name: async_without_cost_nor_deadline
+    function: &start_job
+      name: start_job
+      class: read
+      description: Start a job, its result collected later.
+      input: { type: object, additionalProperties: false, required: [kind], properties: { kind: { type: string } } }
+      examples: [{ title: One job, input: { kind: export } }]
+      call: { method: POST, path: /jobs, body: { kind: kind } }
+      async: { collect: get_job, job_id: { from: job.id, to: job_id } }
+    collect: &get_job
+      name: get_job
+      class: read
+      description: Get a started job.
+      input: { type: object, additionalProperties: false, required: [job_id], properties: { job_id: { type: string } } }
+      examples: [{ title: One job, input: { job_id: j-1 } }]
+      call: { method: GET, path: "/jobs/{job_id}" }
+    args: { kind: export }
+    answers: [{ job: { id: j-1 } }]
+    submission: { job: { id: j-1 } }
+    worst_case: null
+    settled: null
+    collection: { function: get_job, args: { job_id: j-1 } }
+
+  - name: async_job_id_absent
+    function: *start_job
+    collect: *get_job
+    args: { kind: export }
+    answers: [{ job: {} }]
+    submission: { job: {} }
+    worst_case: null
+    settled: null
+    collection: error
+
+  - name: async_job_id_empty_text
+    function: *start_job
+    collect: *get_job
+    args: { kind: export }
+    answers: [{ job: { id: "" } }]
+    submission: { job: { id: "" } }
+    worst_case: null
+    settled: null
+    collection: error
+
+  - name: async_job_id_boolean
+    function: *start_job
+    collect: *get_job
+    args: { kind: export }
+    answers: [{ job: { id: true } }]
+    submission: { job: { id: true } }
+    worst_case: null
+    settled: null
+    collection: error
+
+  # A job id beyond the range of a double: a JavaScript host reads Infinity, not an id. (To confirm, as above.)
+  - name: async_job_id_integer_beyond_double
+    function: *start_job
+    collect: *get_job
+    args: { kind: export }
+    answers: [{}]
+    submission: { job: { id: 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 } }
+    worst_case: null
+    settled: null
+    collection: error
+
+  # --- neither cost nor job --------------------------------------------------------------------------------------
+  - name: no_cost_not_async
+    function:
+      name: ping
+      class: read
+      description: Check that the service answers.
+      input: { type: object, additionalProperties: false, properties: {} }
+      examples: [{ title: Ping, input: {} }]
+      call: { method: GET, path: /ping }
+    args: {}
+    answers: [{ ok: true }]
+    worst_case: null
+    settled: null
+    collection: null

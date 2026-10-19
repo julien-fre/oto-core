@@ -22,7 +22,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Sivan rejected the request: check the dates (a period cannot exceed 31 days), or the time-clock module is not enabled for this group." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "Sivan rejected the API key: check the company-group key (it is case-sensitive, prefix 'siv_')." }
     - { status: 404, code: not_found, retryable: false,
         message: "Sivan endpoint not found: check the route." }

@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 import requests
 
 from ..common.credentials import require
+from ..common.errors import UpstreamHTTPError
 from ..http.client import refuse_redirect
 
 _HTTP_TIMEOUT = (10, 60)  # (connect, read) — never wait indefinitely
@@ -111,7 +112,7 @@ class SerperClient:
                 msg = response.json().get("message") or response.text
             except Exception:
                 msg = response.text
-            raise RuntimeError(f"Serper {label} {response.status_code}: {msg}")
+            raise UpstreamHTTPError.from_response(response, service="serper", body=msg)
         return response.json()
 
     def _request(self, endpoint: str, json_data: Dict) -> Dict:

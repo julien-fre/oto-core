@@ -1777,7 +1777,7 @@ export const connector = defineConnector({
   rateLimit: { requests: 1, intervalMs: 1000 },
   errors: [
     { status: 400, code: "invalid_request", message: "Klaviyo rejected the request as invalid (filter syntax, unknown field or malformed body): errors[].detail and errors[].source name the faulty part.", retryable: false },
-    { status: 401, code: "key_invalid", message: "Klaviyo did not accept the private API key: missing, revoked or mistyped. Retrying unchanged fails the same way.", retryable: false },
+    { status: 401, code: "key_invalid", message: "Klaviyo did not accept the private API key: missing, revoked or mistyped. Retrying unchanged fails the same way.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "scope_missing", message: "The private API key lacks the scope this action needs. Scopes cannot be added to an existing key: a new key with that scope is needed.", retryable: false },
     { status: 404, code: "not_found", message: "No such object in this Klaviyo account: check the id.", retryable: false },
     { status: 409, code: "conflict", message: "Klaviyo refused the change because it conflicts with existing data, such as an identifier already held by another profile.", retryable: false },

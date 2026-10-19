@@ -2,7 +2,7 @@
 (verbe, URL, body, multipart) des endpoints couverts : search/ask (retrieval),
 parse/extract (traitement one-shot), files (upload workspace-requis, filtres),
 workspaces ; le surfaçage d'erreur ({detail}/{error} LightOn remonté dans le
-RuntimeError) et le défaut/override de `base_url` (SaaS vs instance privée).
+`body` de l'UpstreamHTTPError) et le défaut/override de `base_url` (SaaS vs instance privée).
 
 Mocke `requests.request` : contrat HTTP uniquement, sans réseau ni clé réelle.
 """
@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from oto.tools.common.errors import UpstreamHTTPError
 from oto.tools.lighton import client as lighton_client
 from oto.tools.lighton.client import LightOnClient
 
@@ -181,17 +182,18 @@ def test_error_surfaces_lighton_detail(monkeypatch, c):
         lighton_client.requests, "request",
         lambda *a, **k: _Resp({"code": 404, "error": "not_found",
                                "detail": "No API endpoint at /x."}, 404))
-    with pytest.raises(RuntimeError) as exc:
+    with pytest.raises(UpstreamHTTPError) as exc:
         c.list_workspaces()
     assert "404" in str(exc.value)
     assert "No API endpoint" in str(exc.value)
+    assert exc.value.status_code == 404 and exc.value.body == "No API endpoint at /x."
 
 
 def test_error_falls_back_to_error_field(monkeypatch, c):
     monkeypatch.setattr(
         lighton_client.requests, "request",
         lambda *a, **k: _Resp({"error": "Permission denied", "code": 403}, 403))
-    with pytest.raises(RuntimeError) as exc:
+    with pytest.raises(UpstreamHTTPError) as exc:
         c.list_workspaces()
     assert "403" in str(exc.value)
     assert "Permission denied" in str(exc.value)
@@ -202,6 +204,6 @@ def test_validation_error_dict_surfaced(monkeypatch, c):
     monkeypatch.setattr(
         lighton_client.requests, "request",
         lambda *a, **k: _Resp({"workspace_id": ["This field is required."]}, 400))
-    with pytest.raises(RuntimeError) as exc:
+    with pytest.raises(UpstreamHTTPError) as exc:
         c.list_workspaces()
     assert "workspace_id" in str(exc.value)

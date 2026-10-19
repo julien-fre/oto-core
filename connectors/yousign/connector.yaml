@@ -45,7 +45,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Yousign rejected the request as invalid: its detail names the faulty field." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "Yousign rejected the API key: unknown, revoked, or issued for the other environment (sandbox and production keys differ)." }
     - { status: 403, code: forbidden, retryable: false,
         message: "Yousign forbids this action in this context: the key's workspace scope, or the request's status, does not allow it." }

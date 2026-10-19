@@ -30,7 +30,7 @@ def _load(path: pathlib.Path) -> dict:
 
 
 def test_committed_output_is_current():
-    assert stale(generate()) == [], "ts/src is out of date: run `python -m fabrique`"
+    assert stale(generate()) == [], "ts/src or oto/connectors/declared.py is out of date: run `python -m fabrique`"
 
 
 def test_every_description_generates_a_module():
@@ -149,6 +149,19 @@ def test_connector_carries_headers_rate_and_probe():
     assert 'probe: { function: "pennylane.get_company", nonEmpty: ["scopes"] },' in pennylane
 
 
+def test_probe_carries_its_balance():
+    """Une sonde à solde porte son chemin, son seuil et son unité ; une sonde sans solde ne change pas."""
+    description = _load(PENNYLANE)
+    _fn(description, "get_company").pop("cost")
+    description["connector"]["probe"]["balance"] = {"path": "credits.remaining", "min": 1, "unit": "credits"}
+    source = connector_module(check(description, PENNYLANE)).source
+    assert ('probe: { function: "pennylane.get_company", nonEmpty: ["scopes"], '
+            'balance: { path: "credits.remaining", min: 1, unit: "credits" } },') in source
+    description["connector"]["probe"] = {"function": "get_company", "balance": {"path": "a.0.b", "min": 0.5, "unit": "EUR"}}
+    source = connector_module(check(description, PENNYLANE)).source
+    assert 'probe: { function: "pennylane.get_company", nonEmpty: [], balance: { path: "a.0.b", min: 0.5, unit: "EUR" } },' in source
+
+
 def test_request_carries_constants_encoding_and_stop_flag():
     source = function_source("pennylane", _pennylane("list_customers"))
     assert 'encode: {"filter": "json"},' in source
@@ -200,13 +213,23 @@ def _fn(d, name):
      "probe 'get_product' must be a read function with a call and no required argument"),
     (PENNYLANE, lambda d: d["connector"]["probe"].update(function="create_customer"),
      "probe 'create_customer' must be a read function"),
+    (PENNYLANE, lambda d: d["connector"]["probe"].update(balance={"path": "credits.remaining", "min": 1, "unit": "credits"}),
+     "probe 'get_company' reads a balance, so it must declare no cost"),
 ], ids=["constant_and_argument", "header_and_auth", "header_case", "encode_unplaced", "check_refusal",
-        "check_fields", "check_not_a_list", "expect_refusal", "probe_unknown", "probe_required", "probe_write"])
+        "check_fields", "check_not_a_list", "expect_refusal", "probe_unknown", "probe_required", "probe_write",
+        "probe_balance_with_cost"])
 def test_added_rules_refuse(path, mutate, message):
     description = _load(path)
     mutate(description)
     with pytest.raises(DescriptionError, match=re.escape(message)):
         check(description, path)
+
+
+def test_probe_without_balance_may_cost():
+    """Le coût n'est refusé qu'à la fonction d'une sonde qui lit un solde."""
+    description = _load(PENNYLANE)
+    assert _fn(description, "get_company")["cost"] == {"per": "request"}
+    check(description, PENNYLANE)
 
 
 # --- Comptes : réglages, adresses par réglage, clé en query, consentement ------------
@@ -614,3 +637,356 @@ def test_linkedin_sends_act_and_reads_do_not():
     for name in ("sendInvitation", "sendMessage"):
         assert f'export const {name} = defineFunction({{\n  name: ' in module
     assert module.count("  act: true,\n") == 2 and module.count("  act: false,\n") == 8
+
+
+# --- Règle 10 : le signal de refus du service ----------------------------------------
+
+META_ADS = CONNECTORS / "meta_ads" / "connector.yaml"
+GRAPHQL_REFUSAL = {"path": "errors.0.extensions.code", "equals": ["UNAUTHENTICATED"]}
+
+
+def _error(d, status):
+    return next(e for e in d["connector"]["errors"] if e["status"] == status)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: _error(d, 402).update(marks_account="quota_exhausted"),
+    lambda d: d["connector"]["errors"].insert(0, {"status": 200, "body": GRAPHQL_REFUSAL, "code": "key_refused",
+                                                  "message": "The key is refused.", "retryable": False,
+                                                  "marks_account": "credential_rejected"}),
+    lambda d: d["connector"]["errors"].insert(0, {"status": [400, 403], "body": {"path": "error", "equals": ["invalid_key"]},
+                                                  "code": "key_refused", "message": "The key is refused.", "retryable": False,
+                                                  "marks_account": "credential_rejected"}),
+    lambda d: _get_estimate(d)["refusals"].append({"code": "credits_spent", "when": 429, "message": "Credits spent.",
+                                                   "body": {"path": "reason", "equals": ["monthly_quota"]},
+                                                   "marks_account": "quota_exhausted"}),
+], ids=["status_402", "graphql_under_200", "body_under_400_and_403", "refusal_body_under_429"])
+def test_account_signal_passes_and_is_carried(mutate):
+    description = _load(SELLSY)
+    mutate(description)
+    source = connector_module(check(description, SELLSY)).source
+    assert "marksAccount: " in source
+
+
+def test_meta_ads_marks_on_graph_codes_under_a_400_before_the_plain_400():
+    errors = _load(META_ADS)["connector"]["errors"]
+    assert errors[0] == {"status": 400, "body": {"path": "error.code", "equals": [190, 102]}, "code": "authorization_expired",
+                         "retryable": False, "marks_account": "credential_rejected",
+                         "message": errors[0]["message"]}
+    assert errors[1]["status"] == 400 and "body" not in errors[1] and "marks_account" not in errors[1]
+    source = connector_module(check(_load(META_ADS), META_ADS)).source
+    assert 'body: {"path": "error.code", "equals": [190, 102]}, marksAccount: "credential_rejected" }' in source
+
+
+def test_nothing_marks_by_default():
+    sellsy = connector_module(check(_load(SELLSY), SELLSY)).source
+    assert "marksAccount" not in sellsy and 'body: {"path"' not in sellsy
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: _error(d, [401, 403]).update(marks_account="credential_rejected"),
+     "errors 'access_rejected': a 403 without a body condition cannot mark credential_rejected"),
+    (lambda d: _error(d, 429).update(marks_account="quota_exhausted"),
+     "errors 'rate_limited': a 429 without a body condition cannot mark quota_exhausted"),
+    (lambda d: _error(d, 402).update(marks_account="quota_exhausted", retryable=True),
+     "errors 'plan_quota_reached': an entry that marks the account is not retryable"),
+    (lambda d: d["connector"]["errors"].insert(0, {"status": 200, "code": "key_refused", "message": "Refused.", "retryable": False}),
+     "errors 'key_refused': a 2xx status needs a body condition"),
+    (lambda d: d["connector"]["errors"].append({"status": 400, "body": {"path": "error", "equals": ["invalid_key"]},
+                                                "code": "key_refused", "message": "Refused.", "retryable": False,
+                                                "marks_account": "credential_rejected"}),
+     "errors 'key_refused': its body condition comes after an entry without one for status 400, so it is never read"),
+    (lambda d: _get_estimate(d)["refusals"].append({"code": "key_refused", "when": "the error code is invalid_key",
+                                                    "message": "Refused.", "marks_account": "credential_rejected"}),
+     "function get_estimate: refusal 'key_refused': a refusal with body or marks_account needs an HTTP status in when"),
+    (lambda d: _get_estimate(d)["refusals"].append({"code": "key_refused", "when": "the error code is invalid_key",
+                                                    "message": "Refused.", "body": {"path": "error", "equals": ["invalid_key"]}}),
+     "function get_estimate: refusal 'key_refused': a refusal with body or marks_account needs an HTTP status in when"),
+    (lambda d: _get_estimate(d)["refusals"].append({"code": "forbidden", "when": 403, "message": "Refused.",
+                                                    "marks_account": "credential_rejected"}),
+     "function get_estimate: refusal 'forbidden': a 403 without a body condition cannot mark credential_rejected"),
+    (lambda d: _get_estimate(d)["refusals"].append({"code": "empty", "when": 204, "message": "Nothing."}),
+     "function get_estimate: refusal 'empty': a 2xx status needs a body condition"),
+], ids=["403_alone", "429_alone", "retryable", "2xx_without_body", "shadowed", "mark_on_text_when", "body_on_text_when",
+        "refusal_403_alone", "refusal_2xx_without_body"])
+def test_account_signal_rule_refuses(mutate, message):
+    description = _load(SELLSY)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, SELLSY)
+
+
+# --- Règle 15 : la donnée personnelle ----------------------------------------------
+
+
+def test_personal_property_passes_and_is_carried_as_is():
+    description = _load(SELLSY)
+    estimate = _get_estimate(description)
+    estimate["input"]["properties"]["id"]["personal"] = True
+    estimate["input"]["properties"]["fields"]["items"]["personal"] = True
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert '"id": {"type": "integer", "personal": true}' in source
+    assert source.count('"personal": true') == 2
+
+
+def test_a_property_named_personal_is_not_a_mark():
+    description = _load(SELLSY)
+    estimate = _get_estimate(description)
+    estimate["input"]["properties"]["personal"] = {"type": "string", "default": "no"}
+    estimate["call"]["query"]["personal"] = "personal"
+    check(description, SELLSY)
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda f: f["input"].update(personal=True), "personal marks a property of input, not input itself"),
+    (lambda f: f["input"]["properties"]["id"].update(personal="yes"), "input.properties.id: personal must be true"),
+    (lambda f: f["input"]["properties"]["id"].update(personal=False), "input.properties.id: personal must be true"),
+    (lambda f: f["input"]["properties"]["embed"]["items"]["anyOf"][1].update(personal=1),
+     "input.properties.embed.items.anyOf[1]: personal must be true"),
+    (lambda f: f.update(output={"schema": {"type": "object", "additionalProperties": False,
+                                           "properties": {"email": {"type": "string", "personal": True}}}}),
+     "output.schema.properties.email: personal marks an input argument, not an output field"),
+], ids=["root", "not_a_boolean", "false", "nested", "output"])
+def test_misplaced_personal_is_refused(mutate, message):
+    description = _load(SELLSY)
+    mutate(_get_estimate(description))
+    with pytest.raises(DescriptionError, match=re.escape(f"function get_estimate: {message}")):
+        check(description, SELLSY)
+
+
+# --- Règle 11 : le délai propre à une fonction ---------------------------------------
+
+
+@pytest.mark.parametrize("own, connector", [(300, None), (10, None), (60, 120), (300, 120)],
+                         ids=["longer_than_default", "shorter_than_default", "shorter", "longer"])
+def test_function_timeout_passes_and_is_carried(own, connector):
+    description = _load(SELLSY)
+    if connector is None:
+        description["connector"].pop("timeout_s", None)
+    else:
+        description["connector"]["timeout_s"] = connector
+    _get_estimate(description)["timeout_s"] = own
+    source = connector_module(check(description, SELLSY)).source
+    assert f"  timeoutMs: {own * 1000},\n" in source
+    assert f"  timeoutMs: {(connector or 30) * 1000},\n" in source
+
+
+def test_function_without_timeout_carries_none():
+    source = function_source("sellsy", _get_estimate(_load(SELLSY)))
+    assert "timeoutMs" not in source
+
+
+@pytest.mark.parametrize("connector", [None, 120], ids=["default", "declared"])
+def test_function_timeout_equal_to_the_connector_is_refused(connector):
+    description = _load(SELLSY)
+    if connector is None:
+        description["connector"].pop("timeout_s", None)
+    else:
+        description["connector"]["timeout_s"] = connector
+    _get_estimate(description)["timeout_s"] = connector or 30
+    with pytest.raises(DescriptionError, match=re.escape(
+            f"function get_estimate: timeout_s {connector or 30} is the connector's timeout: declare none")):
+        check(description, SELLSY)
+
+
+def test_linkedin_company_page_has_its_own_timeout():
+    module = connector_module(check(_load(LINKEDIN), LINKEDIN)).source
+    company = module.split("export const getCompany = ")[1].split("export const ")[0]
+    assert "  timeoutMs: 60000,\n" in company
+    assert module.count("  timeoutMs: ") == 2 and "  timeoutMs: 120000,\n" in module
+
+
+# --- Règle 12 : le coût, pire cas et quantité relue ------------------------------------
+
+
+def _with_lists(d):
+    """`get_estimate` avec deux listes requises d'au moins un élément : de quoi coûter à l'élément."""
+    fn = _get_estimate(d)
+    fn["input"]["required"] = ["id", "embed", "fields"]
+    fn["input"]["properties"]["embed"]["minItems"] = 1
+    fn["input"]["properties"]["fields"] = {**fn["input"]["properties"]["fields"], "minItems": 1}
+    fn["examples"][0]["input"]["fields"] = ["id"]
+    return fn
+
+
+def test_cost_per_item_passes_and_is_carried():
+    description = _load(SELLSY)
+    _with_lists(description)["cost"] = {"per": "item", "items": "embed", "times": "fields", "unit": "fields",
+                                        "settle": {"path": "meta.found"}}
+    source = connector_module(check(description, SELLSY)).source
+    assert '  cost: { per: "item", items: "embed", times: "fields", unit: "fields", settle: { path: "meta.found" } },\n' in source
+
+
+def test_cost_without_new_keys_is_carried_as_before():
+    source = function_source("sellsy", _get_estimate(_load(SELLSY)))
+    assert '  cost: { per: "request" },\n' in source
+    description = _load(SELLSY)
+    _get_estimate(description)["cost"] = {"per": "request", "unit": "credits", "settle": {"path": "credits_used"}}
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert '  cost: { per: "request", unit: "credits", settle: { path: "credits_used" } },\n' in source
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: _with_lists(d)["cost"].update(per="item", items="nope", unit="u"), "cost.items names 'nope', which is not an input argument"),
+    (lambda d: _with_lists(d)["cost"].update(per="item", items="id", unit="u"), "cost.items 'id' must be a required list argument"),
+    (lambda d: (_with_lists(d)["input"].update(required=["id", "fields"]), _get_estimate(d)["cost"].update(per="item", items="embed", unit="u")),
+     "cost.items 'embed' must be a required list argument"),
+    (lambda d: (_with_lists(d)["input"]["properties"]["embed"].pop("minItems"), _get_estimate(d)["cost"].update(per="item", items="embed", unit="u")),
+     "cost.items 'embed' must be a required list argument"),
+    (lambda d: (_with_lists(d)["input"]["properties"]["embed"].update(minItems=0), _get_estimate(d)["cost"].update(per="item", items="embed", unit="u")),
+     "cost.items 'embed' must be a required list argument"),
+    (lambda d: _with_lists(d)["cost"].update(per="item", items="embed", times="embed", unit="u"), "cost.times names the items argument 'embed' again"),
+    (lambda d: (_with_lists(d)["input"].update(required=["id", "embed"]), _get_estimate(d)["cost"].update(per="item", items="embed", times="fields", unit="u")),
+     "cost.times 'fields' must be a required list argument"),
+    (lambda d: (d["functions"][0]["input"].update(required=["fields"]), d["functions"][0]["input"]["properties"].update(
+        fields={"type": "array", "items": {"type": "string"}, "minItems": 1}), d["functions"][0]["examples"][0]["input"].update(fields=["id"]),
+                d["functions"][0].update(cost={"per": "item", "items": "fields", "unit": "u"})),
+     "a paginated function costs per request or per page, without settle"),
+    (lambda d: d["functions"][0].update(cost={"per": "page", "unit": "u", "settle": {"path": "used"}}),
+     "a paginated function costs per request or per page, without settle"),
+], ids=["items_unknown", "items_not_a_list", "items_not_required", "items_without_min", "items_min_zero", "times_is_items",
+        "times_not_required", "item_paginated", "settle_paginated"])
+def test_cost_rule_refuses(mutate, message):
+    description = _load(SELLSY)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, SELLSY)
+
+
+@pytest.mark.parametrize("cost", [
+    {"per": "request", "unit": "credits", "settle": {"path": "used"}},
+    {"per": "page"},
+], ids=["settled", "page"])
+def test_balance_probe_refuses_any_cost(cost):
+    """Règle 5, quel que soit le coût : on ne paie pas pour savoir si l'on peut payer."""
+    description = _load(PENNYLANE)
+    _fn(description, "get_company")["cost"] = cost
+    description["connector"]["probe"]["balance"] = {"path": "credits.remaining", "min": 1, "unit": "credits"}
+    with pytest.raises(DescriptionError, match=re.escape("reads a balance, so it must declare no cost")):
+        check(description, PENNYLANE)
+
+
+# --- Règle 16 : le poids d'une valeur ----------------------------------------------------
+
+FULLENRICH = CONNECTORS / "fullenrich" / "connector.yaml"
+
+
+def _contact(d):
+    """Le schéma d'un contact de `fullenrich.submit`, dont `enrich_fields` porte les valeurs pesées."""
+    return _fn(d, "submit")["input"]["properties"]["contacts"]["items"]
+
+
+def test_weighted_cost_passes_and_is_carried():
+    source = function_source("fullenrich", _fn(check(_load(FULLENRICH), FULLENRICH).data, "submit"))
+    assert ('  cost: { per: "item", items: "contacts", weights: { field: "enrich_fields", values: '
+            '{"contact.work_emails": 1, "contact.personal_emails": 3, "contact.phones": 10} }, unit: "credits", '
+            'settle: { path: "cost.credits" } },\n') in source
+    assert '  async: { collect: "fullenrich.fetch", jobId: { from: "enrichment_id", to: "enrichment_id" }, noDeadline: true },\n' in source
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: _fn(d, "submit")["cost"]["weights"].update(field="nope"), "cost.weights.field 'nope' must be a property of each element of 'contacts'"),
+    (lambda d: _contact(d).update(required=["first_name", "last_name"]), "cost.weights.field 'enrich_fields' must be a required list of each element"),
+    (lambda d: _contact(d)["properties"]["enrich_fields"].pop("uniqueItems"), "must be a required list of each element"),
+    (lambda d: _contact(d)["properties"]["enrich_fields"].update(minItems=0), "must be a required list of each element"),
+    (lambda d: _contact(d)["properties"]["enrich_fields"]["items"].pop("enum"), "its allowed values (items.enum, texts) must be exactly the keys"),
+    (lambda d: _fn(d, "submit")["cost"]["weights"]["values"].pop("contact.phones"), "must be exactly the keys of cost.weights.values"),
+    (lambda d: _fn(d, "submit")["cost"]["weights"]["values"].update({"contact.company": 2}), "must be exactly the keys of cost.weights.values"),
+], ids=["field_unknown", "field_not_required", "field_not_unique", "field_min_zero", "field_without_enum",
+        "allowed_value_without_weight", "weight_of_no_allowed_value"])
+def test_weighted_cost_rule_refuses(mutate, message):
+    description = _load(FULLENRICH)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, FULLENRICH)
+
+
+# --- Règle 13 : le travail asynchrone ----------------------------------------------------
+
+AMPLITUDE = CONNECTORS / "amplitude" / "connector.yaml"
+
+
+def _submit(d):
+    return _fn(d, "request_cohort_download")
+
+
+def test_async_pairs_are_carried():
+    for path, submit, collect, job in [
+        (META_ADS, "startInsightsReport", "meta_ads.get_report_status", "report_run_id"),
+        (AMPLITUDE, "requestCohortDownload", "amplitude.get_cohort_download_status", "request_id"),
+        (CONNECTORS / "fod" / "connector.yaml", "urbanStartRegulationIngestion", "fod.urban_get_regulation_ingestion", "idurba"),
+    ]:
+        module = connector_module(check(_load(path), path)).source
+        block = module.split(f"export const {submit} = ")[1].split("export const ")[0]
+        assert f'  async: {{ collect: "{collect}", jobId: {{ from: "{job}", to: "{job}" }} }},\n' in block
+        assert module.count("  async: ") == 1
+
+
+def test_async_settled_carries_its_delay():
+    description = _load(AMPLITUDE)
+    _submit(description).update(cost={"per": "request", "unit": "downloads", "settle": {"path": "used"}})
+    _submit(description)["async"]["within_s"] = 600
+    source = function_source("amplitude", _submit(check(description, AMPLITUDE).data))
+    assert '  async: { collect: "amplitude.get_cohort_download_status", jobId: { from: "request_id", to: "request_id" }, withinMs: 600000 },\n' in source
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: _submit(d)["async"].update(collect="nope"), "async.collect names 'nope', which is not another function"),
+    (lambda d: _submit(d)["async"].update(collect="request_cohort_download"), "which is not another function"),
+    (lambda d: _fn(d, "get_cohort_download_status").update({"class": "write"}),
+     "async.collect 'get_cohort_download_status' must be a read function with a call, not asynchronous itself"),
+    (lambda d: _fn(d, "get_cohort_download_status").update({"async": {"collect": "list_cohorts", "job_id": {"from": "a", "to": "b"}}}),
+     "not asynchronous itself"),
+    (lambda d: _submit(d)["async"]["job_id"].update(to="cohort_id"), "async.job_id.to 'cohort_id' must be the only required argument"),
+    (lambda d: _fn(d, "get_cohort_download_status")["input"].update(required=[]), "must be the only required argument"),
+    (lambda d: _submit(d)["async"].update(within_s=60), "async.within_s 60 must exceed the timeout of the submission (60 s)"),
+    (lambda d: (_submit(d).update(cost={"per": "request", "unit": "u", "settle": {"path": "used"}}), _submit(d)["async"].update(within_s=600),
+                _fn(d, "get_cohort_download_status").update(cost={"per": "request", "unit": "u", "settle": {"path": "used"}})),
+     "which must be neither paginated nor settled on its own"),
+], ids=["collect_unknown", "collect_itself", "collect_not_a_read", "collect_asynchronous", "to_not_required",
+        "to_not_the_only_one", "within_not_beyond_timeout", "collect_settled"])
+def test_async_rule_refuses(mutate, message):
+    description = _load(AMPLITUDE)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, AMPLITUDE)
+
+
+# --- Règle 14 : les fichiers d'un corps multipart -------------------------------------------
+
+PENNYLANE_FIRM = CONNECTORS / "pennylane_firm" / "connector.yaml"
+
+
+def _upload(d):
+    return _fn(d, "upload_dms_file")
+
+
+def test_files_are_carried_only_where_declared():
+    module = connector_module(check(_load(PENNYLANE_FIRM), PENNYLANE_FIRM)).source
+    block = module.split("export const uploadDmsFile = ")[1].split("export const ")[0]
+    assert '    body: {"parent_folder_id": "parent_folder_id", "name": "name"},\n    headers: {},\n    files: {"file": "file"},\n' in block
+    assert module.count("    files: ") == 1
+    sellsy = connector_module(check(_load(SELLSY), SELLSY)).source
+    assert "files:" not in sellsy
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: _upload(d)["call"].update(method="GET"), "call.files needs a method that sends a body (POST, PUT, PATCH)"),
+    (lambda d: _upload(d)["call"].update(method="DELETE"), "call.files needs a method that sends a body"),
+    (lambda d: _upload(d).update(pagination={"kind": "cursor", "request_param": "name", "next": "next", "max_pages": 2}),
+     "a function that sends files is not paginated"),
+    (lambda d: _upload(d)["input"]["properties"].update(file={"type": ["string", "null"]}), "file argument 'file' must be type: string"),
+    (lambda d: _upload(d)["call"].update(encode={"file": "json"}), "encode names 'file'"),
+    (lambda d: _upload(d)["call"]["files"].update(name="name"), "argument 'name' goes to two places"),
+    (lambda d: _upload(d)["call"]["files"].update({"parent_folder_id": "file"}), "argument 'file' goes to two places"),
+    (lambda d: (_upload(d)["call"]["files"].update({"name": "file"}), _upload(d)["call"]["files"].pop("file")),
+     "multipart part 'name' is both a file and a body value"),
+    (lambda d: _upload(d)["call"].update(constants={"body": {"file": "x"}}), "multipart part 'file' is both a file and a body value"),
+    (lambda d: _upload(d)["call"]["files"].update(other="nope"), "files 'other' names 'nope', which is not an input argument"),
+], ids=["get", "delete", "paginated", "not_text", "encoded", "two_places", "two_parts", "part_also_body",
+        "part_also_constant", "unknown_argument"])
+def test_files_rule_refuses(mutate, message):
+    description = _load(PENNYLANE_FIRM)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, PENNYLANE_FIRM)

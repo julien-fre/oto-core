@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from ..common.credentials import require
+from ..common.errors import raise_for_upstream
 
 
 class RecruiteeClient:
@@ -45,12 +46,7 @@ class RecruiteeClient:
     def _request(self, method: str, path: str, **kwargs) -> Any:
         url = f"{self.BASE_URL}/c/{self.company_id}{path}"
         resp = self.session.request(method, url, timeout=30, **kwargs)
-        if resp.status_code >= 400:
-            try:
-                body = resp.json()
-            except Exception:
-                body = resp.text
-            raise Exception(f"Recruitee HTTP {resp.status_code}: {body}")
+        raise_for_upstream(resp, service="recruitee")
         return resp.json() if resp.content else {}
 
     # --- Candidates ----------------------------------------------------------

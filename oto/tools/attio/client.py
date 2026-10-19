@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any, List
 import requests
 
 from ..common.credentials import require
+from ..common.errors import UpstreamHTTPError
 
 _HTTP_TIMEOUT = (10, 60)  # (connect, read) — never wait indefinitely
 
@@ -748,15 +749,16 @@ class AttioClient:
 
         response = requests.request(method, url, headers=headers, timeout=_HTTP_TIMEOUT, **kwargs)
 
-        if response.status_code == 429:
-            raise Exception("Rate limit exceeded")
-
         if not response.ok:
             # Attio's JSON body holds the real reason (validation,
             # missing scope…) — losing it makes the 400/404s undecipherable.
-            raise Exception(
-                f"Attio API {response.status_code} on {method} /{endpoint}: {response.text[:2000]}"
-            )
+            # A 429 takes the same path: its status and `retry_after` say what to do.
+            try:
+                body = response.json()
+            except ValueError:
+                body = response.text[:2000]
+            raise UpstreamHTTPError.from_response(response, service="attio", body=body,
+                                                  method=method, url=url)
 
         if response.content:
             return response.json()

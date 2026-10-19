@@ -70,10 +70,9 @@ class WordPressRateLimited(UpstreamHTTPError):
     raised with the delay (`retry_after`, seconds) instead of blocking."""
 
     def __init__(self, retry_after: Optional[float]):
-        self.retry_after = retry_after
         wait = f"retry in {int(retry_after)} s" if retry_after is not None else "retry later"
         super().__init__(429, f"WordPress rate limit reached — {wait}.",
-                         service="wordpress")
+                         service="wordpress", retry_after=retry_after)
 
 
 class WordPressMediaFieldsError(UpstreamHTTPError):

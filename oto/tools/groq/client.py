@@ -13,6 +13,7 @@ from typing import Optional, List, Dict, Any
 import requests
 
 from ..common.credentials import require
+from ..common.errors import raise_for_upstream
 
 
 class GroqClient:
@@ -83,8 +84,7 @@ class GroqClient:
             timeout=30,
         )
 
-        if not resp.ok:
-            raise Exception(f"Groq API error: {resp.status_code} {resp.text}")
+        raise_for_upstream(resp, service="groq")
 
         return resp.json()
 

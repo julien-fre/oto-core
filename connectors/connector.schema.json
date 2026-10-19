@@ -48,10 +48,40 @@
       "type": "string",
       "minLength": 1
     },
+    "dotted_path": {
+      "description": "Dotted path of a value in a JSON response, a list index as a number: credits.remaining, accounts.0.balance. Each segment is non-empty, without space.",
+      "type": "string",
+      "pattern": "^[^.\\s]+(\\.[^.\\s]+)*$"
+    },
+    "timeout_s": {
+      "description": "A timeout in seconds: the connector's, or one function's. At most 300, the ceiling the host package of oto 2 runs.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300
+    },
     "http_status": {
       "type": "integer",
       "minimum": 100,
       "maximum": 599
+    },
+    "account_mark": {
+      "description": "What a refusal reveals about the account, for the host to mark it until its next successful call: credential_rejected (the service refuses the key or the token of the account), quota_exhausted (its credits or plan quota are spent). Only what is declared marks: nothing marks by default.",
+      "enum": ["credential_rejected", "quota_exhausted"]
+    },
+    "body_condition": {
+      "description": "A condition on the JSON body of the response: the value at path (dotted, a list index as a number) equals one of the values. The entry applies only when it holds; under the same status, the next entry is tried.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "equals"],
+      "properties": {
+        "path": { "$ref": "#/$defs/text" },
+        "equals": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": ["string", "integer", "boolean"] }
+        }
+      }
     },
     "argument_map": {
       "description": "API-side name to input argument name. Each input argument goes to one place only.",
@@ -272,12 +302,7 @@
           "uniqueItems": true,
           "items": { "enum": ["platform", "byo_user", "byo_org"] }
         },
-        "timeout_s": {
-          "description": "Timeout of one call, in seconds.",
-          "type": "integer",
-          "minimum": 1,
-          "default": 30
-        },
+        "timeout_s": { "description": "Timeout of one call, in seconds.", "$ref": "#/$defs/timeout_s", "default": 30 },
         "quota": {
           "description": "Default quota on a platform key. Absent when the connector has no platform key. Shape still to be fixed.",
           "type": "object",
@@ -313,11 +338,22 @@
               "type": "array",
               "minItems": 1,
               "items": { "$ref": "#/$defs/text" }
+            },
+            "balance": {
+              "description": "The balance of a paid account, read in the probe's response: a number at path, healthy at min or above; under min, absent or not a number, the probe is not healthy. The probe function then declares no cost: one never pays to learn whether one can pay.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "min", "unit"],
+              "properties": {
+                "path": { "description": "Dotted path of the balance in the response.", "$ref": "#/$defs/dotted_path" },
+                "min": { "description": "Threshold: a balance under it is not healthy.", "type": "number", "minimum": 0 },
+                "unit": { "description": "What the balance counts, as the vendor names it: credits, requests, EUR.", "$ref": "#/$defs/text" }
+              }
             }
           }
         },
         "errors": {
-          "description": "Error table shared by every function.",
+          "description": "Error table shared by every function: the first entry whose status, and body condition when it has one, matches the response applies.",
           "type": "array",
           "minItems": 1,
           "items": {
@@ -338,7 +374,9 @@
               },
               "code": { "$ref": "#/$defs/identifier" },
               "message": { "$ref": "#/$defs/text" },
-              "retryable": { "type": "boolean" }
+              "retryable": { "type": "boolean" },
+              "body": { "$ref": "#/$defs/body_condition" },
+              "marks_account": { "$ref": "#/$defs/account_mark" }
             }
           }
         }
@@ -583,6 +621,40 @@
           "type": "boolean"
         },
         "description": { "description": "What the agent reads, in English; at most 1000 characters.", "$ref": "#/$defs/text", "maxLength": 1000 },
+        "timeout_s": {
+          "description": "Timeout of one call of this function, in seconds, in place of the connector's: longer or shorter, never equal to it. Each page of a paginated read is one call.",
+          "$ref": "#/$defs/timeout_s"
+        },
+        "async": {
+          "description": "The function submits a job whose result is collected later by another function of the connector, collect, called with the job id read in the submission's response. With cost.settle, the real quantity is read in the collect's responses, within within_s, or, when the vendor's reference states that a job has no deadline, under no_deadline, until the billing service's own cap.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["collect", "job_id"],
+          "properties": {
+            "collect": { "description": "The read function that collects the job: its state, and its result.", "$ref": "#/$defs/identifier" },
+            "job_id": {
+              "description": "The job id: read at from in the submission's response, passed to the collect function as its argument to.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["from", "to"],
+              "properties": {
+                "from": { "$ref": "#/$defs/dotted_path" },
+                "to": { "description": "The only required argument of the collect function.", "$ref": "#/$defs/identifier" }
+              }
+            },
+            "within_s": {
+              "description": "Delay of collection, in seconds after the submission: by then the job is done and its quantity readable. At most one day. With cost.settle, it or no_deadline is required.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400
+            },
+            "no_deadline": {
+              "description": "The vendor's reference states that a job has no deadline: no delay of collection is declared, and a settled reservation lasts until its quantity is read or until the cap the billing service sets. Exclusive of within_s.",
+              "const": true
+            }
+          },
+          "not": { "required": ["within_s", "no_deadline"] }
+        },
         "scopes": {
           "description": "Only in a connector with access levels, where it is required: the scopes this function requires, all of them. It is served at a level when each is a scope of the level or implied by one. class stays: it says what the function does.",
           "$ref": "#/$defs/scope_list"
@@ -615,7 +687,9 @@
                 "description": "HTTP status, or a condition.",
                 "oneOf": [{ "$ref": "#/$defs/http_status" }, { "$ref": "#/$defs/text" }]
               },
-              "message": { "$ref": "#/$defs/text" }
+              "message": { "$ref": "#/$defs/text" },
+              "body": { "$ref": "#/$defs/body_condition" },
+              "marks_account": { "$ref": "#/$defs/account_mark" }
             }
           }
         },
@@ -645,6 +719,11 @@
             "query": { "$ref": "#/$defs/argument_map" },
             "body": { "description": "JSON body, whatever the method: a DELETE may carry one.", "$ref": "#/$defs/argument_map" },
             "headers": { "$ref": "#/$defs/argument_map" },
+            "files": {
+              "description": "Multipart part name to the input argument that carries the id of a transit file of the caller. When present, the body is sent as multipart/form-data: each body entry and body constant becomes a text part, each file a part with the file's own name and type. The host reads the file under the caller's identity and consumes it after a successful send.",
+              "$ref": "#/$defs/argument_map",
+              "minProperties": 1
+            },
             "constants": {
               "description": "Values sent with every call of this function. They are not arguments: the agent neither sees nor sets them.",
               "type": "object",
@@ -697,13 +776,61 @@
           }
         },
         "cost": {
-          "description": "Unit counted against the quota.",
+          "description": "What a call costs. Before the call, its worst case from the arguments: one per request sent (request, page: each page of a paginated read is a request), or, per item, the size of the items argument times the size of the times argument, or the sum over the items of the weights of the values each lists (weights). After the call, settle reads the real quantity in the response. Both count the same unit.",
           "type": "object",
           "additionalProperties": false,
           "required": ["per"],
           "properties": {
-            "per": { "enum": ["request", "page"] }
-          }
+            "per": { "enum": ["request", "page", "item"] },
+            "items": {
+              "description": "per: item only, required there: the list argument each element of which counts once. Required in the input, at least one element.",
+              "$ref": "#/$defs/identifier"
+            },
+            "times": {
+              "description": "per: item only: another list argument whose size multiplies the count of items. Required in the input, at least one element.",
+              "$ref": "#/$defs/identifier"
+            },
+            "weights": {
+              "description": "per: item only, exclusive of times: each element of items counts the sum of the weights of the values it lists in its own field, a list of values each of which has an integer weight of one or more in unit. The field is required in each element, a list of at least one element, unique values, every allowed value (its enum) weighted and nothing else.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["field", "values"],
+              "properties": {
+                "field": { "description": "The list field of each element of items that holds the values.", "$ref": "#/$defs/identifier" },
+                "values": {
+                  "description": "Weight of each allowed value, in unit: an integer of one or more.",
+                  "type": "object",
+                  "minProperties": 1,
+                  "propertyNames": { "minLength": 1 },
+                  "additionalProperties": { "type": "integer", "minimum": 1 }
+                }
+              }
+            },
+            "unit": {
+              "description": "What the quantity counts, as the vendor names it: credits, contacts, fields. Required per item or with settle; absent, requests (per: request) or pages (per: page).",
+              "$ref": "#/$defs/text"
+            },
+            "settle": {
+              "description": "The real quantity of the call, read to settle it: a finite JSON number of zero or more at path, in unit, in the response of the call, or of its collect function when it is asynchronous. Not on a paginated function.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path"],
+              "properties": {
+                "path": { "$ref": "#/$defs/dotted_path" }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "per": { "const": "item" } } },
+              "then": { "required": ["items", "unit"], "not": { "required": ["times", "weights"] } },
+              "else": { "not": { "anyOf": [{ "required": ["items"] }, { "required": ["times"] }, { "required": ["weights"] }] } }
+            },
+            {
+              "if": { "required": ["settle"] },
+              "then": { "required": ["unit"] }
+            }
+          ]
         },
         "confirm": {
           "type": "object",
@@ -726,6 +853,11 @@
         {
           "if": { "properties": { "class": { "const": "sensitive" } } },
           "then": { "required": ["confirm"] }
+        },
+        {
+          "$comment": "An asynchronous function whose cost is settled says within how long its quantity is collected, or that the vendor sets no deadline.",
+          "if": { "required": ["async", "cost"], "properties": { "cost": { "required": ["settle"] } } },
+          "then": { "properties": { "async": { "anyOf": [{ "required": ["within_s"] }, { "required": ["no_deadline"] }] } } }
         }
       ]
     },

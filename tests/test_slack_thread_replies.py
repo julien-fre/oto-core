@@ -104,7 +104,7 @@ def test_slack_error_porte_le_scope_manquant_annonce_par_slack():
     assert SlackError("not_in_channel").needed is None
 
 
-def test_le_transport_remonte_needed_et_provided():
+def test_le_transport_remonte_needed_et_provided(monkeypatch):
     c = SlackClient(bot_token="xoxb-1")
     import oto.tools.slack.client as mod
 
@@ -116,7 +116,9 @@ def test_le_transport_remonte_needed_et_provided():
             return {"ok": False, "error": "missing_scope",
                     "needed": "channels:history", "provided": "chat:write"}
 
-    mod.requests.request = lambda *a, **k: Resp()
+    # `mod.requests` est le module `requests` lui-même : sans monkeypatch, la doublure restait en place pour
+    # toute la suite (tout client qui appelle `requests.request` recevait ce `Resp`).
+    monkeypatch.setattr(mod.requests, "request", lambda *a, **k: Resp())
     with pytest.raises(SlackError) as ei:
         c.replies("C1", "1.1")
     assert ei.value.needed == "channels:history" and ei.value.provided == "chat:write"

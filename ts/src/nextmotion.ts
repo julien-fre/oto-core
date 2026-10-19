@@ -8800,7 +8800,7 @@ export const connector = defineConnector({
   queryArrays: "repeat",
   errors: [
     { status: 400, code: "invalid_request", message: "Nextmotion rejected the request as invalid: check the arguments.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Nextmotion rejected the API key: it is invalid, rerolled or deleted.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Nextmotion rejected the API key: it is invalid, rerolled or deleted.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "forbidden", message: "Nextmotion refused access: the key's user lacks the right, or is not an employee of this clinic.", retryable: false },
     { status: 404, code: "not_found", message: "Nextmotion object not found, or not visible to the key's user: check the id.", retryable: false },
     { status: 429, code: "rate_limited", message: "Nextmotion rate limit reached: retry later.", retryable: true },

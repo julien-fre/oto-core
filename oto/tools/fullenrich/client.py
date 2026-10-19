@@ -20,6 +20,7 @@ import time
 import requests
 
 from ..common.credentials import require
+from ..common.errors import UpstreamHTTPError
 
 # Cap of the FullEnrich bulk endpoint (contacts per job).
 MAX_CONTACTS_PER_JOB = 100
@@ -42,6 +43,30 @@ _GET_ERREUR_VERS_STATUT = {
 }
 
 _CREDITS_INSUFFISANTS = "FullEnrich: insufficient credits. Top up at app.fullenrich.com."
+
+SERVICE = "fullenrich"
+
+
+def _is_success(resp) -> bool:
+    return 200 <= resp.status_code < 300
+
+
+def _upstream_error(resp, method: str, url: str, parsed=None) -> UpstreamHTTPError:
+    """The error for a non-2xx answer: its real status, the request (method, URL without
+    query) and, on a 429, the `Retry-After`. A `402` keeps the readable
+    insufficient-credits message; otherwise `body` is the parsed JSON body, or the
+    start of the raw text."""
+    if resp.status_code == 402:
+        body = _CREDITS_INSUFFISANTS
+    elif parsed is not None:
+        body = parsed
+    else:
+        try:
+            body = resp.json()
+        except ValueError:
+            body = resp.text[:200]
+    return UpstreamHTTPError.from_response(resp, service=SERVICE, body=body,
+                                           method=method, url=url)
 
 
 def _cost_credits(body) -> int | None:
@@ -132,6 +157,9 @@ class FullenrichClient:
         Each contact must carry `linkedin_slug` OR `domain` (the company's
         website) — otherwise the FullEnrich API rejects the entire job
         (`error.enrichment.domain.empty`, verified live 2026-07-22).
+
+        Raises `ValueError` on invalid input, before any HTTP call (nothing is sent),
+        and `UpstreamHTTPError` (service `fullenrich`, method `POST`) on a non-2xx answer.
         """
         if not contacts:
             raise ValueError("FullEnrich submit: no contact provided.")
@@ -170,14 +198,15 @@ class FullenrichClient:
             data.append(entry)
 
         payload = {"name": f"oto-{int(time.time())}", "data": data}
+        url = f"{self.BASE_URL}/contact/enrich/bulk"
         resp = requests.post(
-            f"{self.BASE_URL}/contact/enrich/bulk",
+            url,
             headers=self._headers(),
             json=payload,
             timeout=30,
         )
-        if resp.status_code != 200:
-            raise RuntimeError(f"FullEnrich POST {resp.status_code}: {resp.text[:200]}")
+        if not _is_success(resp):
+            raise _upstream_error(resp, "POST", url)
 
         enrichment_id = resp.json().get("enrichment_id")
         if not enrichment_id:
@@ -197,13 +226,17 @@ class FullenrichClient:
         per-contact detail). Read from the response, never recomputed here: the rate card
         (1 / 3 / 10 per value found) is the upstream's and may change without
         notice. `None` when the response does not carry an integer `>= 0`, whatever
-        the status."""
+        the status.
+
+        Any other non-2xx answer raises `UpstreamHTTPError` (service `fullenrich`, method
+        `GET`); a `402` carries the insufficient-credits message."""
+        url = f"{self.BASE_URL}/contact/enrich/bulk/{enrichment_id}"
         resp = requests.get(
-            f"{self.BASE_URL}/contact/enrich/bulk/{enrichment_id}",
+            url,
             headers=self._headers(),
             timeout=30,
         )
-        if resp.status_code != 200:
+        if not _is_success(resp):
             try:
                 err = resp.json()
             except ValueError:
@@ -212,9 +245,7 @@ class FullenrichClient:
             statut = _GET_ERREUR_VERS_STATUT.get((resp.status_code, code))
             if statut is not None:
                 return {"status": statut, "profiles": None, "cost_credits": None}
-            if resp.status_code == 402:
-                raise RuntimeError(_CREDITS_INSUFFISANTS)
-            raise RuntimeError(f"FullEnrich GET {resp.status_code}: {resp.text[:200]}")
+            raise _upstream_error(resp, "GET", url, parsed=err)
 
         body = resp.json()
         status = body.get("status", "")
