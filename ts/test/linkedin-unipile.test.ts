@@ -25,6 +25,12 @@ describe("linkedin_unipile definitions", () => {
     expect(pattern.test("")).toBe(false)
   })
 
+  it("should give the company page its own shorter timeout and leave the others on the connector's", () => {
+    expect(linkedinUnipile.connector.timeoutMs).toBe(120_000)
+    expect(linkedinUnipile.getCompany.timeoutMs).toBe(60_000)
+    expect("timeoutMs" in linkedinUnipile.getProfile).toBe(false)
+  })
+
   it("should confirm the sensitive functions before running them", () => {
     for (const fn of [linkedinUnipile.sendInvitation, linkedinUnipile.sendMessage]) {
       expect(fn.class).toBe("sensitive")

@@ -20,9 +20,12 @@ connector:
   modes: [byo_user]
   timeout_s: 30
   errors:
+    - { status: 400, body: { path: error.code, equals: [190, 102] }, code: authorization_expired, retryable: false,
+        marks_account: credential_rejected,
+        message: "Meta no longer accepts this authorization (Graph error code 190 or 102): reconnect the account." }
     - { status: 400, code: invalid_request, retryable: false,
         message: "Meta rejected the request: check the ids, fields and parameters." }
-    - { status: 401, code: authorization_expired, retryable: false,
+    - { status: 401, code: authorization_expired, retryable: false, marks_account: credential_rejected,
         message: "Meta no longer accepts this authorization: reconnect the account and check that the ad accounts are still granted." }
     - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
         message: "Meta is temporarily unavailable: retry later." }
@@ -62,8 +65,6 @@ functions:
       - title: Active campaigns of an ad account
         input: { ad_account_id: act_1234567890, effective_status: '["ACTIVE"]' }
     refusals: &common_refusals
-      - &expired { code: authorization_expired, when: "Graph error code 190 or 102",
-                   message: "Meta no longer accepts this authorization: reconnect the account." }
       - &throttled { code: rate_limited, when: "Graph error code 4, 17, 32, 613 or 80000 to 80014",
                      message: "Meta rate limit reached: wait a few minutes before retrying." }
     call:
@@ -217,7 +218,6 @@ functions:
           time_range: '{"since":"2026-09-01","until":"2026-09-30"}'
           breakdowns: "age,gender"
     refusals: &insight_refusals
-      - *expired
       - *throttled
       - { code: too_much_data, when: "Graph error code 100 with subcode 1487534",
           message: "Meta refused: too much data for one call. Narrow the date range or breakdowns, or use an asynchronous report." }
@@ -231,7 +231,7 @@ functions:
     output: { items: data }
 
   - name: start_insights_report
-    class: write
+    class: read
     description: >-
       Start an asynchronous insights report on Meta's side and return its
       report_run_id (valid 30 days). Then poll get_report_status until

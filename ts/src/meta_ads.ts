@@ -36,7 +36,6 @@ export const listCampaigns = defineFunction({
     { title: "Active campaigns of an ad account", input: {"ad_account_id": "act_1234567890", "effective_status": "[\"ACTIVE\"]"} },
   ],
   refusals: [
-    { code: "authorization_expired", when: "Graph error code 190 or 102", message: "Meta no longer accepts this authorization: reconnect the account." },
     { code: "rate_limited", when: "Graph error code 4, 17, 32, 613 or 80000 to 80014", message: "Meta rate limit reached: wait a few minutes before retrying." },
   ],
   request: {
@@ -85,7 +84,6 @@ export const listAdsets = defineFunction({
     { title: "Ad sets of one campaign", input: {"ad_account_id": "act_1234567890", "filtering": "[{\"field\":\"campaign.id\",\"operator\":\"EQUAL\",\"value\":\"120200000000001\"}]"} },
   ],
   refusals: [
-    { code: "authorization_expired", when: "Graph error code 190 or 102", message: "Meta no longer accepts this authorization: reconnect the account." },
     { code: "rate_limited", when: "Graph error code 4, 17, 32, 613 or 80000 to 80014", message: "Meta rate limit reached: wait a few minutes before retrying." },
   ],
   request: {
@@ -134,7 +132,6 @@ export const listAds = defineFunction({
     { title: "Paused ads of an ad account", input: {"ad_account_id": "act_1234567890", "effective_status": "[\"PAUSED\"]", "limit": 25} },
   ],
   refusals: [
-    { code: "authorization_expired", when: "Graph error code 190 or 102", message: "Meta no longer accepts this authorization: reconnect the account." },
     { code: "rate_limited", when: "Graph error code 4, 17, 32, 613 or 80000 to 80014", message: "Meta rate limit reached: wait a few minutes before retrying." },
   ],
   request: {
@@ -171,7 +168,6 @@ export const getObject = defineFunction({
     { title: "One campaign with its budget", input: {"object_id": "120200000000001", "fields": "id,name,status,daily_budget"} },
   ],
   refusals: [
-    { code: "authorization_expired", when: "Graph error code 190 or 102", message: "Meta no longer accepts this authorization: reconnect the account." },
     { code: "rate_limited", when: "Graph error code 4, 17, 32, 613 or 80000 to 80014", message: "Meta rate limit reached: wait a few minutes before retrying." },
   ],
   request: {
@@ -257,7 +253,6 @@ export const getInsights = defineFunction({
     { title: "Account spend by age and gender in September", input: {"object_id": "act_1234567890", "level": "account", "fields": "spend,impressions,clicks", "time_range": "{\"since\":\"2026-09-01\",\"until\":\"2026-09-30\"}", "breakdowns": "age,gender"} },
   ],
   refusals: [
-    { code: "authorization_expired", when: "Graph error code 190 or 102", message: "Meta no longer accepts this authorization: reconnect the account." },
     { code: "rate_limited", when: "Graph error code 4, 17, 32, 613 or 80000 to 80014", message: "Meta rate limit reached: wait a few minutes before retrying." },
     { code: "too_much_data", when: "Graph error code 100 with subcode 1487534", message: "Meta refused: too much data for one call. Narrow the date range or breakdowns, or use an asynchronous report." },
   ],
@@ -275,8 +270,8 @@ export const getInsights = defineFunction({
 export const startInsightsReport = defineFunction({
   name: "meta_ads.start_insights_report",
   connector: "meta_ads",
-  class: "write",
-  act: true,
+  class: "read",
+  act: false,
   description: "Start an asynchronous insights report on Meta's side and return its report_run_id (valid 30 days). Then poll get_report_status until async_status is Job Completed, and read the rows with get_report_insights. Same parameters as get_insights; the attribution windows default to those of the synchronous call (7d_click, 1d_view), so both modes give the same figures.",
   schema: {
     "type": "object",
@@ -339,7 +334,6 @@ export const startInsightsReport = defineFunction({
     { title: "Ad-level report over a whole account for last month", input: {"object_id": "act_1234567890", "level": "ad", "date_preset": "last_month", "time_increment": 1} },
   ],
   refusals: [
-    { code: "authorization_expired", when: "Graph error code 190 or 102", message: "Meta no longer accepts this authorization: reconnect the account." },
     { code: "rate_limited", when: "Graph error code 4, 17, 32, 613 or 80000 to 80014", message: "Meta rate limit reached: wait a few minutes before retrying." },
     { code: "too_much_data", when: "Graph error code 100 with subcode 1487534", message: "Meta refused: too much data for one call. Narrow the date range or breakdowns, or use an asynchronous report." },
   ],
@@ -376,7 +370,6 @@ export const getReportStatus = defineFunction({
     { title: "Status of a report", input: {"report_run_id": "6000000000001"} },
   ],
   refusals: [
-    { code: "authorization_expired", when: "Graph error code 190 or 102", message: "Meta no longer accepts this authorization: reconnect the account." },
     { code: "rate_limited", when: "Graph error code 4, 17, 32, 613 or 80000 to 80014", message: "Meta rate limit reached: wait a few minutes before retrying." },
   ],
   request: {
@@ -409,7 +402,6 @@ export const getReportInsights = defineFunction({
     { title: "First page of a completed report", input: {"report_run_id": "6000000000001", "limit": 100} },
   ],
   refusals: [
-    { code: "authorization_expired", when: "Graph error code 190 or 102", message: "Meta no longer accepts this authorization: reconnect the account." },
     { code: "rate_limited", when: "Graph error code 4, 17, 32, 613 or 80000 to 80014", message: "Meta rate limit reached: wait a few minutes before retrying." },
   ],
   request: {
@@ -435,8 +427,9 @@ export const connector = defineConnector({
   modes: ["byo_user"],
   timeoutMs: 30000,
   errors: [
+    { status: 400, code: "authorization_expired", message: "Meta no longer accepts this authorization (Graph error code 190 or 102): reconnect the account.", retryable: false, body: {"path": "error.code", "equals": [190, 102]}, marksAccount: "credential_rejected" },
     { status: 400, code: "invalid_request", message: "Meta rejected the request: check the ids, fields and parameters.", retryable: false },
-    { status: 401, code: "authorization_expired", message: "Meta no longer accepts this authorization: reconnect the account and check that the ad accounts are still granted.", retryable: false },
+    { status: 401, code: "authorization_expired", message: "Meta no longer accepts this authorization: reconnect the account and check that the ad accounts are still granted.", retryable: false, marksAccount: "credential_rejected" },
     { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Meta is temporarily unavailable: retry later.", retryable: true },
   ],
   exposure: {"mode": "per_connector", "tool": "meta_ads"},

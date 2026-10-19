@@ -621,7 +621,7 @@ export const connector = defineConnector({
   timeoutMs: 40000,
   errors: [
     { status: 400, code: "invalid_request", message: "Mailpool rejected the request as invalid: check the arguments (list calls need limit and offset).", retryable: false },
-    { status: 401, code: "access_rejected", message: "Mailpool rejected the API key: check the workspace key.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Mailpool rejected the API key: check the workspace key.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "not_enabled", message: "Mailpool refused the operation: this feature is not enabled for the workspace.", retryable: false },
     { status: 404, code: "not_found", message: "Mailpool object not found in this workspace.", retryable: false },
     { status: 429, code: "rate_limited", message: "Mailpool rate limit reached: retry later.", retryable: true },

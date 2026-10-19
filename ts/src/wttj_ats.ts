@@ -401,7 +401,7 @@ export const connector = defineConnector({
   timeoutMs: 60000,
   errors: [
     { status: 400, code: "invalid_request", message: "Welcome to the Jungle rejected the request as invalid (validation_failed): check the arguments.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Welcome to the Jungle rejected the API token: it is wrong or revoked.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Welcome to the Jungle rejected the API token: it is wrong or revoked.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "forbidden", message: "Welcome to the Jungle refused access: the token lacks the scope this call needs (invalid_scope), or the resource is not reachable with it.", retryable: false },
     { status: 404, code: "not_found", message: "Welcome to the Jungle found no resource with this reference.", retryable: false },
     { status: 429, code: "rate_limited", message: "Too many requests to Welcome to the Jungle: retry in a moment.", retryable: true },

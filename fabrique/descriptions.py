@@ -20,8 +20,9 @@ pas dire :
 4. chaque contrôle (`checks`, `expect`) nomme un refus de sa fonction ; `equal_sums`
    porte sur un argument liste dont les éléments déclarent les deux champs ;
 5. la sonde, et l'identité d'un `oauth2_user` lue par une fonction, nomment une
-   fonction de lecture du connecteur, appelée par `call`, sans argument requis ;
-   l'identité lue à une adresse complète exige des droits que le consentement
+   fonction de lecture du connecteur, appelée par `call`, sans argument requis ; la
+   fonction d'une sonde qui lit un solde (`balance`) ne déclare pas de coût (`cost`) :
+   on ne paie pas pour savoir si l'on peut payer ; l'identité lue à une adresse complète exige des droits que le consentement
    demande (ses `scopes`, quand le connecteur n'a pas de niveaux ; à chaque niveau
    sinon, règle 7) ;
 6. les réglages : un nom n'est déclaré qu'une fois parmi `credential`, `settings` et
@@ -46,7 +47,20 @@ pas dire :
    API de `call` (paramètre du chemin, de query, de corps, en-tête), aucune constante
    ni aucun en-tête constant ne porte son nom : l'agent ne la fournit jamais ;
 9. `act` suit la classe : jamais `false` sur une fonction `sensitive`, jamais `true`
-   sur une fonction `read` ; absent, il vaut `false` pour `read`, `true` sinon.
+   sur une fonction `read` ; absent, il vaut `false` pour `read`, `true` sinon ;
+10. le signal de refus du service (une entrée de `errors` ou un refus qui porte
+   `marks_account`, une condition sur le corps `body`) : un refus qui porte l'un ou
+   l'autre a un statut pour `when`, jamais une condition en texte ; un statut 2xx
+   exige une condition sur le corps (sinon chaque succès serait un refus) ; un 403
+   sans condition sur le corps ne marque jamais `credential_rejected` (un droit
+   manquant n'est pas une clé refusée), ni un 429 sans condition `quota_exhausted`
+   (un débit dépassé n'est pas un crédit épuisé) ; une entrée qui marque le compte
+   n'est pas rejouable ; dans une même table, une entrée à condition ne vient pas
+   après une entrée sans condition qui partage un de ses statuts (elle ne serait
+   jamais lue) ;
+11. le délai propre à une fonction (`timeout_s`) remplace celui du connecteur pour
+   chacun de ses appels, plus court ou plus long ; il n'est jamais égal au délai du
+   connecteur (déclaré, ou 30 s par défaut) : il ne dirait rien.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -66,6 +80,8 @@ CONNECTORS = REPO / "connectors"
 SCHEMA_PATH = CONNECTORS / "connector.schema.json"
 
 PATH_PARAM = re.compile(r"\{([^{}]*)\}")
+# Le délai d'un appel quand le connecteur n'en déclare pas (le `default` du schéma).
+DEFAULT_TIMEOUT_S = 30
 AUTH_REFERENCES = ("key", "token", "username", "password", "client_id", "client_secret")
 PLACES = ("query", "body", "headers")
 # Ce qui précède l'identité d'un compte dans une adresse : le schéma et l'hôte (ou une adresse libre en tête), puis `/`.
@@ -232,6 +248,63 @@ def check_act(function: dict, where: str) -> None:
         raise DescriptionError(f"{where}: function {function['name']}: a read function cannot declare act: true")
 
 
+def check_timeout(connector: dict, function: dict, where: str) -> None:
+    """Règle 11 : le délai d'une fonction n'est pas celui du connecteur."""
+    own = function.get("timeout_s")
+    if own is not None and own == connector.get("timeout_s", DEFAULT_TIMEOUT_S):
+        raise DescriptionError(
+            f"{where}: function {function['name']}: timeout_s {own} is the connector's timeout: declare none"
+        )
+
+
+def _statuses(entry: dict) -> list[int]:
+    status = entry["status"] if "status" in entry else entry["when"]
+    return status if isinstance(status, list) else [status]
+
+
+def _check_signal_table(entries: list[dict], at: str, where: str) -> None:
+    """Règle 10, sur une table (`errors` du connecteur, ou les refus d'une fonction)."""
+    plain: set[int] = set()
+    for entry in entries:
+        label = f"{at} {entry['code']!r}"
+        if "status" not in entry and not isinstance(entry["when"], int):
+            if "body" in entry or "marks_account" in entry:
+                raise DescriptionError(
+                    f"{where}: {label}: a refusal with body or marks_account needs an HTTP status in when, not a text condition"
+                )
+            continue
+        statuses = _statuses(entry)
+        body = "body" in entry
+        mark = entry.get("marks_account")
+        if not body and any(200 <= status < 300 for status in statuses):
+            raise DescriptionError(f"{where}: {label}: a 2xx status needs a body condition, or every success would be refused")
+        if mark == "credential_rejected" and not body and 403 in statuses:
+            raise DescriptionError(
+                f"{where}: {label}: a 403 without a body condition cannot mark credential_rejected (a missing right is not a refused key)"
+            )
+        if mark == "quota_exhausted" and not body and 429 in statuses:
+            raise DescriptionError(
+                f"{where}: {label}: a 429 without a body condition cannot mark quota_exhausted (a rate limit is not spent credits)"
+            )
+        if mark is not None and entry.get("retryable") is True:
+            raise DescriptionError(f"{where}: {label}: an entry that marks the account is not retryable")
+        shadowed = sorted(plain.intersection(statuses))
+        if body and shadowed:
+            raise DescriptionError(
+                f"{where}: {label}: its body condition comes after an entry without one for status "
+                f"{', '.join(map(str, shadowed))}, so it is never read"
+            )
+        if not body:
+            plain.update(statuses)
+
+
+def check_signals(data: dict, where: str) -> None:
+    """Règle 10 : le signal de refus du service, dans la table du connecteur et dans les refus de chaque fonction."""
+    _check_signal_table(data["connector"]["errors"], "errors", where)
+    for function in data["functions"]:
+        _check_signal_table(function.get("refusals", []), f"function {function['name']}: refusal", where)
+
+
 def check_checks(function: dict, where: str) -> None:
     """Règle 4 : un contrôle nomme un refus de sa fonction, et `equal_sums` une liste qui a ses deux champs."""
     name = function["name"]
@@ -263,10 +336,16 @@ def _plain_read(data: dict, role: str, name: str, where: str) -> None:
 
 
 def check_probe(data: dict, where: str) -> None:
-    """Règle 5 : la sonde et l'identité d'un consentement sont des lectures par `call`, appelables sans argument."""
+    """Règle 5 : la sonde et l'identité d'un consentement sont des lectures par `call`, appelables sans argument ; la
+    fonction d'une sonde qui lit un solde ne coûte rien."""
     probe = data["connector"].get("probe")
     if probe is not None:
         _plain_read(data, "probe", probe["function"], where)
+        function = next(f for f in data["functions"] if f["name"] == probe["function"])
+        if "balance" in probe and "cost" in function:
+            raise DescriptionError(
+                f"{where}: probe {probe['function']!r} reads a balance, so it must declare no cost: one never pays to learn whether one can pay"
+            )
     auth = data["connector"]["auth"]
     identity = auth.get("identity")
     if identity is not None and "function" in identity:
@@ -486,12 +565,14 @@ def check(data: dict, path: pathlib.Path) -> Description:
         check_constants(data["connector"], function, where)
         check_checks(function, where)
         check_act(function, where)
+        check_timeout(data["connector"], function, where)
     names = [function["name"] for function in data["functions"]]
     twice = sorted({n for n in names if names.count(n) > 1})
     if twice:
         raise DescriptionError(f"{where}: function name(s) declared twice: {', '.join(twice)}")
     check_probe(data, where)
     check_access_levels(data, where)
+    check_signals(data, where)
     return Description(path=path, data=data)
 
 

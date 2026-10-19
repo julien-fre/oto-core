@@ -38,6 +38,30 @@ jobs:
       - name: Tests
         run: pytest -q
 
+  # Gardes par commit (docs/conception/format-de-description.md, « Contrôles ») : chaque commit nouveau, jugé contre son
+  # premier parent, monte la `version` d'un `connectors/<nom>/connector.yaml` dont il change la description ou le
+  # client, sauf trailer `Version-dispense: <connecteur> — <raison>` ; il n'ajoute aucune exception en attente à
+  # `connectors/clients.yaml`. Jamais la version de la lib (pyproject, uv.lock, paquet npm). Commits jugés : ceux de la
+  # PR (de sa base à sa tête, sans le commit de fusion que GitHub fabrique), ou ceux du push de `main` (d'avant à
+  # après) ; d'où l'historique entier (`fetch-depth: 0`). Avant inconnu (premier push) : le commit de tête seul, et la
+  # sortie le dit. Ni sur un tag (appel par `publish.yml`), ni sur un dispatch : rien de nouveau à juger.
+  commits:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: pip install "pyyaml==6.0.2"
+      - name: Chaque commit, contre son parent
+        env:
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: python -m fabrique.commits "$BEFORE" "$AFTER"
+
   # Sortie TypeScript de la fabrique (`ts/`) : elle compile et ses définitions tiennent leurs exemples et la requête
   # du témoin Notion. Que la sortie commitée soit à jour se vérifie dans `test` (`tests/test_fabrique.py`).
   fabrique-ts:

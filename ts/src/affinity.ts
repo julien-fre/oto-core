@@ -1060,7 +1060,7 @@ export const connector = defineConnector({
   queryArrays: "repeat",
   errors: [
     { status: 400, code: "invalid_request", message: "Affinity rejected the request as invalid: check the arguments.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Affinity refused the API key: it is invalid or revoked.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Affinity refused the API key: it is invalid or revoked.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "permission_denied", message: "Affinity refused this action: the key's user lacks a permission (reading list entries and writing list fields need Export data from Lists, writing global fields needs Edit Global Field Values), or the plan has no API access.", retryable: false },
     { status: 404, code: "not_found", message: "Affinity found nothing with this id, or it is not visible to the key's user.", retryable: false },
     { status: 429, code: "rate_limited", message: "Affinity rate limit reached: 900 requests per user per minute, plus a monthly account quota shared with every other Affinity integration.", retryable: true },

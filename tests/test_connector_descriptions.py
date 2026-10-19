@@ -511,3 +511,107 @@ def test_act_is_a_boolean():
     description["functions"][0]["act"] = "no"
     with pytest.raises(ValidationError):
         _validate(description)
+
+
+# --- Signal de refus du service ------------------------------------------------------
+
+
+def _signal(d, **entry):
+    """Une entrée de la table d'erreurs qui marque le compte, sous une condition sur le corps."""
+    d["connector"]["errors"].insert(0, {"status": 400, "code": "key_refused", "message": "The key is refused.", "retryable": False,
+                                        "body": {"path": "error.code", "equals": ["invalid_key", 190, True]},
+                                        "marks_account": "credential_rejected", **entry})
+
+
+def test_account_signal_base_is_valid():
+    """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
+    description = _sellsy()
+    _signal(description)
+    description["functions"][0].setdefault("refusals", []).append(
+        {"code": "credits_spent", "when": 402, "message": "Credits spent.", "marks_account": "quota_exhausted"})
+    _validate(description)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: _signal(d, marks_account="revoked"),
+    lambda d: _signal(d, body={"path": "error.code"}),
+    lambda d: _signal(d, body={"path": "error.code", "equals": []}),
+    lambda d: _signal(d, body={"path": "error.code", "equals": [{"code": 1}]}),
+    lambda d: _signal(d, body={"path": "error.code", "equals": ["a"], "contains": "b"}),
+    lambda d: _signal(d, body={"path": "", "equals": ["a"]}),
+], ids=["unknown_mark", "body_without_equals", "equals_empty", "equals_not_a_scalar", "body_unknown_key", "empty_path"])
+def test_invalid_account_signal_is_rejected(mutate):
+    description = _sellsy()
+    mutate(description)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Sonde à solde ---------------------------------------------------------------------
+
+
+def _balance(d, **balance):
+    """Une sonde qui lit le solde d'un compte payant."""
+    d["connector"]["probe"] = {"function": "list_estimates", "balance": {"path": "credits.remaining", "min": 1, "unit": "credits", **balance}}
+
+
+def test_probe_balance_base_is_valid():
+    """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
+    description = _sellsy()
+    _balance(description)
+    _validate(description)
+    _balance(description, path="accounts.0.balance", min=0.5)
+    _validate(description)
+    _balance(description, min=0)
+    _validate(description)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: _balance(d, path=""),
+    lambda d: _balance(d, path=".credits"),
+    lambda d: _balance(d, path="credits."),
+    lambda d: _balance(d, path="credits..remaining"),
+    lambda d: _balance(d, path="credits remaining"),
+    lambda d: _balance(d, min="1"),
+    lambda d: _balance(d, min=-1),
+    lambda d: _balance(d, unit=""),
+    lambda d: _balance(d, covers="quota"),
+    lambda d: d["connector"].update(probe={"function": "list_estimates", "balance": {"path": "credits", "unit": "credits"}}),
+    lambda d: d["connector"].update(probe={"function": "list_estimates", "balance": {"path": "credits", "min": 1}}),
+], ids=["empty_path", "leading_dot", "trailing_dot", "empty_segment", "space_in_path", "min_not_a_number", "min_negative",
+        "empty_unit", "unknown_key", "without_min", "without_unit"])
+def test_invalid_probe_balance_is_rejected(mutate):
+    description = _sellsy()
+    mutate(description)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Délai propre à une fonction -------------------------------------------------------
+
+
+def test_function_timeout_base_is_valid():
+    """Même type et mêmes bornes que le délai du connecteur ; l'égalité avec lui est une règle de la fabrique."""
+    description = _sellsy()
+    description["functions"][0]["timeout_s"] = 1
+    _validate(description)
+    description["functions"][0]["timeout_s"] = 300
+    _validate(description)
+
+
+@pytest.mark.parametrize("value", [0, -5, 1.5, "60", None, 301],
+                         ids=["zero", "negative", "not_an_integer", "text", "null", "above_300"])
+def test_invalid_function_timeout_is_rejected(value):
+    description = _sellsy()
+    description["functions"][0]["timeout_s"] = value
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+def test_connector_timeout_has_the_same_bounds():
+    description = _sellsy()
+    description["connector"]["timeout_s"] = 300
+    _validate(description)
+    description["connector"]["timeout_s"] = 301
+    with pytest.raises(ValidationError):
+        _validate(description)

@@ -258,7 +258,7 @@ export const connector = defineConnector({
   timeoutMs: 60000,
   errors: [
     { status: 400, code: "invalid_request", message: "Sivan rejected the request: check the dates (a period cannot exceed 31 days), or the time-clock module is not enabled for this group.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Sivan rejected the API key: check the company-group key (it is case-sensitive, prefix 'siv_').", retryable: false },
+    { status: 401, code: "access_rejected", message: "Sivan rejected the API key: check the company-group key (it is case-sensitive, prefix 'siv_').", retryable: false, marksAccount: "credential_rejected" },
     { status: 404, code: "not_found", message: "Sivan endpoint not found: check the route.", retryable: false },
     { status: 429, code: "rate_limited", message: "Sivan rate limit reached: retry later.", retryable: true },
     { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Sivan is temporarily unavailable: retry later.", retryable: true },

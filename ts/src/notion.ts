@@ -1102,7 +1102,7 @@ export const connector = defineConnector({
   headers: {"Notion-Version": "2025-09-03"},
   errors: [
     { status: 400, code: "invalid_request", message: "Notion rejected the request as invalid: check the arguments.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Notion rejected the integration token: check that it is valid.", retryable: false },
+    { status: 401, code: "access_rejected", message: "Notion rejected the integration token: check that it is valid.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "permission_missing", message: "The integration lacks the capability for this action on this resource.", retryable: false },
     { status: 404, code: "not_found", message: "Notion object not found, or not shared with the integration.", retryable: false },
     { status: 409, code: "conflict", message: "Notion saw a conflicting edit: retry.", retryable: true },

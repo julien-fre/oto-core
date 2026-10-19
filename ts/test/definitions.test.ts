@@ -108,6 +108,27 @@ describe("generated definitions", () => {
     },
   )
 
+  // Signal de refus du service : un 2xx n'est un refus que sous une condition sur le corps ; un 403 seul ne dit jamais une
+  // clé refusée, ni un 429 seul des crédits épuisés ; ce qui marque le compte ne se rejoue pas.
+  it.each(connectors.map((c) => [c.name, c] as const))("%s: what marks the account is declared under a status, with a body condition where it must", (_name, connector) => {
+    const entries = [
+      ...connector.errors.map((e) => ({ statuses: typeof e.status === "number" ? [e.status] : e.status, body: e.body, mark: e.marksAccount, retryable: e.retryable })),
+      ...connector.functions.flatMap((fn) =>
+        fn.refusals.flatMap((r) => (typeof r.when === "number" ? [{ statuses: [r.when], body: r.body, mark: r.marksAccount, retryable: false }] : [])),
+      ),
+    ]
+    for (const { statuses, body, mark, retryable } of entries) {
+      if (statuses.some((status) => status >= 200 && status < 300)) expect(body).toBeDefined()
+      if (mark === "credential_rejected" && body === undefined) expect(statuses).not.toContain(403)
+      if (mark === "quota_exhausted" && body === undefined) expect(statuses).not.toContain(429)
+      if (mark !== undefined) expect(retryable).toBe(false)
+      if (body !== undefined) expect(body.equals.length).toBeGreaterThan(0)
+    }
+    for (const fn of connector.functions) {
+      for (const r of fn.refusals) if (typeof r.when === "string") expect(r.body ?? r.marksAccount, `${fn.name}: ${r.code}`).toBeUndefined()
+    }
+  })
+
   it.each(connectors.filter((c) => c.baseUrls).map((c) => [c.name, c] as const))("%s: base URLs give one address per choice", (_name, connector) => {
     const setting = connector.settings?.find((s) => s.name === connector.baseUrls?.setting)
     expect(setting?.type).toBe("choice")

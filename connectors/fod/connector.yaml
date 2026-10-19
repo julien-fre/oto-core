@@ -4,8 +4,9 @@
 # Every /api/* route needs Authorization: Bearer <key>, one key per consumer.
 # FOD holds no third-party credential for the routes described here.
 #
-# Read only, but for urban_start_regulation_ingestion, which fills FOD's own
-# cache of local-plan regulations and changes nothing elsewhere. Six families,
+# Read only. urban_start_regulation_ingestion starts a background job that fills
+# FOD's own cache of local-plan regulations and changes nothing elsewhere; it is
+# a read. Six families,
 # prefixed in the function names: company_ (company registers, BODACC, INPI
 # accounts), property_ (address, cadastre, DPE, DVF, building permits), urban_
 # (zoning, written regulation of a local plan, natural and technological risks,
@@ -35,7 +36,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "FOD or its upstream source rejected an argument as invalid; the message names the accepted values when there is a closed list." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "FOD refused the API key: unknown, revoked or missing. Retrying unchanged fails the same way." }
     - { status: 404, code: not_found, retryable: false,
         message: "Not found in FOD: check the identifier." }
@@ -549,7 +550,7 @@ functions:
     cost: { per: request }
 
   - name: urban_start_regulation_ingestion
-    class: write
+    class: read
     description: >-
       Ask FOD to fetch and index the written regulation of a local plan it does
       not hold yet, from the national town-planning portal (GPU). The work runs

@@ -20,7 +20,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Modjo rejected the request as invalid: check the arguments." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "Modjo rejected the API key: it is missing, invalid or revoked." }
     - { status: 403, code: not_enabled, retryable: false,
         message: "This Modjo feature is not enabled for the workspace." }

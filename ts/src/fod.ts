@@ -664,8 +664,8 @@ export const urbanGetZoningRegulation = defineFunction({
 export const urbanStartRegulationIngestion = defineFunction({
   name: "fod.urban_start_regulation_ingestion",
   connector: "fod",
-  class: "write",
-  act: true,
+  class: "read",
+  act: false,
   description: "Ask FOD to fetch and index the written regulation of a local plan it does not hold yet, from the national town-planning portal (GPU). The work runs in the background, from 20 seconds to a few minutes; the answer comes at once with the state {idurba, statut, message, ...}: en_cours (started, or already running), pret or scanne (already held, nothing restarted), echec (a recent failure, erreur gives the cause; no new attempt before relance_possible_apres). Calling it again never starts a second ingestion. Then read the ingestion state every 20 to 30 seconds until pret, scanne or echec. FOD ingests one regulation at a time: a busy answer asks to retry in a minute. A document replaced on the portal is not swapped for its successor; the refusal names the documents published for the same territory.",
   schema: {
     "type": "object",
@@ -1258,7 +1258,7 @@ export const connector = defineConnector({
   timeoutMs: 60000,
   errors: [
     { status: 400, code: "invalid_request", message: "FOD or its upstream source rejected an argument as invalid; the message names the accepted values when there is a closed list.", retryable: false },
-    { status: 401, code: "access_rejected", message: "FOD refused the API key: unknown, revoked or missing. Retrying unchanged fails the same way.", retryable: false },
+    { status: 401, code: "access_rejected", message: "FOD refused the API key: unknown, revoked or missing. Retrying unchanged fails the same way.", retryable: false, marksAccount: "credential_rejected" },
     { status: 404, code: "not_found", message: "Not found in FOD: check the identifier.", retryable: false },
     { status: 422, code: "invalid_arguments", message: "FOD rejected the arguments: a value has the wrong type or is out of bounds.", retryable: false },
     { status: 429, code: "rate_limited", message: "The upstream public source behind FOD reached its quota: retry in a moment.", retryable: true },

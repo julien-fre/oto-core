@@ -457,8 +457,8 @@ export const listCohorts = defineFunction({
 export const requestCohortDownload = defineFunction({
   name: "amplitude.request_cohort_download",
   connector: "amplitude",
-  class: "write",
-  act: true,
+  class: "read",
+  act: false,
   description: "Start a download job for one cohort and return its request_id. Each request counts against the project's 500 cohort downloads per month. Poll get_cohort_download_status with the request_id until JOB COMPLETED.",
   schema: {
     "type": "object",

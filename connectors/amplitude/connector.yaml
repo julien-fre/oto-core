@@ -380,7 +380,7 @@ functions:
     output: { items: cohorts }
 
   - name: request_cohort_download
-    class: write
+    class: read
     description: >-
       Start a download job for one cohort and return its request_id. Each
       request counts against the project's 500 cohort downloads per month.

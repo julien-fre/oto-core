@@ -1,0 +1,169 @@
+# Les clients Python de la lib et leurs descriptions.
+#
+# Un client est une entrée directe de oto/tools/ (paquet ou module), ou un sous-paquet d'une famille. Le code qu'une
+# description couvre : le client du même nom que le connecteur, entier ; ou ce que described_by rattache, un client
+# entier ou seulement des fichiers et sous-dossiers d'un client (alors le reste du client n'est le code d'aucun
+# connecteur). Quand ce code change, la version du connecteur monte (fabrique/commits.py).
+#
+# Un client sans description figure dans without_description, avec sa catégorie et sa raison. Trois catégories de
+# principe (not_a_service_client, not_describable, oto_service) admettent une entrée nouvelle ; les deux catégories en
+# attente (not_described_yet, before_the_rule) ne font que décroître : un client nouveau entre au format.
+# Gardes : tests/test_clients_described.py (l'arbre), fabrique/commits.py (chaque commit contre son parent).
+# Format : docs/conception/format-de-description.md, « Contrôles ».
+
+# Un paquet par service : chacun de ses sous-paquets est un client.
+families:
+  google: un sous-paquet par service Google, chacun son client
+
+# Client décrit sous un autre nom, ou en partie seulement.
+described_by:
+  # La description linkedin_unipile couvre profils, entreprises, relations, invitations, posts et messagerie d'un compte
+  # LinkedIn : le transport commun et ces familles d'appels. La recherche, le fil d'actualité et les produits premium
+  # (Recruiter, Sales Navigator) ne sont pas décrits.
+  unipile/client.py: linkedin_unipile
+  unipile/const.py: linkedin_unipile
+  unipile/errors.py: linkedin_unipile
+  unipile/_api/accounts.py: linkedin_unipile
+  unipile/_api/profiles.py: linkedin_unipile
+  unipile/_api/network.py: linkedin_unipile
+  unipile/_api/content.py: linkedin_unipile
+  unipile/_api/messaging.py: linkedin_unipile
+  google/gmail: gmail
+  google/drive: google_drive
+  google/calendar: google_calendar
+  google/sheets: google_sheets
+  # La description microsoft couvre les fichiers (SharePoint, OneDrive) d'une personne connectée : le consentement, ses
+  # droits, le transport commun et la surface fichiers. Courrier, agenda et Teams ne sont pas décrits.
+  microsoft/files.py: microsoft
+  microsoft/auth.py: microsoft
+  microsoft/scopes.py: microsoft
+  microsoft/_transport.py: microsoft
+
+without_description:
+  # De principe : pas le client d'un service.
+  browser: { category: not_a_service_client, reason: "pas un client : automatisation d'un navigateur local" }
+  common: { category: not_a_service_client, reason: "pas un client : utilitaires communs de la lib (credentials, erreurs, débit, garde d'adresse)" }
+  http: { category: not_a_service_client, reason: "pas le client d'un service : nœud HTTP générique, l'adresse vient de l'appelant" }
+  markdown_lint.py: { category: not_a_service_client, reason: "pas un client : contrôle local de Markdown" }
+  naf: { category: not_a_service_client, reason: "pas le client d'un service : suggestion de code NAF, calcul local" }
+  pdf: { category: not_a_service_client, reason: "pas un client : génération locale de PDF (pandoc, weasyprint)" }
+  # De principe : le format ne sait pas le dire (« Les connecteurs décrits »).
+  boondmanager: { category: not_describable, reason: "jeton signé à chaque requête" }
+  collective: { category: not_describable, reason: "pas d'API publique : piloté par un navigateur" }
+  dataforseo: { category: not_describable, reason: "corps en liste de tâches au premier niveau ; erreur lue dans le corps d'un 200 ; audit en file, relu par identifiant" }
+  threecx: { category: not_describable, reason: "l'adresse du standard se dit, mais la connexion par compte utilisateur est hors OAuth2 standard ; audio binaire" }
+  ubersuggest: { category: not_describable, reason: "transport MCP en JSON-RPC sur un seul point d'entrée ; client OAuth public obtenu par enregistrement dynamique" }
+  wordpress: { category: not_describable, reason: "la racine REST se découvre à l'appel (/wp-json/ ou ?rest_route=) ; téléversement de média en corps binaire" }
+  google/bigquery: { category: not_describable, reason: "SDK de Google, pas de requête HTTP décrite" }
+  # De principe : client d'un service d'oto, pas d'un tiers.
+  datastore: { category: oto_service, reason: "client d'un service d'oto (son serveur MCP), pas d'un tiers" }
+  ninja: { category: oto_service, reason: "client d'un service d'oto (son serveur MCP), pas d'un tiers" }
+  # En attente, ne fait que décroître : ajouté après la règle du 05/10 sans description.
+  luma: { category: not_described_yet, reason: "ajouté le 09/10, après la règle, sans description : pas encore décrit" }
+  urbanisme: { category: not_described_yet, reason: "ajouté le 11/10, après la règle, sans description : pas encore décrit (enchaîne trois services publics côté client)" }
+  google/ads: { category: not_described_yet, reason: "ajouté le 08/10, après la règle, sans description : pas encore décrit" }
+  # En attente, ne fait que décroître : antérieur à la règle du 05/10, pas encore décrit.
+  accords: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  ahrefs: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  aiark: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  airtable: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  anthropic: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  anthropic_batch: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  apify: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  apollo: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  ashby: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  attio: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  audio: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  bls: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  boamp: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  bodacc: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  brevo: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  brightdata: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  clay: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  clearbit: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  cloro: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  cognism: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  culture: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  dpe: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  dropcontact: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  dvf: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  figma: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  finkare: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  firecrawl: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  fireflies: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  folk: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  forager: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  fullenrich: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  gemini: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  github: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  gocardless: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  google_analytics: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  grain: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  granola: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  greenhouse: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  groq: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  hellostock: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  hithorizons: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  hubspot: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  hunter: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  inpi: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  inqom: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  instagram_business: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  instagram_meta: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  jev: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  kaspr: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  leexi: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  lemlist: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  lever: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  lightfield: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  lighton: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  linear: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  lucca: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  lusha: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  make: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  minari: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  mistral: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  monid: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  n8n: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  onet: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  openai: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  origami: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  payfit: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  phantombuster: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  pipedrive: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  planity: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  posthog: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  productlane: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  promptwatch: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  recruitee: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  reddit: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  resend: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  salesforce: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  serpapi: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  serper: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  signwell: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  silae: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  sirene: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  slack: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  snitcher: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  spott: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  stripe: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  supabase: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  tally: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  tavily: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  teamtailor: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  theirstack: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  topograph: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  unsplash: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  waalaxy: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  webflow: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  wttj: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  zapier: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  zerobounce: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  zoho: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  zohoanalytics: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  zohodesk: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  google/chat: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  google/docs: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  google/slides: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
+  google/tasks: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }

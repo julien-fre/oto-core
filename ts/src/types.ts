@@ -154,16 +154,45 @@ export type Auth =
   | OAuthUser
   | { readonly kind: "none" }
 
-/** Une ligne de la table d'erreurs du connecteur : un ou plusieurs statuts HTTP du tiers, le refus nommé. */
+/**
+ * Ce qu'un refus révèle du compte, pour que l'hôte le marque jusqu'à son prochain appel réussi : `credential_rejected`, le
+ * service refuse la clé ou le jeton du compte ; `quota_exhausted`, ses crédits ou le quota de son offre sont épuisés.
+ * Seul ce qui est déclaré marque : rien ne marque par défaut.
+ */
+export type AccountMark = "credential_rejected" | "quota_exhausted"
+
+/**
+ * Une condition sur le corps JSON de la réponse : la valeur au chemin pointé `path` (un indice de liste en chiffres) est
+ * égale à l'une de `equals`. L'entrée ne vaut que si elle tient ; sinon l'hôte essaie l'entrée suivante du même statut.
+ * Un statut 2xx n'est un refus que sous une condition (une erreur GraphQL sous un 200).
+ */
+export type BodyCondition = { readonly path: string; readonly equals: readonly (string | number | boolean)[] }
+
+/**
+ * Une ligne de la table d'erreurs du connecteur : un ou plusieurs statuts HTTP du tiers, une condition sur le corps
+ * facultative, le refus nommé ; la première ligne qui s'applique l'emporte. `marksAccount` : le refus marque le compte
+ * (jamais `credential_rejected` sur un 403, ni `quota_exhausted` sur un 429, sans condition sur le corps).
+ */
 export type ApiError = {
   readonly status: number | readonly number[]
   readonly code: string
   readonly message: string
   readonly retryable: boolean
+  readonly body?: BodyCondition
+  readonly marksAccount?: AccountMark
 }
 
-/** Un refus propre à une fonction : surcharge ou complète la table d'erreurs ; `when` est un statut HTTP ou une condition. */
-export type Refusal = { readonly code: string; readonly when: number | string; readonly message: string }
+/**
+ * Un refus propre à une fonction : surcharge ou complète la table d'erreurs ; `when` est un statut HTTP ou une condition.
+ * `body` et `marksAccount` comme dans la table d'erreurs, sous un statut seulement.
+ */
+export type Refusal = {
+  readonly code: string
+  readonly when: number | string
+  readonly message: string
+  readonly body?: BodyCondition
+  readonly marksAccount?: AccountMark
+}
 
 /** Un exemple d'arguments, valide contre le schéma de sa fonction (vérifié par la fabrique et par un test). */
 export type Example = { readonly title: string; readonly input: { readonly [argument: string]: unknown } }
@@ -265,6 +294,11 @@ export type ConnectorFunction = {
   readonly checks?: readonly Check[]
   readonly expect?: readonly Expectation[]
   readonly request: RequestSpec
+  /**
+   * Délai propre à la fonction, en millisecondes : il remplace `timeoutMs` du connecteur pour chacun de ses appels
+   * (chaque page d'une lecture paginée), plus court ou plus long, jamais égal. Absent : celui du connecteur.
+   */
+  readonly timeoutMs?: number
   readonly pagination?: Pagination
   readonly output?: Output
   /** Unité décomptée du quota. */
@@ -272,6 +306,9 @@ export type ConnectorFunction = {
   /** Gabarit du résumé montré avant d'exécuter une fonction sensible, avec des `{param}`. */
   readonly confirm?: { readonly summary: string }
 }
+
+/** Où lire le solde d'un compte payant dans la réponse de la sonde, et le seuil sous lequel elle n'est pas saine. */
+export type ProbeBalance = { readonly path: string; readonly min: number; readonly unit: string }
 
 export type Connector = {
   readonly name: string
@@ -306,9 +343,11 @@ export type Connector = {
   readonly errors: readonly ApiError[]
   /**
    * La sonde d'une connexion : `function` (nom qualifié, une lecture sans argument requis) appelée avec `{}`, jamais
-   * décomptée d'un quota ; chaque chemin de `nonEmpty` doit être présent et non vide dans sa réponse.
+   * décomptée d'un quota ; chaque chemin de `nonEmpty` doit être présent et non vide dans sa réponse. `balance`, le
+   * solde d'un compte payant : un nombre au chemin `path` de sa réponse, sain à `min` ou au-dessus, en `unit` ; sous
+   * `min`, absent ou qui n'est pas un nombre, la sonde n'est pas saine. Sa fonction ne déclare alors aucun coût.
    */
-  readonly probe?: { readonly function: string; readonly nonEmpty: readonly string[] }
+  readonly probe?: { readonly function: string; readonly nonEmpty: readonly string[]; readonly balance?: ProbeBalance }
   readonly exposure?: { readonly mode?: "per_action" | "per_connector" | "via_call"; readonly tool?: string }
   /** Les fonctions générées ; une fonction que la fabrique ne sait pas traduire n'y est pas. */
   readonly functions: readonly ConnectorFunction[]

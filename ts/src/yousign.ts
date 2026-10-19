@@ -438,7 +438,7 @@ export const connector = defineConnector({
   rateLimit: { requests: 30, intervalMs: 60000 },
   errors: [
     { status: 400, code: "invalid_request", message: "Yousign rejected the request as invalid: its detail names the faulty field.", retryable: false },
-    { status: 401, code: "access_rejected", message: "Yousign rejected the API key: unknown, revoked, or issued for the other environment (sandbox and production keys differ).", retryable: false },
+    { status: 401, code: "access_rejected", message: "Yousign rejected the API key: unknown, revoked, or issued for the other environment (sandbox and production keys differ).", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "forbidden", message: "Yousign forbids this action in this context: the key's workspace scope, or the request's status, does not allow it.", retryable: false },
     { status: 404, code: "not_found", message: "Yousign object not found: check the id and the environment.", retryable: false },
     { status: 429, code: "rate_limited", message: "Yousign rate limit reached (per minute and per hour): retry later.", retryable: true },

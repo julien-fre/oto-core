@@ -48,10 +48,35 @@
       "type": "string",
       "minLength": 1
     },
+    "timeout_s": {
+      "description": "A timeout in seconds: the connector's, or one function's. At most 300, the ceiling the host package of oto 2 runs.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300
+    },
     "http_status": {
       "type": "integer",
       "minimum": 100,
       "maximum": 599
+    },
+    "account_mark": {
+      "description": "What a refusal reveals about the account, for the host to mark it until its next successful call: credential_rejected (the service refuses the key or the token of the account), quota_exhausted (its credits or plan quota are spent). Only what is declared marks: nothing marks by default.",
+      "enum": ["credential_rejected", "quota_exhausted"]
+    },
+    "body_condition": {
+      "description": "A condition on the JSON body of the response: the value at path (dotted, a list index as a number) equals one of the values. The entry applies only when it holds; under the same status, the next entry is tried.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "equals"],
+      "properties": {
+        "path": { "$ref": "#/$defs/text" },
+        "equals": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": ["string", "integer", "boolean"] }
+        }
+      }
     },
     "argument_map": {
       "description": "API-side name to input argument name. Each input argument goes to one place only.",
@@ -272,12 +297,7 @@
           "uniqueItems": true,
           "items": { "enum": ["platform", "byo_user", "byo_org"] }
         },
-        "timeout_s": {
-          "description": "Timeout of one call, in seconds.",
-          "type": "integer",
-          "minimum": 1,
-          "default": 30
-        },
+        "timeout_s": { "description": "Timeout of one call, in seconds.", "$ref": "#/$defs/timeout_s", "default": 30 },
         "quota": {
           "description": "Default quota on a platform key. Absent when the connector has no platform key. Shape still to be fixed.",
           "type": "object",
@@ -313,11 +333,26 @@
               "type": "array",
               "minItems": 1,
               "items": { "$ref": "#/$defs/text" }
+            },
+            "balance": {
+              "description": "The balance of a paid account, read in the probe's response: a number at path, healthy at min or above; under min, absent or not a number, the probe is not healthy. The probe function then declares no cost: one never pays to learn whether one can pay.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "min", "unit"],
+              "properties": {
+                "path": {
+                  "description": "Dotted path of the balance in the response, a list index as a number: credits.remaining.",
+                  "type": "string",
+                  "pattern": "^[^.\\s]+(\\.[^.\\s]+)*$"
+                },
+                "min": { "description": "Threshold: a balance under it is not healthy.", "type": "number", "minimum": 0 },
+                "unit": { "description": "What the balance counts, as the vendor names it: credits, requests, EUR.", "$ref": "#/$defs/text" }
+              }
             }
           }
         },
         "errors": {
-          "description": "Error table shared by every function.",
+          "description": "Error table shared by every function: the first entry whose status, and body condition when it has one, matches the response applies.",
           "type": "array",
           "minItems": 1,
           "items": {
@@ -338,7 +373,9 @@
               },
               "code": { "$ref": "#/$defs/identifier" },
               "message": { "$ref": "#/$defs/text" },
-              "retryable": { "type": "boolean" }
+              "retryable": { "type": "boolean" },
+              "body": { "$ref": "#/$defs/body_condition" },
+              "marks_account": { "$ref": "#/$defs/account_mark" }
             }
           }
         }
@@ -583,6 +620,10 @@
           "type": "boolean"
         },
         "description": { "description": "What the agent reads, in English; at most 1000 characters.", "$ref": "#/$defs/text", "maxLength": 1000 },
+        "timeout_s": {
+          "description": "Timeout of one call of this function, in seconds, in place of the connector's: longer or shorter, never equal to it. Each page of a paginated read is one call.",
+          "$ref": "#/$defs/timeout_s"
+        },
         "scopes": {
           "description": "Only in a connector with access levels, where it is required: the scopes this function requires, all of them. It is served at a level when each is a scope of the level or implied by one. class stays: it says what the function does.",
           "$ref": "#/$defs/scope_list"
@@ -615,7 +656,9 @@
                 "description": "HTTP status, or a condition.",
                 "oneOf": [{ "$ref": "#/$defs/http_status" }, { "$ref": "#/$defs/text" }]
               },
-              "message": { "$ref": "#/$defs/text" }
+              "message": { "$ref": "#/$defs/text" },
+              "body": { "$ref": "#/$defs/body_condition" },
+              "marks_account": { "$ref": "#/$defs/account_mark" }
             }
           }
         },

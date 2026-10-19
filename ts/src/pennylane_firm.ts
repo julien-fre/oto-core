@@ -358,7 +358,7 @@ export const connector = defineConnector({
   rateLimit: { requests: 5, intervalMs: 1000 },
   errors: [
     { status: 400, code: "invalid_request", message: "Pennylane rejected the request as invalid: check the arguments.", retryable: false },
-    { status: 401, code: "token_invalid", message: "Pennylane refused the firm token as invalid: a valid token is needed, and retrying unchanged fails the same way.", retryable: false },
+    { status: 401, code: "token_invalid", message: "Pennylane refused the firm token as invalid: a valid token is needed, and retrying unchanged fails the same way.", retryable: false, marksAccount: "credential_rejected" },
     { status: 403, code: "scope_missing", message: "The firm token lacks the scope this action requires; Pennylane names it in its message. A missing right is not an argument to fix: tell the user which scope the token needs.", retryable: false },
     { status: 404, code: "not_found", message: "No such object for this firm: company_id is the firm-side id from the list of companies, and folder or file ids belong to that one company.", retryable: false },
     { status: 422, code: "content_rejected", message: "Pennylane rejected the content: the values sent fail its checks. Fix them before calling again.", retryable: false },

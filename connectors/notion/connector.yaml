@@ -18,7 +18,7 @@ connector:
   errors:
     - { status: 400, code: invalid_request, retryable: false,
         message: "Notion rejected the request as invalid: check the arguments." }
-    - { status: 401, code: access_rejected, retryable: false,
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
         message: "Notion rejected the integration token: check that it is valid." }
     - { status: 403, code: permission_missing, retryable: false,
         message: "The integration lacks the capability for this action on this resource." }
