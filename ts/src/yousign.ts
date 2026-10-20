@@ -298,12 +298,116 @@ export const createSignatureRequestFromTemplate = defineFunction({
   },
 })
 
+export const createSignatureRequest = defineFunction({
+  name: "yousign.create_signature_request",
+  connector: "yousign",
+  class: "write",
+  act: false,
+  description: "Create an empty draft signature request, without a template; nothing is sent until activation. Then add its documents (add_document), its signers (add_signer) and their fields (add_field or the signers' fields). With ordered_signers, each signer is invited after the previous one signed, in the order they were added. Every signer is notified by email at activation. Returns the request, with its id and status draft.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name"],
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Name of the request, shown to signers; no URL, email nor HTML."
+      },
+      "ordered_signers": {"type": "boolean", "description": "Signers sign one after the other, in the order they are added."},
+      "expiration_date": {
+        "type": "string",
+        "pattern": "^\\d{4}-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9])?$",
+        "description": "Due date, YYYY-MM-DD or YYYY-MM-DDThh:mm:ss in the request time zone, within one year; the template's delay by default."
+      },
+      "timezone": {"type": "string", "minLength": 1, "description": "tz database name; Europe/Paris by default."},
+      "external_id": {
+        "type": "string",
+        "pattern": "^[\\w\\-@.%+]+$",
+        "maxLength": 255,
+        "description": "Your own id for this request, e.g. a case number."
+      },
+      "signers_allowed_to_decline": {"type": "boolean"}
+    }
+  },
+  examples: [
+    { title: "A two-party agreement signed in order", input: {"name": "Service agreement 2026-07", "ordered_signers": true, "external_id": "agreement-2026-07"} },
+  ],
+  refusals: [
+    { code: "request_refused", when: 400, message: "Yousign refused the request: a name, date or id value is invalid." },
+  ],
+  request: {
+    method: "POST",
+    path: "/signature_requests",
+    pathParams: [],
+    query: {},
+    body: {"name": "name", "ordered_signers": "ordered_signers", "expiration_date": "expiration_date", "timezone": "timezone", "external_id": "external_id", "signers_allowed_to_decline": "signers_allowed_to_decline"},
+    headers: {},
+    constants: {"body": {"delivery_mode": "email"}},
+  },
+})
+
+export const addDocument = defineFunction({
+  name: "yousign.add_document",
+  connector: "yousign",
+  class: "write",
+  act: false,
+  description: "Upload a document into a draft signature request: PDF or DOCX (converted to PDF) to be signed, or a PDF, DOCX, JPEG or PNG attachment shown but never signed, 50 MB and 50 documents per request at most. With parse_anchors, each smart anchor written in the text, {{s1|signature|85|37}} (signer rank, width, height in points), becomes a signature field of that signer; anchors only make signature fields. Returns the document: id (the document_id of the fields), total_pages, total_anchors.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["signature_request_id", "file", "nature"],
+    "properties": {
+      "signature_request_id": {"type": "string", "format": "uuid", "description": "Signature request id."},
+      "file": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Id of a transit file of yours: the document to upload."
+      },
+      "nature": {
+        "enum": ["signable_document", "attachment"],
+        "description": "signable_document is signed; attachment is only shown (images are attachments only)."
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^(?!\\s)[^\\/\\\\]+(?<!\\s)$",
+        "description": "Display name; the file name by default. No slash nor backslash, no leading or trailing space."
+      },
+      "parse_anchors": {"type": "boolean", "description": "Turn the smart anchors of the document into signature fields."},
+      "insert_after_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Place the document right after this document of the request."
+      }
+    }
+  },
+  examples: [
+    { title: "The contract to sign, with its signature anchors", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "file": "2b9f4c1e-8d3a-4f6b-9e2c-7a1d5b3c8e4f", "nature": "signable_document", "name": "Service agreement", "parse_anchors": true} },
+  ],
+  refusals: [
+    { code: "signature_request_not_found", when: 404, message: "No signature request with this id in this Yousign environment." },
+    { code: "document_refused", when: 400, message: "Yousign refused the document: the request is no longer a draft, or the file is too large, of an unaccepted format, protected or of a nature it cannot take." },
+  ],
+  request: {
+    method: "POST",
+    path: "/signature_requests/{signature_request_id}/documents",
+    pathParams: ["signature_request_id"],
+    query: {},
+    body: {"nature": "nature", "name": "name", "parse_anchors": "parse_anchors", "insert_after_id": "insert_after_id"},
+    headers: {},
+    files: {"file": "file"},
+  },
+})
+
 export const addSigner = defineFunction({
   name: "yousign.add_signer",
   connector: "yousign",
   class: "write",
   act: false,
-  description: "Add a signer to a draft signature request; they are emailed at activation. A signer needs at least one signature field on a document: for a request built from a template, fill the signer placeholders at creation instead. Returns the signer, with its id and status.",
+  description: "Add a signer to a draft signature request; they are emailed at activation. A signer needs at least one signature field on a document, placed here (fields), by add_field, or by a smart anchor of the document; for a request built from a template, fill the signer placeholders at creation instead. Fields placed here are signature, mention, text, checkbox or radio_group, by page and coordinates in points from the top left of the page. Returns the signer, with its id and status.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -341,39 +445,218 @@ export const addSigner = defineFunction({
         "type": "array",
         "minItems": 1,
         "items": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "document_id", "page", "x", "y"],
-          "properties": {
-            "type": {"const": "signature"},
-            "document_id": {
-              "type": "string",
-              "format": "uuid",
-              "description": "A document of the request (get_signature_request documents)."
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "document_id", "page", "x", "y"],
+              "properties": {
+                "type": {"const": "signature"},
+                "document_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "A document of the request (add_document, get_signature_request documents)."
+                },
+                "page": {"type": "integer", "minimum": 1},
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32767,
+                  "description": "Points from the left of the page."
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32767,
+                  "description": "Points from the top of the page."
+                },
+                "width": {"type": "integer", "minimum": 85, "maximum": 2000, "description": "85 by default."},
+                "height": {"type": "integer", "minimum": 37, "maximum": 1000, "description": "37 by default."},
+                "reason": {
+                  "type": "string",
+                  "maxLength": 150,
+                  "description": "Why the document is signed, shown in the signature."
+                }
+              }
             },
-            "page": {"type": "integer", "minimum": 1},
-            "x": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 32767,
-              "description": "Points from the left of the page."
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "document_id", "page", "x", "y", "mention"],
+              "properties": {
+                "type": {"const": "mention"},
+                "document_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "A document of the request (add_document, get_signature_request documents)."
+                },
+                "page": {"type": "integer", "minimum": 1},
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32767,
+                  "description": "Points from the left of the page."
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32767,
+                  "description": "Points from the top of the page."
+                },
+                "mention": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255,
+                  "description": "Text the signer sees written, e.g. Read and approved; %date% and %datetime% become the signing date."
+                },
+                "width": {"type": "integer", "minimum": 24, "description": "Computed from the content by default."},
+                "height": {"type": "integer", "minimum": 24},
+                "name": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the field."}
+              }
             },
-            "y": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 32767,
-              "description": "Points from the top of the page."
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "document_id", "page", "x", "y", "max_length", "question", "optional"],
+              "properties": {
+                "type": {"const": "text"},
+                "document_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "A document of the request (add_document, get_signature_request documents)."
+                },
+                "page": {"type": "integer", "minimum": 1},
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32767,
+                  "description": "Points from the left of the page."
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32767,
+                  "description": "Points from the top of the page."
+                },
+                "max_length": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 32767,
+                  "description": "Characters the signer may type."
+                },
+                "question": {
+                  "type": "string",
+                  "maxLength": 255,
+                  "description": "Label shown to the signer; may be empty."
+                },
+                "optional": {"type": "boolean", "description": "The signer may leave it blank."},
+                "instruction": {"type": "string", "description": "Help text shown to the signer."},
+                "default_value": {"type": "string", "minLength": 1, "maxLength": 32767, "description": "Prefilled value."},
+                "read_only": {"type": "boolean", "description": "The signer cannot change it."},
+                "width": {"type": "integer", "minimum": 24, "description": "Computed from the content by default."},
+                "height": {"type": "integer", "minimum": 24},
+                "name": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the field."}
+              }
             },
-            "width": {"type": "integer", "minimum": 85, "maximum": 2000},
-            "height": {"type": "integer", "minimum": 37, "maximum": 1000}
-          }
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "document_id", "page", "x", "y", "checked", "optional"],
+              "properties": {
+                "type": {"const": "checkbox"},
+                "document_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "A document of the request (add_document, get_signature_request documents)."
+                },
+                "page": {"type": "integer", "minimum": 1},
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32767,
+                  "description": "Points from the left of the page."
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32767,
+                  "description": "Points from the top of the page."
+                },
+                "checked": {"type": "boolean", "description": "Checked at first."},
+                "optional": {"type": "boolean", "description": "The signer may leave it blank."},
+                "size": {
+                  "type": "integer",
+                  "minimum": 8,
+                  "maximum": 240,
+                  "description": "Side in points, 24 by default."
+                },
+                "read_only": {"type": "boolean", "description": "The signer cannot change it."},
+                "name": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the field."}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "document_id", "page", "radios", "optional"],
+              "properties": {
+                "type": {"const": "radio_group"},
+                "document_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "A document of the request (add_document, get_signature_request documents)."
+                },
+                "page": {"type": "integer", "minimum": 1},
+                "radios": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["x", "y"],
+                    "properties": {
+                      "x": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 32767,
+                        "description": "Points from the left of the page."
+                      },
+                      "y": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 32767,
+                        "description": "Points from the top of the page."
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 8,
+                        "maximum": 240,
+                        "description": "Side in points, 24 by default."
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "description": "Name of the field."
+                      },
+                      "default_checked": {"type": "boolean", "description": "This choice is selected at first."}
+                    }
+                  },
+                  "description": "The choices of the group, one radio button each."
+                },
+                "optional": {"type": "boolean", "description": "The signer may leave it blank."},
+                "read_only": {"type": "boolean", "description": "The signer cannot change it."},
+                "name": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the field."}
+              }
+            }
+          ]
         },
-        "description": "Signature fields placed for this signer."
+        "description": "Fields placed for this signer, on documents already added."
       }
     }
   },
   examples: [
     { title: "A seller signing at the bottom of page 3", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "info": {"first_name": "Jeanne", "last_name": "Durand", "email": "jeanne.durand@example.com", "locale": "fr"}, "signature_level": "electronic_signature", "signature_authentication_mode": "otp_email", "fields": [{"type": "signature", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "page": 3, "x": 77, "y": 700}]} },
+    { title: "A buyer who writes a mention and ticks a box before signing", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "info": {"first_name": "Paul", "last_name": "Martin", "email": "paul.martin@example.com", "locale": "fr"}, "signature_level": "electronic_signature", "fields": [{"type": "mention", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "page": 3, "x": 77, "y": 640, "mention": "Lu et approuvé, le %date%"}, {"type": "checkbox", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "page": 3, "x": 77, "y": 600, "checked": false, "optional": false}, {"type": "signature", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "page": 3, "x": 77, "y": 700}]} },
   ],
   refusals: [
     { code: "signature_request_not_found", when: 404, message: "No signature request with this id in this Yousign environment." },
@@ -389,6 +672,673 @@ export const addSigner = defineFunction({
     constants: {"body": {"delivery_mode": "email"}},
   },
   output: { strip: ["signature_link", "signature_link_expiration_date"] },
+})
+
+export const addField = defineFunction({
+  name: "yousign.add_field",
+  connector: "yousign",
+  class: "write",
+  act: false,
+  description: "Place one field on a document of a draft signature request, by page and coordinates in points from the top left of the page (an A4 page is 595 by 842). type: signature (min 85 by 37), mention (text the signer sees written, %date% for the signing date), signature_date, text (the signer types an answer to question), checkbox, radio_group (radios, each its own x and y), read_only_text (fixed text, no signer), signer_name, signer_email. Every type but read_only_text belongs to a signer (signer_id, from add_signer). On mention, text and read_only_text, font requires width and height; height is lines x font size x 1.5. 500 fields per request at most. Returns the field, with its id.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["signature_request_id", "document_id", "type", "page"],
+    "properties": {
+      "signature_request_id": {"type": "string", "format": "uuid", "description": "Signature request id."},
+      "document_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A document of the request (add_document, get_signature_request documents)."
+      },
+      "type": {
+        "enum": [
+          "signature",
+          "mention",
+          "signature_date",
+          "text",
+          "checkbox",
+          "radio_group",
+          "read_only_text",
+          "signer_name",
+          "signer_email"
+        ]
+      },
+      "signer_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "The signer who fills or signs the field (add_signer)."
+      },
+      "page": {"type": "integer", "minimum": 1},
+      "x": {"type": "integer", "minimum": 0, "maximum": 32767, "description": "Points from the left of the page."},
+      "y": {"type": "integer", "minimum": 0, "maximum": 32767, "description": "Points from the top of the page."},
+      "width": {
+        "type": "integer",
+        "minimum": 24,
+        "maximum": 32767,
+        "description": "Points; signature 85 to 2000 (85 by default), else computed from the content by default."
+      },
+      "height": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 32767,
+        "description": "Points; signature 37 to 1000 (37 by default)."
+      },
+      "reason": {
+        "type": "string",
+        "maxLength": 150,
+        "description": "Why the document is signed, shown in the signature."
+      },
+      "display": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["layout"],
+        "properties": {
+          "layout": {
+            "enum": ["minimal", "detailed"],
+            "description": "detailed adds the signer's name, email and signing date to the signature."
+          }
+        }
+      },
+      "mention": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Text the signer sees written, e.g. Read and approved; %date% and %datetime% become the signing date."
+      },
+      "font": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["family", "color", "size", "variants"],
+        "properties": {
+          "family": {
+            "enum": [
+              "Inconsolata",
+              "Open Sans",
+              "Lato",
+              "Raleway",
+              "Merriweather",
+              "EB Garamond",
+              "Comic Neue",
+              "Monaco",
+              "Helvetica",
+              "Courier",
+              "Times Roman"
+            ]
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#([a-f0-9]{6}|[A-F0-9]{6})$",
+            "description": "Hex color, e.g. #000000."
+          },
+          "size": {"type": "integer", "minimum": 7, "maximum": 96},
+          "variants": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["bold", "italic"],
+            "properties": {"bold": {"type": "boolean"}, "italic": {"type": "boolean"}}
+          }
+        }
+      },
+      "name": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the field."},
+      "date_format": {
+        "enum": [
+          "dd/MM/yyyy",
+          "dd-MM-yyyy",
+          "dd.MM.yyyy",
+          "yyyy-MM-dd",
+          "MM/dd/yyyy",
+          "dd MMMM yyyy",
+          "MMMM dd, yyyy",
+          "MMM dd, yyyy"
+        ],
+        "description": "dd/MM/yyyy by default."
+      },
+      "time_format": {"enum": ["HH:mm", "hh:mm a"], "description": "Also shows the time; the date only by default."},
+      "show_timezone": {"type": "boolean", "description": "Shows the time zone next to the time."},
+      "show_email": {"type": "boolean", "description": "Shows the signer's email; true by default."},
+      "offset_unit": {"enum": ["days", "weeks", "months", "years"], "description": "Unit of offset_value."},
+      "offset_value": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Shown date = signing date plus this many offset_unit."
+      },
+      "max_length": {"type": "integer", "minimum": 1, "maximum": 32767, "description": "Characters the signer may type."},
+      "question": {"type": "string", "maxLength": 255, "description": "Label shown to the signer; may be empty."},
+      "instruction": {"type": "string", "description": "Help text shown to the signer."},
+      "optional": {"type": "boolean", "description": "The signer may leave it blank."},
+      "default_value": {"type": "string", "minLength": 1, "maxLength": 32767, "description": "Prefilled value."},
+      "read_only": {"type": "boolean", "description": "The signer cannot change it."},
+      "size": {"type": "integer", "minimum": 8, "maximum": 240, "description": "Side in points, 24 by default."},
+      "checked": {"type": "boolean", "description": "Checked at first."},
+      "radios": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32767,
+              "description": "Points from the left of the page."
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32767,
+              "description": "Points from the top of the page."
+            },
+            "size": {"type": "integer", "minimum": 8, "maximum": 240, "description": "Side in points, 24 by default."},
+            "name": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the field."},
+            "default_checked": {"type": "boolean", "description": "This choice is selected at first."}
+          }
+        },
+        "description": "The choices of the group, one radio button each."
+      },
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 5000,
+        "description": "The fixed text written on the document."
+      },
+      "name_format": {"enum": ["full_name", "first_name", "last_name"], "description": "full_name by default."}
+    },
+    "oneOf": [
+      {
+        "properties": {
+          "type": {"const": "signature"},
+          "width": {"minimum": 85, "maximum": 2000},
+          "height": {"minimum": 37, "maximum": 1000}
+        },
+        "required": ["signer_id", "x", "y"],
+        "propertyNames": {
+          "enum": [
+            "signature_request_id",
+            "document_id",
+            "type",
+            "signer_id",
+            "page",
+            "x",
+            "y",
+            "width",
+            "height",
+            "reason",
+            "display"
+          ]
+        }
+      },
+      {
+        "properties": {"type": {"const": "mention"}},
+        "dependentRequired": {"font": ["width", "height"]},
+        "required": ["signer_id", "x", "y", "mention"],
+        "propertyNames": {
+          "enum": [
+            "signature_request_id",
+            "document_id",
+            "type",
+            "signer_id",
+            "page",
+            "x",
+            "y",
+            "width",
+            "height",
+            "mention",
+            "font",
+            "name"
+          ]
+        }
+      },
+      {
+        "properties": {"type": {"const": "signature_date"}},
+        "required": ["signer_id", "x", "y"],
+        "propertyNames": {
+          "enum": [
+            "signature_request_id",
+            "document_id",
+            "type",
+            "signer_id",
+            "page",
+            "x",
+            "y",
+            "font",
+            "name",
+            "date_format",
+            "time_format",
+            "show_timezone",
+            "show_email",
+            "offset_unit",
+            "offset_value"
+          ]
+        }
+      },
+      {
+        "properties": {"type": {"const": "text"}},
+        "dependentRequired": {"font": ["width", "height"]},
+        "required": ["signer_id", "x", "y", "max_length", "question"],
+        "propertyNames": {
+          "enum": [
+            "signature_request_id",
+            "document_id",
+            "type",
+            "signer_id",
+            "page",
+            "x",
+            "y",
+            "width",
+            "height",
+            "max_length",
+            "question",
+            "instruction",
+            "optional",
+            "font",
+            "name",
+            "default_value",
+            "read_only"
+          ]
+        }
+      },
+      {
+        "properties": {"type": {"const": "checkbox"}},
+        "required": ["signer_id", "x", "y"],
+        "propertyNames": {
+          "enum": [
+            "signature_request_id",
+            "document_id",
+            "type",
+            "signer_id",
+            "page",
+            "x",
+            "y",
+            "size",
+            "optional",
+            "name",
+            "checked",
+            "read_only"
+          ]
+        }
+      },
+      {
+        "properties": {"type": {"const": "radio_group"}},
+        "required": ["signer_id", "radios"],
+        "propertyNames": {
+          "enum": [
+            "signature_request_id",
+            "document_id",
+            "type",
+            "signer_id",
+            "page",
+            "radios",
+            "optional",
+            "name",
+            "read_only"
+          ]
+        }
+      },
+      {
+        "properties": {"type": {"const": "read_only_text"}},
+        "dependentRequired": {"font": ["width", "height"]},
+        "required": ["x", "y", "text"],
+        "propertyNames": {
+          "enum": ["signature_request_id", "document_id", "type", "page", "x", "y", "width", "height", "text", "font"]
+        }
+      },
+      {
+        "properties": {"type": {"const": "signer_name"}},
+        "required": ["signer_id", "x", "y"],
+        "propertyNames": {
+          "enum": [
+            "signature_request_id",
+            "document_id",
+            "type",
+            "signer_id",
+            "page",
+            "x",
+            "y",
+            "font",
+            "name",
+            "name_format"
+          ]
+        }
+      },
+      {
+        "properties": {"type": {"const": "signer_email"}},
+        "required": ["signer_id", "x", "y"],
+        "propertyNames": {
+          "enum": ["signature_request_id", "document_id", "type", "signer_id", "page", "x", "y", "font", "name"]
+        }
+      }
+    ]
+  },
+  examples: [
+    { title: "The signer's signature at the bottom of page 2", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "type": "signature", "signer_id": "7e8f9a0b-1c2d-4e3f-8a5b-6c7d8e9f0a1b", "page": 2, "x": 77, "y": 700, "width": 180, "height": 60} },
+    { title: "A start date the signer types in", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "type": "text", "signer_id": "7e8f9a0b-1c2d-4e3f-8a5b-6c7d8e9f0a1b", "page": 1, "x": 300, "y": 410, "max_length": 10, "question": "Start date", "instruction": "DD/MM/YYYY"} },
+    { title: "A fixed reference printed on page 1", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "type": "read_only_text", "page": 1, "x": 400, "y": 60, "text": "Ref. 2026-118"} },
+  ],
+  refusals: [
+    { code: "signature_request_not_found", when: 404, message: "No signature request with this id in this Yousign environment." },
+    { code: "field_refused", when: 400, message: "Yousign refused the field: the request is no longer a draft, the signer or document is not part of it, the position is outside the page, or a value does not fit its type." },
+  ],
+  request: {
+    method: "POST",
+    path: "/signature_requests/{signature_request_id}/documents/{document_id}/fields",
+    pathParams: ["signature_request_id", "document_id"],
+    query: {},
+    body: {"type": "type", "signer_id": "signer_id", "page": "page", "x": "x", "y": "y", "width": "width", "height": "height", "reason": "reason", "display": "display", "mention": "mention", "font": "font", "name": "name", "date_format": "date_format", "time_format": "time_format", "show_timezone": "show_timezone", "show_email": "show_email", "offset_unit": "offset_unit", "offset_value": "offset_value", "max_length": "max_length", "question": "question", "instruction": "instruction", "optional": "optional", "default_value": "default_value", "read_only": "read_only", "size": "size", "checked": "checked", "radios": "radios", "text": "text", "name_format": "name_format"},
+    headers: {},
+  },
+})
+
+export const listFields = defineFunction({
+  name: "yousign.list_fields",
+  connector: "yousign",
+  class: "read",
+  act: false,
+  description: "List the fields placed on one document of a signature request: {meta: {next_cursor}, data: [{id, type, signer_id, document_id, page, x, y, width, height, and the values of its type}]}, those from smart anchors included once resolved. Filter by type or by signer. To get the next page, pass meta.next_cursor as after.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["signature_request_id", "document_id"],
+    "properties": {
+      "signature_request_id": {"type": "string", "format": "uuid", "description": "Signature request id."},
+      "document_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A document of the request (add_document, get_signature_request documents)."
+      },
+      "type": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "signature",
+            "mention",
+            "signature_date",
+            "text",
+            "checkbox",
+            "radio_group",
+            "read_only_text",
+            "signer_name",
+            "signer_email"
+          ]
+        },
+        "description": "Only these field types."
+      },
+      "signer_id": {"type": "string", "format": "uuid", "description": "Only the fields of this signer."},
+      "after": {"type": "string", "minLength": 1, "description": "Cursor: meta.next_cursor of the previous page."},
+      "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100, "description": "Fields per page."},
+      "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
+      "max_pages": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "default": 10,
+        "description": "Pages read when all_pages is true."
+      }
+    }
+  },
+  examples: [
+    { title: "The signature fields of a document", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "type": ["signature"]} },
+  ],
+  refusals: [
+    { code: "signature_request_not_found", when: 404, message: "No signature request with this id in this Yousign environment." },
+  ],
+  request: {
+    method: "GET",
+    path: "/signature_requests/{signature_request_id}/documents/{document_id}/fields",
+    pathParams: ["signature_request_id", "document_id"],
+    query: {"type[in]": "type", "signer_id[eq]": "signer_id", "after": "after", "limit": "limit"},
+    body: {},
+    headers: {},
+  },
+  pagination: { kind: "cursor", requestParam: "after", next: "meta.next_cursor", maxPages: 10 },
+  output: { items: "data" },
+})
+
+export const updateField = defineFunction({
+  name: "yousign.update_field",
+  connector: "yousign",
+  class: "write",
+  act: false,
+  description: "Change a field of a draft signature request: move or resize it, give it to another signer, or change its values; only the values passed change, and each must fit the field's type (as in add_field). The type itself cannot change, nor can a signer_name or signer_email field: delete it and add another. Returns the field.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["signature_request_id", "document_id", "field_id"],
+    "properties": {
+      "signature_request_id": {"type": "string", "format": "uuid", "description": "Signature request id."},
+      "document_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A document of the request (add_document, get_signature_request documents)."
+      },
+      "field_id": {"type": "string", "format": "uuid", "description": "Field id, from add_field or list_fields."},
+      "signer_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "The signer who fills or signs the field (add_signer)."
+      },
+      "page": {"type": "integer", "minimum": 1},
+      "x": {"type": "integer", "minimum": 0, "maximum": 32767, "description": "Points from the left of the page."},
+      "y": {"type": "integer", "minimum": 0, "maximum": 32767, "description": "Points from the top of the page."},
+      "width": {
+        "type": "integer",
+        "minimum": 24,
+        "maximum": 32767,
+        "description": "Points; signature 85 to 2000 (85 by default), else computed from the content by default."
+      },
+      "height": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 32767,
+        "description": "Points; signature 37 to 1000 (37 by default)."
+      },
+      "reason": {
+        "type": "string",
+        "maxLength": 150,
+        "description": "Why the document is signed, shown in the signature."
+      },
+      "display": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["layout"],
+        "properties": {
+          "layout": {
+            "enum": ["minimal", "detailed"],
+            "description": "detailed adds the signer's name, email and signing date to the signature."
+          }
+        }
+      },
+      "mention": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Text the signer sees written, e.g. Read and approved; %date% and %datetime% become the signing date."
+      },
+      "font": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["family", "color", "size", "variants"],
+        "properties": {
+          "family": {
+            "enum": [
+              "Inconsolata",
+              "Open Sans",
+              "Lato",
+              "Raleway",
+              "Merriweather",
+              "EB Garamond",
+              "Comic Neue",
+              "Monaco",
+              "Helvetica",
+              "Courier",
+              "Times Roman"
+            ]
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#([a-f0-9]{6}|[A-F0-9]{6})$",
+            "description": "Hex color, e.g. #000000."
+          },
+          "size": {"type": "integer", "minimum": 7, "maximum": 96},
+          "variants": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["bold", "italic"],
+            "properties": {"bold": {"type": "boolean"}, "italic": {"type": "boolean"}}
+          }
+        }
+      },
+      "name": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the field."},
+      "date_format": {
+        "enum": [
+          "dd/MM/yyyy",
+          "dd-MM-yyyy",
+          "dd.MM.yyyy",
+          "yyyy-MM-dd",
+          "MM/dd/yyyy",
+          "dd MMMM yyyy",
+          "MMMM dd, yyyy",
+          "MMM dd, yyyy"
+        ],
+        "description": "dd/MM/yyyy by default."
+      },
+      "time_format": {"enum": ["HH:mm", "hh:mm a"], "description": "Also shows the time; the date only by default."},
+      "show_timezone": {"type": "boolean", "description": "Shows the time zone next to the time."},
+      "show_email": {"type": "boolean", "description": "Shows the signer's email; true by default."},
+      "offset_unit": {"enum": ["days", "weeks", "months", "years"], "description": "Unit of offset_value."},
+      "offset_value": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Shown date = signing date plus this many offset_unit."
+      },
+      "max_length": {"type": "integer", "minimum": 1, "maximum": 32767, "description": "Characters the signer may type."},
+      "question": {"type": "string", "maxLength": 255, "description": "Label shown to the signer; may be empty."},
+      "instruction": {"type": "string", "description": "Help text shown to the signer."},
+      "optional": {"type": "boolean", "description": "The signer may leave it blank."},
+      "default_value": {"type": "string", "minLength": 1, "maxLength": 32767, "description": "Prefilled value."},
+      "read_only": {"type": "boolean", "description": "The signer cannot change it."},
+      "size": {"type": "integer", "minimum": 8, "maximum": 240, "description": "Side in points, 24 by default."},
+      "checked": {"type": "boolean", "description": "Checked at first."},
+      "radios": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32767,
+              "description": "Points from the left of the page."
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32767,
+              "description": "Points from the top of the page."
+            },
+            "size": {"type": "integer", "minimum": 8, "maximum": 240, "description": "Side in points, 24 by default."},
+            "name": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the field."},
+            "default_checked": {"type": "boolean", "description": "This choice is selected at first."}
+          }
+        },
+        "description": "The choices of the group, one radio button each."
+      },
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 5000,
+        "description": "The fixed text written on the document."
+      }
+    },
+    "anyOf": [
+      {"required": ["signer_id"]},
+      {"required": ["page"]},
+      {"required": ["x"]},
+      {"required": ["y"]},
+      {"required": ["width"]},
+      {"required": ["height"]},
+      {"required": ["reason"]},
+      {"required": ["display"]},
+      {"required": ["mention"]},
+      {"required": ["font"]},
+      {"required": ["name"]},
+      {"required": ["date_format"]},
+      {"required": ["time_format"]},
+      {"required": ["show_timezone"]},
+      {"required": ["show_email"]},
+      {"required": ["offset_unit"]},
+      {"required": ["offset_value"]},
+      {"required": ["max_length"]},
+      {"required": ["question"]},
+      {"required": ["instruction"]},
+      {"required": ["optional"]},
+      {"required": ["default_value"]},
+      {"required": ["read_only"]},
+      {"required": ["size"]},
+      {"required": ["checked"]},
+      {"required": ["radios"]},
+      {"required": ["text"]}
+    ]
+  },
+  examples: [
+    { title: "Move a signature field lower on its page", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "field_id": "5d6e7f80-9a1b-4c2d-8e3f-4a5b6c7d8e9f", "y": 784} },
+  ],
+  refusals: [
+    { code: "signature_request_not_found", when: 404, message: "No signature request with this id in this Yousign environment." },
+    { code: "field_refused", when: 400, message: "Yousign refused the field: the request is no longer a draft, the signer or document is not part of it, the position is outside the page, or a value does not fit its type." },
+  ],
+  request: {
+    method: "PATCH",
+    path: "/signature_requests/{signature_request_id}/documents/{document_id}/fields/{field_id}",
+    pathParams: ["signature_request_id", "document_id", "field_id"],
+    query: {},
+    body: {"signer_id": "signer_id", "page": "page", "x": "x", "y": "y", "width": "width", "height": "height", "reason": "reason", "display": "display", "mention": "mention", "font": "font", "name": "name", "date_format": "date_format", "time_format": "time_format", "show_timezone": "show_timezone", "show_email": "show_email", "offset_unit": "offset_unit", "offset_value": "offset_value", "max_length": "max_length", "question": "question", "instruction": "instruction", "optional": "optional", "default_value": "default_value", "read_only": "read_only", "size": "size", "checked": "checked", "radios": "radios", "text": "text"},
+    headers: {},
+  },
+})
+
+export const deleteField = defineFunction({
+  name: "yousign.delete_field",
+  connector: "yousign",
+  class: "write",
+  act: true,
+  description: "Delete a field from a document of a draft signature request. A signer left without any signature field cannot be activated: add another one first. Returns nothing.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["signature_request_id", "document_id", "field_id"],
+    "properties": {
+      "signature_request_id": {"type": "string", "format": "uuid", "description": "Signature request id."},
+      "document_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A document of the request (add_document, get_signature_request documents)."
+      },
+      "field_id": {"type": "string", "format": "uuid", "description": "Field id, from add_field or list_fields."}
+    }
+  },
+  examples: [
+    { title: "Remove a misplaced field", input: {"signature_request_id": "9b6ed2f3-244f-487a-baa1-bbe4f51c8748", "document_id": "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "field_id": "5d6e7f80-9a1b-4c2d-8e3f-4a5b6c7d8e9f"} },
+  ],
+  refusals: [
+    { code: "signature_request_not_found", when: 404, message: "No signature request with this id in this Yousign environment." },
+    { code: "field_not_deleted", when: 400, message: "Yousign refused to delete the field: the request is no longer a draft." },
+  ],
+  request: {
+    method: "DELETE",
+    path: "/signature_requests/{signature_request_id}/documents/{document_id}/fields/{field_id}",
+    pathParams: ["signature_request_id", "document_id", "field_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
 })
 
 export const activateSignatureRequest = defineFunction({
@@ -426,7 +1376,7 @@ export const connector = defineConnector({
   name: "yousign",
   label: "Yousign",
   namespace: "yousign",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "v3",
   baseUrls: {"setting": "environment", "values": {"production": "https://api.yousign.app/v3", "sandbox": "https://api-sandbox.yousign.app/v3"}},
   auth: {"kind": "bearer", "token": "api_key"},
@@ -452,7 +1402,13 @@ export const connector = defineConnector({
     listTemplates,
     getTemplate,
     createSignatureRequestFromTemplate,
+    createSignatureRequest,
+    addDocument,
     addSigner,
+    addField,
+    listFields,
+    updateField,
+    deleteField,
     activateSignatureRequest,
   ],
 })

@@ -4,8 +4,9 @@ documents, signers, activation, download of the signed result.
 Bearer token auth (Yousign: API keys page, org or workspace scope). One method
 per REST endpoint (1 call = 1 endpoint) — the public v3 surface is large;
 this client covers the signature-request lifecycle (create → add document →
-add signer → activate → poll status → download signed document), not the
-identity-verification, template or branding sub-APIs.
+add signer → place fields → activate → poll status → download signed
+document) and reading templates, not the identity-verification or branding
+sub-APIs.
 
 Derived from the OpenAPI reference pages at `developers.yousign.com/reference/
 <operation>` (redirects to `developers.youtrust.com`, the platform's current
@@ -33,6 +34,16 @@ required fields, body shapes and enums come from the spec, not from doc prose.
   document kept from `create_document`'s response.
 - Document upload is `multipart/form-data` (binary `file` + `nature`), not
   JSON — the one method here that doesn't send `json_body`.
+- **Templates are read-only through the API**: there is no endpoint to create,
+  upload or edit one — a template is built in the Yousign app, then
+  `create_signature_request(template_id=…, template_placeholders=…)` starts a
+  draft from it. Only an `active` template can; a sandbox template only serves
+  sandbox requests, and the reverse.
+- **A field is placed by coordinates**, on a document already attached and,
+  except `read_only_text`, for a signer already added: `x`/`y` in points from
+  the TOP-LEFT corner of the page, `page` from 1. At most 500 fields per
+  request. Smart Anchors in the PDF (`parse_anchors` on `add_document`) are
+  the alternative that needs no coordinates.
 
 ## Spec details that bite
 
@@ -123,6 +134,9 @@ class YousignClient:
     def _post(self, path: str, body: Optional[Dict[str, Any]] = None) -> Any:
         return self._request("POST", path, json_body=_clean(body) if body else None)
 
+    def _patch(self, path: str, body: Dict[str, Any]) -> Any:
+        return self._request("PATCH", path, json_body=_clean(body))
+
     def _delete(self, path: str, **params: Any) -> Any:
         return self._request("DELETE", path, params=params)
 
@@ -143,7 +157,10 @@ class YousignClient:
             **body: `expiration_date` (yyyy-mm-dd), `ordered_signers`,
                 `ordered_approvers`, `custom_recipient_order`,
                 `reminder_settings`, `timezone` (default "Europe/Paris"),
-                `template_id`, `external_id`, `signers_allowed_to_decline`,
+                `template_id` with `template_placeholders` (`{signers:
+                [{label, info, …}], read_only_text_fields: [{label, text}]}`,
+                every placeholder of the template filled, labels matched
+                exactly), `external_id`, `signers_allowed_to_decline`,
                 `email_notification`, `labels`, `custom_experience_id`
                 (see the spec).
         """
@@ -237,6 +254,80 @@ class YousignClient:
         return self._get(f"/signature_requests/{signature_request_id}/audit_trails/download")
 
     # ================================================================
+    # Fields
+    # ================================================================
+
+    def list_fields(self, signature_request_id: str, document_id: str,
+                    **params: Any) -> Any:
+        """GET /signature_requests/{id}/documents/{document_id}/fields — the
+        fields placed on one document, anchors included once parsed.
+
+        Args:
+            **params: `type`, `signer_id`, `name` (filters), `after`, `limit`.
+        """
+        return self._get(
+            f"/signature_requests/{signature_request_id}/documents/{document_id}/fields",
+            **params)
+
+    def add_field(self, signature_request_id: str, document_id: str,
+                  field_type: str, page: int, **fields: Any) -> Any:
+        """POST /signature_requests/{id}/documents/{document_id}/fields — one
+        field on a document of a DRAFT request.
+
+        Args:
+            field_type: `signature` | `mention` | `signature_date` | `text` |
+                `checkbox` | `radio_group` | `read_only_text` | `signer_name` |
+                `signer_email`.
+            page: page number, from 1.
+            **fields: `signer_id` (required except for `read_only_text`), `x`,
+                `y` (points from the top-left corner; required except for
+                `radio_group`, whose `radios` carry their own), and per type:
+                `width`/`height`; `mention` (required for `mention`);
+                `max_length` + `question` (required for `text`), `optional`,
+                `default_value`, `read_only`; `size`, `checked` (`checkbox`);
+                `radios` (`radio_group`); `text` (required for
+                `read_only_text`); `date_format` (`signature_date`); `font`,
+                `name` (see the spec).
+        """
+        return self._post(
+            f"/signature_requests/{signature_request_id}/documents/{document_id}/fields",
+            {"type": field_type, "page": page, **fields})
+
+    def update_field(self, signature_request_id: str, document_id: str,
+                     field_id: str, **fields: Any) -> Any:
+        """PATCH …/documents/{document_id}/fields/{field_id} — move or edit a
+        field of a draft; its `type` cannot change (delete and re-add)."""
+        return self._patch(
+            f"/signature_requests/{signature_request_id}/documents/{document_id}"
+            f"/fields/{field_id}", fields)
+
+    def delete_field(self, signature_request_id: str, document_id: str,
+                     field_id: str) -> Any:
+        """DELETE …/documents/{document_id}/fields/{field_id}."""
+        return self._delete(
+            f"/signature_requests/{signature_request_id}/documents/{document_id}"
+            f"/fields/{field_id}")
+
+    # ================================================================
+    # Templates
+    # ================================================================
+
+    def list_templates(self, **params: Any) -> Any:
+        """GET /templates — the organization's templates `{meta: {next_cursor},
+        data: [{id, name, status, …}]}`; only `active` ones start a request.
+
+        Args:
+            **params: `after` (cursor), `limit` (1-10).
+        """
+        return self._get("/templates", **params)
+
+    def get_template(self, template_id: str) -> Any:
+        """GET /templates/{id} — status and `placeholders` (`signers: [{label}]`,
+        `read_only_text_fields: [{label}]`, `documents`): what a request built
+        from it must fill, by label."""
+        return self._get(f"/templates/{template_id}")
+
+    # ================================================================
     # Signers
     # ================================================================
 
@@ -256,7 +347,9 @@ class YousignClient:
             signature_level: `"electronic_signature"` (default) |
                 `"advanced_electronic_signature"` |
                 `"qualified_electronic_signature"`.
-            **fields: `fields` (signature field placements), `insert_after_id`,
+            **fields: `fields` (placements at creation: `[{type, document_id,
+                page, x, y, …}]`, type ∈ signature|mention|text|checkbox|
+                radio_group — `add_field` places the other types), `insert_after_id`,
                 `group_with_id`, `signature_authentication_mode` (`"otp_email"`
                 default | `"otp_sms"` | `"no_otp"`), `redirect_urls`,
                 `custom_text`, `delivery_mode`, `sms_notification`,
