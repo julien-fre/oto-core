@@ -930,6 +930,30 @@ def test_create_watch_list_envoie_les_quatre_champs_faussement_optionnels(monkey
     assert "activate" in captured["json"]
 
 
+def test_create_watch_list_visiteurs_pousse_vers_une_campagne_avec_persona(monkeypatch):
+    """Une liste « visiteurs du site » rend surtout une ENTREPRISE, sans
+    contact : pour alimenter une campagne, lemlist veut le persona à chercher
+    (`personaId`) et la campagne (`campaignId`) dès la création."""
+    captured = _capture(monkeypatch, body={"data": {"_id": "wat_1"}})
+    c = lm.LemlistClient(api_key="k")
+    c.create_watch_list("Visiteurs", type="companyEmployeeVisitedMyWebsite",
+                        signal_processing_type="push_to_campaign",
+                        persona_id="pdp_1", campaign_id="cam_1")
+
+    assert captured["json"]["personaId"] == "pdp_1"
+    assert captured["json"]["campaignId"] == "cam_1"
+    assert captured["json"]["activate"] is False
+
+
+def test_create_watch_list_refuse_persona_ou_campagne_hors_push_to_campaign(monkeypatch):
+    _capture(monkeypatch, body={})
+    c = lm.LemlistClient(api_key="k")
+    for extra in ({"persona_id": "pdp_1"}, {"campaign_id": "cam_1"}):
+        with pytest.raises(ValueError, match="push_to_campaign"):
+            c.create_watch_list("Visiteurs", type="companyEmployeeVisitedMyWebsite",
+                                **extra)
+
+
 def test_list_tasks_envoie_toujours_filters(monkeypatch):
     captured = _capture(monkeypatch, body={"results": []})
     c = lm.LemlistClient(api_key="k")

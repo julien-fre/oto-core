@@ -2124,6 +2124,8 @@ class LemlistClient:
         segment_type: str = "all",
         signal_processing_type: str = "manual",
         signal_opportunity_template: dict = None,
+        persona_id: str = None,
+        campaign_id: str = None,
         activate: bool = False,
     ) -> Dict[str, Any]:
         """Create a watch list.
@@ -2147,7 +2149,18 @@ class LemlistClient:
         (`INVALID_FILTER_VALUE`) — and numeric values travel as STRINGS
         (`{"filterId": "maxIdentificationsPerDay", "in": ["5"]}`). Read
         `get_watch_list_filters(type=…)` before building the payload.
+
+        `persona_id` (`pdp_…`) and `campaign_id` (`cam_…`) only go with
+        `signal_processing_type="push_to_campaign"`. The campaign is the one the
+        list feeds; the persona says WHO to push when the signal carries a
+        company and no contact, as `companyEmployeeVisitedMyWebsite` mostly
+        does (lemlist names the visitor only for some US traffic).
         """
+        if (persona_id is not None or campaign_id is not None) and \
+                signal_processing_type != "push_to_campaign":
+            raise ValueError(
+                "persona_id and campaign_id need "
+                "signal_processing_type='push_to_campaign'")
         if type not in self.WATCH_LIST_TYPES:
             raise ValueError(
                 f"type must be one of {self.WATCH_LIST_TYPES}, got {type!r}")
@@ -2167,6 +2180,8 @@ class LemlistClient:
         for key, value in (
             ("emoji", emoji),
             ("signalOpportunityTemplate", signal_opportunity_template),
+            ("personaId", persona_id),
+            ("campaignId", campaign_id),
         ):
             if value is not None:
                 body[key] = value
