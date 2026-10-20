@@ -241,8 +241,10 @@ jobs:
 
       # L'archive est nommée d'après la version du tag : une autre ne serait pas trouvée.
       # Une version déjà publiée fait échouer (403) : voulu, comme pour PyPI.
+      # `./` en tête : sans lui, npm lit `npm/<archive>.tgz` comme le dépôt GitHub `npm/<archive>`
+      # (`git ls-remote`, échec 128, v1.190.0) ; `tests/test_publish_npm.py` le garde.
       - name: Publish ${{ needs.build.outputs.tag }} to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           TAG: ${{ needs.build.outputs.tag }}
-        run: npm publish "npm/otomata_tech-connectors-${TAG#v}.tgz" --provenance --access public
+        run: npm publish "./npm/otomata_tech-connectors-${TAG#v}.tgz" --provenance --access public
