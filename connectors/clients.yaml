@@ -54,6 +54,7 @@ without_description:
   threecx: { category: not_describable, reason: "l'adresse du standard se dit, mais la connexion par compte utilisateur est hors OAuth2 standard ; audio binaire" }
   ubersuggest: { category: not_describable, reason: "transport MCP en JSON-RPC sur un seul point d'entrée ; client OAuth public obtenu par enregistrement dynamique" }
   wordpress: { category: not_describable, reason: "la racine REST se découvre à l'appel (/wp-json/ ou ?rest_route=) ; téléversement de média en corps binaire" }
+  zeendoc: { category: not_describable, reason: "session ouverte par le login d'un compte utilisateur, portée par un cookie ; texte et fichiers servis par des pages de l'application, document absent signalé par une redirection" }
   google/bigquery: { category: not_describable, reason: "SDK de Google, pas de requête HTTP décrite" }
   # De principe : client d'un service d'oto, pas d'un tiers.
   datastore: { category: oto_service, reason: "client d'un service d'oto (son serveur MCP), pas d'un tiers" }
