@@ -1,9 +1,18 @@
 {
   "name": "@otomata_tech/connectors",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.189.0",
   "description": "Shared connector definitions generated from connectors/*/connector.yaml by the fabrique. Structural data only: the host runs the requests.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/otomata-tech/connectors.git",
+    "directory": "ts"
+  },
+  "homepage": "https://github.com/otomata-tech/connectors/tree/main/ts#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -11,7 +20,11 @@
     "./types": "./src/types.ts",
     "./cost-cases": "./src/cost-cases.ts"
   },
-  "files": ["src"],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

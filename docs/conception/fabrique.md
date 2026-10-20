@@ -103,8 +103,8 @@ Le code généré ne lit aucun secret. En Python, le constructeur du client reç
 
 ### Livraison
 
-- La lib se publie sur PyPI, sur un tag posé à la main (`docs/release.md`).
-- La sortie TypeScript (`ts/`, nom provisoire `@otomata_tech/connectors`, privé) n'est pas publiée : l'application hôte en dépend par un commit de ce dépôt, épinglé. Le paquet d'oto 2 n'en dépend pas ; il accepte des définitions de même forme, que l'hôte lui déclare. Une publication npm, si elle vient, part sur un tag posé à la main avec l'accord du mainteneur.
+- Un tag `vX.Y.Z`, posé à la main, publie la lib sur PyPI et la sortie TypeScript sur npm, à la même version : le dépôt n'a qu'un numéro de version (`docs/release.md`).
+- La sortie TypeScript se publie en paquet npm public, `@otomata_tech/connectors` (`ts/`), avec sa provenance. L'application hôte l'installe par npm, à une version épinglée, plus par un commit de ce dépôt. Le paquet porte ses sources `.ts`, que l'hôte transpile. Le paquet d'oto 2 n'en dépend pas ; il accepte des définitions de même forme, que l'hôte lui déclare.
 
 ### Oto 1, connecteur par connecteur
 
@@ -152,6 +152,7 @@ Le double ne reste qu'aux connecteurs pas encore basculés, et il s'éteint au p
 - Les gardes d'une adresse libre ne sont écrites nulle part dans ce dépôt : la sortie les déclare, aucun code ne les exécute.
 - La sortie porte `files` (2026-10-19) ; le paquet d'oto 2 l'exécute à partir de son commit qui envoie le corps multipart ; un paquet antérieur ignore `files` et envoie un corps JSON sans le fichier. Le Python n'a ni sortie ni triplet de fichier.
 - Le backend d'oto 1 n'a pas de lecteur de la description : tous ses outils restent déclarés à la main.
+- La publication npm est écrite (`.github/workflows/publish.yml`, jobs `npm` et `publish-npm`) mais n'a pas encore eu lieu : elle exige le secret `NPM_TOKEN` du dépôt, absent au 20/10, et aucune version de `@otomata_tech/connectors` n'est sur npm.
 
 ## Questions ouvertes
 
@@ -183,3 +184,4 @@ Le double ne reste qu'aux connecteurs pas encore basculés, et il s'éteint au p
 - 2026-10-19 : règle 15, la donnée personnelle ; la sortie porte `personal: true` tel quel dans le schéma de la fonction, et rien de neuf ailleurs — décidé par Alexis.
 - 2026-10-19 : règle 16, le poids d'une valeur (`weights`) ; règle 13, `no_deadline` à la place de `within_s` ; la sortie TypeScript porte `weights` et `noDeadline` quand la fonction les déclare, et rien de neuf ailleurs ; première sortie Python, des données (`oto/connectors/declared.py`) lues par des fonctions pures (`oto.connectors.cost`), vérifiée par `--check` comme la sortie TypeScript — décidé par le mainteneur.
 - 2026-10-19 : les cas communs du coût (`connectors/_cases/cost.yaml`), contrôlés comme une description et sortis en `ts/src/cost-cases.ts`, joués par la lib et par oto-core — choix du projet (source : demande du mainteneur d'un jeu de cas commun au coût).
+- 2026-10-20 : la sortie TypeScript se publie sur npm, en accès public, à chaque tag, à la version de la lib ; l'application hôte l'installe par npm, à une version épinglée, à la place du commit — décidé par le mainteneur.
