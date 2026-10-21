@@ -124,3 +124,35 @@ def test_post_message_with_blocks_bypasses_split_and_escaping():
     c.post_message("C1", text="fallback 20:51: text", blocks=blocks)
     assert len(calls) == 1
     assert calls[0]["json"]["blocks"] == blocks
+
+
+def test_post_message_unfurl_false_disables_link_previews():
+    """`unfurl=False` : Slack ne déplie aucun lien ni média sous le message."""
+    c = SlackClient(bot_token="xoxb-1")
+    calls = _capture_sequence(c, [{"ok": True, "channel": "C1", "ts": "1.1"}])
+    c.post_message("C1", text="live: https://example.com/page", unfurl=False)
+    assert calls[0]["json"]["unfurl_links"] is False
+    assert calls[0]["json"]["unfurl_media"] is False
+
+
+def test_post_message_unfurl_false_applies_to_every_split_part():
+    """Un texte découpé garde `unfurl=False` sur chaque partie, pas seulement
+    la première."""
+    c = SlackClient(bot_token="xoxb-1")
+    long_text = ("https://example.com/page and some words. " * 200).strip()
+    assert len(long_text) > 4000
+    calls = _capture_sequence(c, [{"ok": True, "channel": "C1", "ts": f"1.{i}"} for i in range(10)])
+    result = c.post_message("C1", text=long_text, unfurl=False)
+    assert result["split_into"] > 1
+    assert all(call["json"]["unfurl_links"] is False for call in calls)
+    assert all(call["json"]["unfurl_media"] is False for call in calls)
+
+
+def test_post_message_default_keeps_slack_unfurl_behaviour():
+    """Par défaut, aucun drapeau n'est envoyé : le comportement de Slack ne
+    change pas pour les appelants existants."""
+    c = SlackClient(bot_token="xoxb-1")
+    calls = _capture_sequence(c, [{"ok": True, "channel": "C1", "ts": "1.1"}])
+    c.post_message("C1", text="hello https://example.com")
+    assert "unfurl_links" not in calls[0]["json"]
+    assert "unfurl_media" not in calls[0]["json"]

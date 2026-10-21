@@ -17,6 +17,8 @@ from .text import chunk_text as _chunk_text
 from .text import escape_false_emoji_shortcodes as _escape_false_emoji_shortcodes
 
 _HTTP_TIMEOUT = (10, 60)  # (connect, read) — never an unbounded wait
+# chat.postMessage flags that stop Slack from previewing the links in a message.
+_NO_UNFURL = {"unfurl_links": False, "unfurl_media": False}
 
 
 # Slack answers HTTP 200 with `{"ok": false, "error": "<code>"}` for logical
@@ -199,6 +201,7 @@ class SlackClient(_UsergroupsMixin):
         blocks: List[Dict] = None,
         thread_ts: str = None,
         as_user: Optional[bool] = None,
+        unfurl: bool = True,
     ) -> Dict[str, Any]:
         """
         Send a message to a channel or DM. A bare clock time or any other
@@ -220,6 +223,9 @@ class SlackClient(_UsergroupsMixin):
             thread_ts: Thread timestamp for reply
             as_user: True = post via user token (appears as the human user).
                 False = bot token (appears as the bot app). None = client default.
+            unfurl: False = Slack shows no link or media preview under the
+                message (`unfurl_links`/`unfurl_media` false), on every part
+                when split. True = Slack's default.
 
         Returns:
             Message data with `ts` — plus `ts_all`/`split_into` when split.
@@ -232,6 +238,8 @@ class SlackClient(_UsergroupsMixin):
                 data["blocks"] = blocks
             if thread_ts:
                 data["thread_ts"] = thread_ts
+            if not unfurl:
+                data.update(_NO_UNFURL)
             return self._request("POST", "chat.postMessage", as_user=as_user, json=data)
 
         parts = _chunk_text(text)
@@ -243,6 +251,8 @@ class SlackClient(_UsergroupsMixin):
             data = {"channel": channel, "text": _escape_false_emoji_shortcodes(part)}
             if reply_to:
                 data["thread_ts"] = reply_to
+            if not unfurl:
+                data.update(_NO_UNFURL)
             resp = self._request("POST", "chat.postMessage", as_user=as_user, json=data)
             ts_all.append(resp.get("ts"))
             if i == 0:
