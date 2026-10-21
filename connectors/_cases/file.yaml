@@ -1,0 +1,412 @@
+# Common cases of a rendered file (output.file): the Python lib (oto.connectors.files: file_output) and the host package
+# of oto 2 read, name, type and refuse a file the same way, with the semantics of docs/conception/format-de-description.md,
+# « Fichiers », « Un fichier rendu ».
+#
+# Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the functions the
+# cases carry into one description, checked with the schema and the rules of every description (rule 17 included), then
+# converts it as it converts a description: oto/connectors/declared.py's form for the pytest (tests/test_file_cases.py,
+# against a fake transport), ts/src/file-cases.ts for the host package (`@otomata_tech/connectors/file-cases`, against a
+# fake fetch). A function shared by several cases is written once, with a YAML anchor; the same name is always the same
+# function.
+#
+# A case:
+# - args: the arguments of the call, valid against the function's input;
+# - answer: the answer of the API call, {status, headers, text | json}; `text` is the body as bytes (UTF-8), for
+#   from: body; `json` is the JSON body, for from: url, base64 and base64url;
+# - download: for from: url, the answer of the download of the address, when the address is downloaded at all;
+# - file {name, mime, size}: the file given, its MIME type that of its extension (the first declared), its size in bytes;
+#   or refusal: one of the six named refusals, the same on both sides — file_missing, file_download_refused,
+#   file_too_large, file_type_refused, file_unreadable, file_foreign_origin.
+# Every host name resolves to a public address: a guard by resolution is the job of each side's own tests.
+connector:
+  name: file_cases
+  label: File cases
+  namespace: file_cases
+  version: 1.0.0
+  api_version: v1
+  base_url: https://api.example.test/v1
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  modes: [byo_org]
+  errors:
+    - { status: 429, code: rate_limited, retryable: true, message: "Rate limit reached: retry later." }
+
+cases:
+  # --- from: body ---------------------------------------------------------------------------------------------------
+  - name: name_by_filename_star
+    function: &get_recording
+      name: get_recording
+      class: read
+      description: Get the audio of one recording as a file.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One recording, input: { id: r-1 } }]
+      call: { method: GET, path: "/recordings/{id}/download" }
+      output:
+        file:
+          from: body
+          types: { mp3: [audio/mpeg, audio/mp3], wav: [audio/wav, audio/x-wav] }
+          name: { header: Content-Disposition, template: "recording-{id}.mp3" }
+          max_bytes: 64
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers:
+        Content-Type: audio/mpeg
+        Content-Disposition: "attachment; filename=\"fallback.mp3\"; filename*=UTF-8''r%C3%A9union%20du%20lundi.mp3"
+      text: ID3-recording
+    file: { name: réunion du lundi.mp3, mime: audio/mpeg, size: 13 }
+
+  - name: name_by_filename
+    function: *get_recording
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers: { Content-Type: audio/x-wav, Content-Disposition: "attachment; filename=\"weekly.wav\"" }
+      text: RIFF-wave
+    file: { name: weekly.wav, mime: audio/wav, size: 9 }
+
+  - name: name_by_template
+    function: *get_recording
+    args: { id: r-1 }
+    answer: { status: 200, headers: { Content-Type: audio/mpeg }, text: ID3-recording }
+    file: { name: recording-r-1.mp3, mime: audio/mpeg, size: 13 }
+
+  - name: undeclared_extension_falls_to_template
+    function: *get_recording
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers: { Content-Type: audio/mpeg, Content-Disposition: "attachment; filename=\"notes.txt\"" }
+      text: ID3-recording
+    file: { name: recording-r-1.mp3, mime: audio/mpeg, size: 13 }
+
+  - name: filename_star_undeclared_then_filename
+    function: *get_recording
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers: { Content-Type: audio/wav, Content-Disposition: "attachment; filename*=UTF-8''notes.txt; filename=take.wav" }
+      text: RIFF-wave
+    file: { name: take.wav, mime: audio/wav, size: 9 }
+
+  - name: name_reduced_to_its_last_segment
+    function: *get_recording
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers: { Content-Type: audio/mpeg, Content-Disposition: "attachment; filename=\"../../srv/take.mp3\"" }
+      text: ID3-recording
+    file: { name: take.mp3, mime: audio/mpeg, size: 13 }
+
+  - name: exactly_at_the_bound
+    function: *get_recording
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers: { Content-Type: audio/mpeg, Content-Length: "64" }
+      text: ID3-012345678901234567890123456789012345678901234567890123456789
+    file: { name: recording-r-1.mp3, mime: audio/mpeg, size: 64 }
+
+  - name: content_length_beyond
+    function: *get_recording
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers: { Content-Type: audio/mpeg, Content-Length: "70" }
+      text: ID3-012345678901234567890123456789012345678901234567890123456789abcdef
+    refusal: file_too_large
+
+  - name: body_beyond_without_content_length
+    function: *get_recording
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers: { Content-Type: audio/mpeg }
+      text: ID3-012345678901234567890123456789012345678901234567890123456789abcdef
+    refusal: file_too_large
+
+  - name: html_under_200_refused
+    function: *get_recording
+    args: { id: r-1 }
+    answer: { status: 200, headers: { Content-Type: text/html; charset=utf-8 }, text: "<html>Sign in</html>" }
+    refusal: file_type_refused
+
+  - name: type_of_another_extension_refused
+    function: *get_recording
+    args: { id: r-1 }
+    answer:
+      status: 200
+      headers: { Content-Type: audio/mpeg, Content-Disposition: "attachment; filename=\"take.wav\"" }
+      text: ID3-recording
+    refusal: file_type_refused
+
+  - name: octet_stream_admitted
+    function: *get_recording
+    args: { id: r-1 }
+    answer: { status: 200, headers: { Content-Type: application/octet-stream }, text: ID3-recording }
+    file: { name: recording-r-1.mp3, mime: audio/mpeg, size: 13 }
+
+  - name: binary_octet_stream_admitted
+    function: *get_recording
+    args: { id: r-1 }
+    answer: { status: 200, headers: { Content-Type: binary/octet-stream }, text: ID3-recording }
+    file: { name: recording-r-1.mp3, mime: audio/mpeg, size: 13 }
+
+  - name: absent_type_admitted
+    function: *get_recording
+    args: { id: r-1 }
+    answer: { status: 200, headers: {}, text: ID3-recording }
+    file: { name: recording-r-1.mp3, mime: audio/mpeg, size: 13 }
+
+  - name: empty_body
+    function: *get_recording
+    args: { id: r-1 }
+    answer: { status: 200, headers: { Content-Type: audio/mpeg }, text: "" }
+    refusal: file_missing
+
+  # --- from: url, auth: none ----------------------------------------------------------------------------------------
+  - name: name_by_field
+    function: &get_call
+      name: get_call_recording
+      class: read
+      description: Get the recording of one call as a file.
+      input: { type: object, additionalProperties: false, required: [call_id], properties: { call_id: { type: integer } } }
+      examples: [{ title: One call, input: { call_id: 42 } }]
+      call: { method: GET, path: "/calls/{call_id}" }
+      output:
+        file:
+          from: url
+          path: call.recording
+          types: { mp3: [audio/mpeg] }
+          name: { header: Content-Disposition, path: call.recording_name, template: "call-{call_id}.mp3" }
+          max_bytes: 64
+    args: { call_id: 42 }
+    answer:
+      status: 200
+      headers: { Content-Type: application/json }
+      json: { call: { id: 42, recording: "https://files.example.test/r/42.mp3?signature=abc", recording_name: standup.mp3 } }
+    download: { status: 200, headers: { Content-Type: audio/mpeg }, text: ID3-call }
+    file: { name: standup.mp3, mime: audio/mpeg, size: 8 }
+
+  - name: name_by_download_header
+    function: *get_call
+    args: { call_id: 42 }
+    answer:
+      status: 200
+      headers: { Content-Type: application/json }
+      json: { call: { recording: "https://files.example.test/r/42.mp3?signature=abc", recording_name: standup.mp3 } }
+    download:
+      status: 200
+      headers: { Content-Type: audio/mpeg, Content-Disposition: "attachment; filename=\"downloaded.mp3\"" }
+      text: ID3-call
+    file: { name: downloaded.mp3, mime: audio/mpeg, size: 8 }
+
+  - name: url_name_by_template
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "https://files.example.test/r/42.mp3" } } }
+    download: { status: 200, headers: { Content-Type: audio/mpeg }, text: ID3-call }
+    file: { name: call-42.mp3, mime: audio/mpeg, size: 8 }
+
+  - name: url_absent
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { id: 42 } } }
+    refusal: file_missing
+
+  - name: url_empty
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "" } } }
+    refusal: file_missing
+
+  - name: url_null
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: null } } }
+    refusal: file_missing
+
+  - name: url_not_text
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: 12 } } }
+    refusal: file_unreadable
+
+  - name: url_http
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "http://files.example.test/r/42.mp3" } } }
+    refusal: file_download_refused
+
+  - name: url_with_credentials
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "https://user@files.example.test/r/42.mp3" } } }
+    refusal: file_download_refused
+
+  - name: download_403
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "https://files.example.test/r/42.mp3?signature=old" } } }
+    download: { status: 403, headers: { Content-Type: application/xml }, text: "<Error>Expired</Error>" }
+    refusal: file_download_refused
+
+  - name: download_redirect_not_followed
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "https://files.example.test/r/42" } } }
+    download: { status: 302, headers: { Location: "https://storage.example.test/r/42.mp3" }, text: "" }
+    refusal: file_download_refused
+
+  - name: download_html_refused
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "https://files.example.test/r/42.mp3" } } }
+    download: { status: 200, headers: { Content-Type: text/html }, text: "<html>Sign in</html>" }
+    refusal: file_type_refused
+
+  - name: download_content_length_beyond
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "https://files.example.test/r/42.mp3" } } }
+    download:
+      status: 200
+      headers: { Content-Type: audio/mpeg, Content-Length: "70" }
+      text: ID3-012345678901234567890123456789012345678901234567890123456789abcdef
+    refusal: file_too_large
+
+  - name: download_empty
+    function: *get_call
+    args: { call_id: 42 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { call: { recording: "https://files.example.test/r/42.mp3" } } }
+    download: { status: 200, headers: { Content-Type: audio/mpeg }, text: "" }
+    refusal: file_missing
+
+  # --- from: url, auth: account -------------------------------------------------------------------------------------
+  - name: same_origin_under_account
+    function: &get_export
+      name: get_export
+      class: read
+      description: Get one export as a file.
+      input: { type: object, additionalProperties: false, required: [export_id], properties: { export_id: { type: string } } }
+      examples: [{ title: One export, input: { export_id: e-1 } }]
+      call: { method: GET, path: "/exports/{export_id}" }
+      output:
+        file:
+          from: url
+          path: export.url
+          auth: account
+          types: { csv: [text/csv] }
+          name: { template: "export-{export_id}.csv" }
+          max_bytes: 64
+    args: { export_id: e-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { export: { url: "https://api.example.test/downloads/e-1" } } }
+    download: { status: 200, headers: { Content-Type: text/csv; charset=utf-8 }, text: "id,total\n1,9\n" }
+    file: { name: export-e-1.csv, mime: text/csv, size: 13 }
+
+  - name: url_foreign_origin_under_account
+    function: *get_export
+    args: { export_id: e-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { export: { url: "https://files.example.test/downloads/e-1" } } }
+    refusal: file_foreign_origin
+
+  - name: other_port_is_foreign_under_account
+    function: *get_export
+    args: { export_id: e-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { export: { url: "https://api.example.test:8443/downloads/e-1" } } }
+    refusal: file_foreign_origin
+
+  # --- from: base64 -------------------------------------------------------------------------------------------------
+  - name: base64_named_by_field
+    function: &get_attachment
+      name: get_attachment
+      class: read
+      description: Get one attachment as a file.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One attachment, input: { id: a-1 } }]
+      call: { method: GET, path: "/attachments/{id}" }
+      output:
+        file:
+          from: base64
+          path: data
+          types: { pdf: [application/pdf] }
+          name: { path: filename, template: "attachment-{id}.pdf" }
+          max_bytes: 16
+    args: { id: a-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: JVBERi0xLjQ=, filename: invoice.pdf } }
+    file: { name: invoice.pdf, mime: application/pdf, size: 8 }
+
+  - name: base64_named_by_template
+    function: *get_attachment
+    args: { id: a-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: JVBERi0xLjQ= } }
+    file: { name: attachment-a-1.pdf, mime: application/pdf, size: 8 }
+
+  - name: base64_unreadable
+    function: *get_attachment
+    args: { id: a-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: "not base64!" } }
+    refusal: file_unreadable
+
+  - name: base64_without_its_padding
+    function: *get_attachment
+    args: { id: a-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: JVBERi0xLjQ } }
+    refusal: file_unreadable
+
+  - name: base64_beyond_the_bound
+    function: *get_attachment
+    args: { id: a-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: JVBERi0xLjQgJVBERi0xLjQgJVBERg== } }
+    refusal: file_too_large
+
+  - name: base64_absent
+    function: *get_attachment
+    args: { id: a-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { filename: invoice.pdf } }
+    refusal: file_missing
+
+  - name: base64_not_text
+    function: *get_attachment
+    args: { id: a-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: [1, 2] } }
+    refusal: file_unreadable
+
+  # --- from: base64url ----------------------------------------------------------------------------------------------
+  - name: base64url_without_padding
+    function: &get_part
+      name: get_part
+      class: read
+      description: Get one part of a message as a file.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One part, input: { id: p-1 } }]
+      call: { method: GET, path: "/parts/{id}" }
+      output:
+        file:
+          from: base64url
+          path: part.data
+          types: { txt: [text/plain] }
+          name: { template: "part-{id}.txt" }
+          max_bytes: 16
+    args: { id: p-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { part: { data: aGVsbG8_aGk } } }
+    file: { name: part-p-1.txt, mime: text/plain, size: 8 }
+
+  - name: base64url_padded
+    function: *get_part
+    args: { id: p-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { part: { data: aGVsbG8_aGk= } } }
+    file: { name: part-p-1.txt, mime: text/plain, size: 8 }
+
+  - name: base64url_with_the_standard_alphabet
+    function: *get_part
+    args: { id: p-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { part: { data: aGVsbG8/aGk= } } }
+    refusal: file_unreadable
+
+  - name: base64url_empty
+    function: *get_part
+    args: { id: p-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { part: { data: "" } } }
+    refusal: file_missing

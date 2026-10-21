@@ -95,7 +95,7 @@ def _relative(path: pathlib.Path) -> str:
         return str(path)
 
 
-def _functions(cases: list[dict], where: str) -> list[dict]:
+def case_functions(cases: list[dict], where: str) -> list[dict]:
     """Les fonctions que portent les cas, chacune une fois : un même nom est toujours la même fonction."""
     functions: dict[str, dict] = {}
     for case in cases:
@@ -140,7 +140,7 @@ def load(path: pathlib.Path = CASES) -> CostCases:
     twice = sorted({n for n in names if names.count(n) > 1})
     if twice:
         raise DescriptionError(f"{where}: case name(s) declared twice: {', '.join(twice)}")
-    description = {"connector": data["connector"], "functions": _functions(data["cases"], where)}
+    description = {"connector": data["connector"], "functions": case_functions(data["cases"], where)}
     check_schema(description, where)
     check_rules(description, where)
     for case in data["cases"]:

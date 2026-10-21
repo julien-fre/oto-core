@@ -88,7 +88,16 @@ pas dire :
    élément aux valeurs uniques, dont les valeurs admises (`enum`) sont exactement les
    clés de la table de poids : une valeur sans poids est refusée par le schéma
    d'entrée, avant l'appel, jamais comptée pour rien, et un poids ne vaut que pour une
-   valeur admise.
+   valeur admise ;
+17. le fichier rendu (`output.file`) : il exclut `items`, `strip`, `projection` et
+   `schema` (un fichier est toute la sortie), une pagination, `async` et le rôle de
+   relève d'un travail asynchrone ; `path` est exigé hors `from: body` et refusé avec
+   lui, `name.path` aussi (un corps binaire n'a pas de JSON) ; `auth` ne vaut qu'avec
+   `from: url`, `name.header` qu'avec `body` ou `url` ; le gabarit du nom ne cite que des
+   arguments requis de l'entrée et finit par une extension déclarée ; aucun type
+   déclaré n'est un type qu'un navigateur rend en page ou exécute (HTML, SVG, XML,
+   JavaScript) ; `expect` est refusé avec `from: body`. La forme (extensions, types
+   MIME sans paramètre, `max_bytes` de 1 octet à 50 Mo) est celle du schéma.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -401,6 +410,92 @@ def check_files(function: dict, where: str) -> None:
             raise DescriptionError(
                 f"{where}: function {name}: file argument {argument!r} must be type: string, the id of a transit file"
             )
+
+
+# Les types qu'un navigateur rend en page ou exécute : jamais le type d'un fichier rendu, que l'hôte sert à une personne.
+PAGE_OR_SCRIPT_TYPES = frozenset({
+    "text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml", "text/xsl",
+    "text/javascript", "application/javascript", "application/x-javascript", "text/ecmascript",
+    "application/ecmascript", "text/jscript", "text/livescript", "text/vbscript", "application/wasm",
+})
+# Les sorties qu'un fichier exclut : il est toute la sortie de la fonction.
+NOT_WITH_FILE = ("items", "strip", "projection", "schema")
+EXTENSION_AT_END = re.compile(r"\.([a-z0-9]{1,16})$")
+
+
+# Le plafond d'un fichier rendu, et son défaut : 50 Mo, celui d'un fichier chez l'hôte d'oto 2 (le `default` du schéma).
+DEFAULT_MAX_BYTES = 52_428_800
+
+
+def output_file(function: dict) -> dict | None:
+    """Le fichier rendu d'une fonction, ses défauts résolus (`auth: none` d'une adresse, `max_bytes` de 50 Mo), ses clés
+    dans l'ordre du format : la forme que portent les deux sorties, pour que l'hôte et la lib n'aient aucun défaut à
+    connaître."""
+    file = (function.get("output") or {}).get("file")
+    if file is None:
+        return None
+    resolved: dict = {"from": file["from"]}
+    if "path" in file:
+        resolved["path"] = file["path"]
+    if file["from"] == "url":
+        resolved["auth"] = file.get("auth", "none")
+    resolved["types"] = file["types"]
+    resolved["name"] = {key: file["name"][key] for key in ("header", "path", "template") if key in file["name"]}
+    resolved["max_bytes"] = file.get("max_bytes", DEFAULT_MAX_BYTES)
+    return resolved
+
+
+def page_or_script(mime: str) -> bool:
+    """Un type qu'un navigateur rend en page ou exécute : HTML, SVG, tout XML, JavaScript."""
+    return mime in PAGE_OR_SCRIPT_TYPES or mime.endswith("+xml") or mime.endswith("/xml")
+
+
+def check_output_file(data: dict, function: dict, where: str) -> None:
+    """Règle 17 : un fichier rendu est toute la sortie d'un seul appel ; ses octets, son nom et ses types se lisent là
+    où la réponse les porte, et son nom se fabrique toujours des arguments requis."""
+    file = (function.get("output") or {}).get("file")
+    if file is None:
+        return
+    name = function["name"]
+    at = f"{where}: function {name}: output.file"
+    if any(key in function["output"] for key in NOT_WITH_FILE):
+        raise DescriptionError(f"{at} excludes items, strip, projection and schema: the file is the whole output")
+    if "pagination" in function:
+        raise DescriptionError(f"{where}: function {name}: a function that renders a file is not paginated: one call, one file")
+    if "async" in function:
+        raise DescriptionError(f"{where}: function {name}: a function that renders a file is not asynchronous")
+    submitter = next((f["name"] for f in data["functions"] if (f.get("async") or {}).get("collect") == name), None)
+    if submitter is not None:
+        raise DescriptionError(
+            f"{where}: function {name}: renders a file and collects the asynchronous job of {submitter!r}: a collect answers JSON"
+        )
+    source = file["from"]
+    if source != "body" and "path" not in file:
+        raise DescriptionError(f"{at}.path is required unless from: body: it points at the address or the encoded bytes")
+    if source == "body" and "path" in file:
+        raise DescriptionError(f"{at}.path is refused with from: body, whose bytes are the whole answer")
+    if "auth" in file and source != "url":
+        raise DescriptionError(f"{at}.auth is only for from: url: nothing else is downloaded")
+    naming = file["name"]
+    if "header" in naming and source not in ("body", "url"):
+        raise DescriptionError(f"{at}.name.header is only for from: body or url: a base64 field has no headers of its own")
+    if "path" in naming and source == "body":
+        raise DescriptionError(f"{at}.name.path is refused with from: body, which has no JSON")
+    template = naming["template"]
+    required = set(function["input"].get("required", []))
+    for argument in PATH_PARAM.findall(template):
+        if argument not in required:
+            raise DescriptionError(f"{at}.name.template cites {argument!r}, which is not a required input argument")
+    end = EXTENSION_AT_END.search(template)
+    if end is None or end.group(1) not in file["types"]:
+        declared = ", ".join(f".{extension}" for extension in file["types"])
+        raise DescriptionError(f"{at}.name.template must end with a declared extension ({declared})")
+    for mimes in file["types"].values():
+        for mime in mimes:
+            if page_or_script(mime):
+                raise DescriptionError(f"{at}.types: {mime!r} is a type a browser renders as a page or runs")
+    if source == "body" and "expect" in function:
+        raise DescriptionError(f"{where}: function {name}: expect is refused with output.file from: body, which has no JSON")
 
 
 # Les mots d'un JSON Schema dont la valeur est un schéma, une liste de schémas, ou des schémas par nom : la donnée
@@ -759,6 +854,7 @@ def check_rules(data: dict, where: str) -> None:
         check_cost(function, where)
         check_async(data, function, where)
         check_files(function, where)
+        check_output_file(data, function, where)
         check_personal(function, where)
     names = [function["name"] for function in data["functions"]]
     twice = sorted({n for n in names if names.count(n) > 1})

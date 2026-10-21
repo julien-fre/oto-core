@@ -248,6 +248,40 @@ export type Pagination = {
   readonly maxPages: number
 }
 
+/**
+ * Un fichier rendu par la fonction, toute sa sortie : l'hôte le lit, le range en fichier en transit de l'appelant (24 h,
+ * la même durée pour tout fichier) et ne rend à l'agent que son identifiant, jamais les octets ni l'adresse du tiers.
+ *
+ * - `from` : où sont les octets. `body`, le corps de la réponse ; `url`, une adresse que porte la réponse JSON au chemin
+ *   pointé `path`, téléchargée aussitôt (`https`, hôte public, sans identifiants, aucune redirection suivie) ; `base64`
+ *   ou `base64url`, les octets encodés au chemin `path` de la réponse JSON, décodés strictement. La réponse JSON qui
+ *   porte l'adresse ou l'encodage ne sort jamais, ni au résultat ni au journal.
+ * - `auth` (`from: "url"` seulement, toujours dit) : `none`, l'adresse reçoit une requête sans authentification ;
+ *   `account`, celle du compte, seulement si l'adresse est à l'origine (schéma, hôte, port) de l'adresse de base
+ *   résolue, sinon `file_foreign_origin` sans rien télécharger.
+ * - `types` : extension → types MIME que le tiers peut annoncer, le premier étant celui du fichier rangé. Un type
+ *   annoncé (`content-type` sans paramètres) qui n'est ni l'un de ceux de l'extension retenue, ni
+ *   `application/octet-stream` ou `binary/octet-stream`, ni absent, refuse (`file_type_refused`).
+ * - `name` : essayé dans cet ordre, `header` (`Content-Disposition` selon la RFC 6266, `filename*` avant `filename` ;
+ *   celui du téléchargement pour `from: "url"`), `path` (un champ de la réponse JSON), puis `template` sur les arguments
+ *   requis ; le premier nom dont l'extension est déclarée l'emporte, réduit à son dernier segment, sans caractère de
+ *   contrôle, 255 caractères au plus.
+ * - `maxBytes` : la borne, de 1 octet à 52 428 800 (50 Mo), toujours dite. Un `content-length` au-delà refuse avant toute
+ *   lecture, sinon la lecture s'arrête au premier octet de trop (`file_too_large`) ; un fichier vide refuse
+ *   (`file_missing`). Le délai de la fonction vaut de bout en bout, lecture du corps et téléchargement compris.
+ *
+ * Les refus communs aux deux côtés : `file_missing`, `file_download_refused`, `file_too_large`, `file_type_refused`,
+ * `file_unreadable`, `file_foreign_origin` (`@otomata_tech/connectors/file-cases`).
+ */
+export type OutputFile = {
+  readonly from: "body" | "url" | "base64" | "base64url"
+  readonly path?: string
+  readonly auth?: "none" | "account"
+  readonly types: { readonly [extension: string]: readonly string[] }
+  readonly name: { readonly header?: string; readonly path?: string; readonly template: string }
+  readonly maxBytes: number
+}
+
 export type Output = {
   /** Chemin pointé de la liste dans la réponse. */
   readonly items?: string
@@ -255,6 +289,8 @@ export type Output = {
   readonly projection?: readonly string[]
   /** Forme d'un enregistrement, après `items`, `strip` et `projection`. */
   readonly schema?: JsonSchema
+  /** La sortie est un fichier (`OutputFile`), exclusif des quatre autres clés. */
+  readonly file?: OutputFile
 }
 
 /**

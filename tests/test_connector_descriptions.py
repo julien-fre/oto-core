@@ -749,3 +749,69 @@ def test_invalid_files_are_rejected(files):
     _files(description, files)
     with pytest.raises(ValidationError):
         _validate(description)
+
+
+# --- Un fichier rendu (output.file) ------------------------------------------------------
+# Le schéma dit la forme ; ce qui croise d'autres clés (pagination, `path` selon `from`, gabarit, types exécutables,
+# `expect`) est la règle 17 de la fabrique (`tests/test_fabrique.py`).
+
+FILE = {"from": "url", "path": "pdf_link", "types": {"pdf": ["application/pdf"]}, "name": {"template": "estimate-{id}.pdf"}}
+
+
+def _file(d, **changes):
+    """`get_estimate` rend un fichier : `output.file` à la place de son schéma de sortie."""
+    file = {**copy.deepcopy(FILE), **changes}
+    d["functions"][1]["output"] = {"file": {key: value for key, value in file.items() if value is not None}}
+
+
+@pytest.mark.parametrize("changes", [
+    {},
+    {"from": "body", "path": None, "name": {"header": "Content-Disposition", "template": "estimate-{id}.pdf"}},
+    {"auth": "account", "max_bytes": 1},
+    {"auth": "none", "max_bytes": 52428800},
+    {"from": "base64url", "name": {"path": "file.name", "template": "estimate-{id}.pdf"}},
+    {"types": {"mp3": ["audio/mpeg", "audio/mp3"], "m4a": ["audio/mp4", "audio/x-m4a"], "wav": ["audio/wav"]},
+     "name": {"template": "call-{id}.mp3"}},
+], ids=["url", "body_header", "account_one_byte", "none_ceiling", "base64url_field", "audio"])
+def test_file_output_base_is_valid(changes):
+    description = _sellsy()
+    _file(description, **changes)
+    _validate(description)
+
+
+@pytest.mark.parametrize("changes", [
+    {"from": "stream"},
+    {"from": None},
+    {"types": None},
+    {"types": {}},
+    {"types": {"pdf": []}},
+    {"types": {"PDF": ["application/pdf"]}},
+    {"types": {"averyveryverylongx": ["application/pdf"]}},
+    {"types": {"p.f": ["application/pdf"]}},
+    {"types": {"pdf": ["application/pdf; charset=binary"]}},
+    {"types": {"pdf": ["pdf"]}},
+    {"types": {"pdf": ["Application/PDF"]}},
+    {"types": {"pdf": ["application/pdf", "application/pdf"]}},
+    {"name": None},
+    {"name": {}},
+    {"name": {"header": "Content-Disposition"}},
+    {"name": {"template": ""}},
+    {"name": {"template": "estimate-{id}.pdf", "other": "x"}},
+    {"name": {"header": "Content Disposition", "template": "estimate-{id}.pdf"}},
+    {"auth": "secret"},
+    {"max_bytes": 0},
+    {"max_bytes": 52428801},
+    {"max_bytes": 1.5},
+    {"max_bytes": "1"},
+    {"path": ".pdf_link"},
+    {"transit_hours": 48},
+], ids=["from_unknown", "from_missing", "types_missing", "types_empty", "type_without_mime", "extension_upper",
+        "extension_too_long", "extension_dot", "mime_with_parameters", "mime_malformed", "mime_upper", "mime_twice",
+        "name_missing", "name_empty", "template_missing", "template_empty", "name_unknown_key", "header_malformed",
+        "auth_unknown", "max_bytes_zero", "max_bytes_beyond_50_mb", "max_bytes_not_integer", "max_bytes_text",
+        "path_malformed", "duration_declared"])
+def test_invalid_file_output_is_rejected(changes):
+    description = _sellsy()
+    _file(description, **changes)
+    with pytest.raises(ValidationError):
+        _validate(description)
