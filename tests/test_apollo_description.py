@@ -226,9 +226,9 @@ def _client_view(sent: tuple) -> tuple:
     return method, url, query, body
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.1.0"
     check(description, APOLLO)
 
 
@@ -328,14 +328,33 @@ def test_each_call_declares_its_cost_and_nothing_is_paginated():
 
 
 def test_the_service_signals_a_refused_key_and_an_empty_account():
-    """Un 401 dit la clé refusée, un 402 le compte sans crédit. Un 403 (clé sans le droit master, offre sans
-    l'endpoint) ne marque rien. Un 5xx n'est pas rejouable : un envoi a pu partir."""
+    """Un 401 dit la clé refusée, un 402 le compte sans crédit, comme un 422 dont le message le dit, là où le client le
+    cherche (`_upstream_message` : `error_message`, `error`, puis `message`), par un texte que son motif
+    (`_CREDITS_EXHAUSTED`) reconnaît partout où il paraît, jamais plus large : une marque à tort bloquerait un compte
+    qui a encore des crédits. « ran out of … credits », que le motif reconnaît aussi, ne se dit pas par un texte fixe :
+    il reste au 422 générique, sans marque, comme tout autre 422, après eux. Un 403 (clé sans le droit master, offre
+    sans l'endpoint) ne marque rien. Un 5xx n'est pas rejouable : un envoi a pu partir."""
     errors = _description()["connector"]["errors"]
-    marked = {e["code"]: (e["status"], e.get("body"), e["marks_account"]) for e in errors if "marks_account" in e}
-    assert marked == {
-        "key_refused": (401, None, "credential_rejected"),
-        "credits_exhausted": (402, None, "quota_exhausted"),
-    }
+    marked = [(e["code"], e["status"], e.get("body"), e["marks_account"]) for e in errors if "marks_account" in e]
+    texts = ["insufficient credits"]
+    assert marked == [
+        ("key_refused", 401, None, "credential_rejected"),
+        ("credits_exhausted", 402, None, "quota_exhausted"),
+        *[("credits_exhausted", 422, {"path": path, "contains": texts}, "quota_exhausted")
+          for path in ("error_message", "error", "message")],
+    ]
+    plain = [i for i, e in enumerate(errors) if e["status"] == 422 and "body" not in e]
+    assert plain == [max(i for i, e in enumerate(errors) if e["status"] == 422)]
+    source = inspect.getsource(ApolloClient._upstream_message)
+    assert source.index('"error_message"') < source.index('"error"') < source.index('"message"')
+    for text in texts:
+        # Le texte seul est reconnu par le motif : tout message qui le contient l'est aussi, rien de plus large.
+        assert apollo_client._CREDITS_EXHAUSTED.fullmatch(text), text
+    assert apollo_client._CREDITS_EXHAUSTED.search("You have insufficient credits")
+    assert any(t in "You have insufficient credits".lower() for t in texts)
+    # La forme que le motif reconnaît sans texte fixe reste au 422 générique.
+    missing = "You ran out of mobile number credits"
+    assert apollo_client._CREDITS_EXHAUSTED.search(missing) and not any(t in missing.lower() for t in texts)
     assert {e["code"] for e in errors if e["retryable"]} == {"rate_limited"}
 
 

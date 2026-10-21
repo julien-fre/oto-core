@@ -131,7 +131,7 @@ describe("generated definitions", () => {
       if (mark === "credential_rejected" && body === undefined) expect(statuses).not.toContain(403)
       if (mark === "quota_exhausted" && body === undefined) expect(statuses).not.toContain(429)
       if (mark !== undefined) expect(retryable).toBe(false)
-      if (body !== undefined) expect(body.equals.length).toBeGreaterThan(0)
+      if (body !== undefined) expect((body.equals !== undefined ? body.equals : body.contains).length).toBeGreaterThan(0)
     }
     for (const fn of connector.functions) {
       for (const r of fn.refusals) if (typeof r.when === "string") expect(r.body ?? r.marksAccount, `${fn.name}: ${r.code}`).toBeUndefined()

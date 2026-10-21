@@ -78,6 +78,24 @@ def test_auth_reference_must_name_a_credential_field(path, reference):
         check(description, path)
 
 
+def test_basic_username_must_name_a_credential_field():
+    """`username` est facultatif ; déclaré, il nomme un champ de `credential` (règle 2)."""
+    description = _load(AIRCALL)
+    description["connector"]["auth"]["username"] = "missing_field"
+    with pytest.raises(DescriptionError, match=r"auth\.username names 'missing_field', which is not a credential field"):
+        check(description, AIRCALL)
+
+
+def test_basic_without_username_passes_and_is_carried_without_it():
+    """Sans `username`, l'identifiant est vide : la définition générée n'a pas de `username`."""
+    description = _load(AIRCALL)
+    del description["connector"]["auth"]["username"]
+    description["connector"]["credential"] = [f for f in description["connector"]["credential"] if f["name"] == "api_token"]
+    source = connector_module(check(description, AIRCALL)).source
+    assert '"kind": "basic"' in source and '"password": "api_token"' in source
+    assert "username" not in source
+
+
 def test_schema_violation_is_refused_before_the_rules():
     description = _load(SELLSY)
     del description["functions"][0]["class"]
@@ -874,6 +892,24 @@ def test_cost_per_item_passes_and_is_carried():
                                         "settle": {"path": "meta.found"}}
     source = connector_module(check(description, SELLSY)).source
     assert '  cost: { per: "item", items: "embed", times: "fields", unit: "fields", settle: { path: "meta.found" } },\n' in source
+
+
+def test_cost_quantity_is_carried():
+    description = _load(SELLSY)
+    _get_estimate(description)["cost"] = {"per": "request", "quantity": 3, "unit": "credits", "settle": {"path": "credits_used"}}
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert '  cost: { per: "request", quantity: 3, unit: "credits", settle: { path: "credits_used" } },\n' in source
+    table = python.declared([check(description, SELLSY)])["sellsy"]
+    assert table["get_estimate"]["cost"]["quantity"] == 3
+
+
+def test_body_condition_contains_is_carried_as_is():
+    description = _load(SELLSY)
+    description["connector"]["errors"].insert(0, {
+        "status": 422, "body": {"path": "message", "contains": ["insufficient credits"]}, "code": "credits_spent",
+        "message": "Out of credits.", "retryable": False, "marks_account": "quota_exhausted"})
+    source = connector_module(check(description, SELLSY)).source
+    assert 'body: {"path": "message", "contains": ["insufficient credits"]}, marksAccount: "quota_exhausted" }' in source
 
 
 def test_cost_without_new_keys_is_carried_as_before():

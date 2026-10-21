@@ -311,7 +311,7 @@ export const searchMaps = defineFunction({
   connector: "serper",
   class: "read",
   act: false,
-  description: "Google Maps: places around an anchor, rich records (title, address, latitude, longitude, rating, ratingCount, type, website, phoneNumber, openingHours, cid, fid, placeId). A sample, not an inventory: a call returns about 20 places at most and leans toward its ll anchor, without saying so; for a count over an area, call it on several anchors and pages and deduplicate by cid. Look one place up by place_id or cid. A Maps page can cost more than one credit.",
+  description: "Google Maps: places around an anchor, rich records (title, address, latitude, longitude, rating, ratingCount, type, website, phoneNumber, openingHours, cid, fid, placeId). A sample, not an inventory: a call returns about 20 places at most and leans toward its ll anchor, without saying so; for a count over an area, call it on several anchors and pages and deduplicate by cid. Look one place up by place_id or cid. A Maps page costs 3 credits.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -370,7 +370,7 @@ export const searchMaps = defineFunction({
     body: {"q": "query", "ll": "ll", "placeId": "place_id", "cid": "cid", "num": "num", "page": "page", "gl": "country", "hl": "language"},
     headers: {},
   },
-  cost: { per: "request", unit: "credits", settle: { path: "credits" } },
+  cost: { per: "request", quantity: 3, unit: "credits", settle: { path: "credits" } },
 })
 
 export const searchReviews = defineFunction({
@@ -679,7 +679,7 @@ export const connector = defineConnector({
   name: "serper",
   label: "Serper",
   namespace: "serper",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "v1",
   baseUrl: "https://google.serper.dev",
   auth: {"kind": "api_key", "in": "header", "name": "X-API-KEY", "key": "api_key"},

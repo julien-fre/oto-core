@@ -212,7 +212,7 @@ def _file(file: dict) -> str:
 
 def _cost(cost: dict) -> str:
     """Le coût d'une fonction, ses clés dans l'ordre du format, seulement celles qu'elle déclare."""
-    parts = [f"{key}: {js(cost[key])}" for key in ("per", "items", "times") if key in cost]
+    parts = [f"{key}: {js(cost[key])}" for key in ("per", "quantity", "items", "times") if key in cost]
     if "weights" in cost:
         parts.append("weights: { field: " + js(cost["weights"]["field"]) + ", values: " + js(cost["weights"]["values"]) + " }")
     if "unit" in cost:

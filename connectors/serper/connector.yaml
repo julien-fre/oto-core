@@ -5,10 +5,10 @@
 # changed (tests/test_serper_description.py reads it to keep both equal).
 #
 # Cost: Serper bills in credits and says, in the credits field of each answer, what it billed for that call. The
-# worst case of a request is one credit; a call billed more (a page of many results, a Maps page) is settled as read
-# and reported, as the format says. A Maps page is billed 3 credits (measured by oto 1): the format cannot yet declare a
-# worst case above one unit per request, so search_maps declares one, under the real cost (an open question of the
-# format).
+# worst case of a request is one credit, except a Maps page, billed 3 credits (measured by oto 1): search_maps declares
+# quantity 3, so that its worst case is never under the real cost. search_places has not been measured and declares
+# one. A call billed more than its worst case (a page of many results) is settled as read and reported, as the format
+# says.
 #
 # Errors, as the client and its consumers read them: an empty account is a 400 whose message is "Not enough
 # credits" (the client surfaces Serper's message, oto.tools.serper.client._post), a refused key a 403 whose message
@@ -28,7 +28,7 @@ connector:
   name: serper
   label: Serper
   namespace: serper
-  version: 1.0.0
+  version: 1.1.0
   api_version: v1
   base_url: https://google.serper.dev
   auth:
@@ -197,7 +197,7 @@ functions:
       returns about 20 places at most and leans toward its ll anchor, without
       saying so; for a count over an area, call it on several anchors and
       pages and deduplicate by cid. Look one place up by place_id or cid. A
-      Maps page can cost more than one credit.
+      Maps page costs 3 credits.
     input:
       type: object
       additionalProperties: false
@@ -220,7 +220,7 @@ functions:
       method: POST
       path: /maps
       body: { q: query, ll: ll, placeId: place_id, cid: cid, num: num, page: page, gl: country, hl: language }
-    cost: *cost
+    cost: { per: request, quantity: 3, unit: credits, settle: { path: credits } }
 
   - name: search_reviews
     class: read

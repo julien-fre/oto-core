@@ -74,10 +74,11 @@
       "enum": ["credential_rejected", "quota_exhausted"]
     },
     "body_condition": {
-      "description": "A condition on the JSON body of the response: the value at path (dotted, a list index as a number) equals one of the values. The entry applies only when it holds; under the same status, the next entry is tried.",
+      "description": "A condition on the JSON body of the response, on the value at path (dotted, a list index as a number), by one operator: equals, the value is one of the values (same type, exact); contains, the value is a text that contains one of the texts, both lowercased (Unicode default lowercase, no locale). A value that is absent or not a text never contains anything. The entry applies only when it holds; under the same status, the next entry is tried.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "equals"],
+      "required": ["path"],
+      "oneOf": [{ "required": ["equals"] }, { "required": ["contains"] }],
       "properties": {
         "path": { "$ref": "#/$defs/text" },
         "equals": {
@@ -85,6 +86,13 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "type": ["string", "integer", "boolean"] }
+        },
+        "contains": {
+          "description": "Texts searched in the text at path, case aside: a vendor message that is not fixed (insufficient credits).",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/text" }
         }
       }
     },
@@ -436,10 +444,10 @@
         {
           "properties": {
             "kind": { "const": "basic" },
-            "username": { "description": "Credential field.", "$ref": "#/$defs/identifier" },
+            "username": { "description": "Credential field of the user name. Absent, the user name is empty: Authorization: Basic base64(\":\" + password).", "$ref": "#/$defs/identifier" },
             "password": { "description": "Credential field.", "$ref": "#/$defs/identifier" }
           },
-          "required": ["kind", "username", "password"],
+          "required": ["kind", "password"],
           "additionalProperties": false
         },
         {
@@ -841,12 +849,17 @@
           }
         },
         "cost": {
-          "description": "What a call costs. Before the call, its worst case from the arguments: one per request sent (request, page: each page of a paginated read is a request), or, per item, the size of the items argument times the size of the times argument, or the sum over the items of the weights of the values each lists (weights). After the call, settle reads the real quantity in the response. Both count the same unit.",
+          "description": "What a call costs. Before the call, its worst case from the arguments: quantity per request sent (request, page: each page of a paginated read is a request; quantity is one when absent), or, per item, the size of the items argument times the size of the times argument, or the sum over the items of the weights of the values each lists (weights). After the call, settle reads the real quantity in the response. Both count the same unit.",
           "type": "object",
           "additionalProperties": false,
           "required": ["per"],
           "properties": {
             "per": { "enum": ["request", "page", "item"] },
+            "quantity": {
+              "description": "per: request or page only: what one request costs, in unit (required), an integer of two or more; absent, one. The worst case is the requests the call may send times quantity, and so is the quantity settled without settle.",
+              "type": "integer",
+              "minimum": 2
+            },
             "items": {
               "description": "per: item only, required there: the list argument each element of which counts once. Required in the input, at least one element.",
               "$ref": "#/$defs/identifier"
@@ -888,11 +901,11 @@
           "allOf": [
             {
               "if": { "properties": { "per": { "const": "item" } } },
-              "then": { "required": ["items", "unit"], "not": { "required": ["times", "weights"] } },
+              "then": { "required": ["items", "unit"], "not": { "anyOf": [{ "required": ["times", "weights"] }, { "required": ["quantity"] }] } },
               "else": { "not": { "anyOf": [{ "required": ["items"] }, { "required": ["times"] }, { "required": ["weights"] }] } }
             },
             {
-              "if": { "required": ["settle"] },
+              "if": { "anyOf": [{ "required": ["settle"] }, { "required": ["quantity"] }] },
               "then": { "required": ["unit"] }
             }
           ]

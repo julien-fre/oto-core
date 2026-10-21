@@ -20,7 +20,9 @@
     "./types": "./src/types.ts",
     "./cost-cases": "./src/cost-cases.ts",
     "./file-cases": "./src/file-cases.ts",
-    "./strip-cases": "./src/strip-cases.ts"
+    "./strip-cases": "./src/strip-cases.ts",
+    "./auth-cases": "./src/auth-cases.ts",
+    "./error-cases": "./src/error-cases.ts"
   },
   "files": [
     "src",

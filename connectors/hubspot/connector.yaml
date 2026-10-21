@@ -14,8 +14,9 @@
 # filters ask for a confirmation (class sensitive).
 #
 # Lists: properties and associations go in the query joined by commas, as the client joins them (query_arrays).
-# The client sends limit 100 when the call omits it (HubSpot's own default is 10, at most 100), and
-# includeFilters, archived and enrollObjectsInWorkflows false, HubSpot's own default: the booleans declare it as
+# The client sends limit 100 when the call omits it (HubSpot's own default is 10) and caps it at 100, which the schema
+# follows, though HubSpot's reference now serves up to 200 a page: the client is raised when a need asks for it. It
+# also sends includeFilters, archived and enrollObjectsInWorkflows false, HubSpot's own default: the booleans declare it as
 # default, limit does not, since the host sends nothing for an omitted argument. A list is created with its
 # processingType, which HubSpot requires: required here, where the client defaults it to MANUAL.
 #
@@ -52,7 +53,7 @@ connector:
   name: hubspot
   label: HubSpot
   namespace: hubspot
-  version: 1.0.1
+  version: 1.0.2
   api_version: v3
   base_url: https://api.hubapi.com
   auth:

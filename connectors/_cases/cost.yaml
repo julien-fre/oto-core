@@ -1,6 +1,8 @@
 # Common cost cases: the pure cost functions give the same results in Python (oto.connectors.cost: worst_case,
 # settled_quantity, collection_of) and in the host package of oto 2 (costOf, settledQuantity, collectionOf), with the
-# semantics of docs/conception/format-de-description.md, « Coût d'un appel » and « Travail asynchrone ».
+# semantics of docs/conception/format-de-description.md, « Coût d'un appel » and « Travail asynchrone ». With quantity,
+# per: request and per: page count quantity units of unit per request sent, in the worst case and in the quantity settled
+# without settle (the requests sent times quantity).
 #
 # Synthetic: no real connector, no vendor. The fabrique assembles `connector` and the functions the cases carry
 # (`function`, and `collect` for an asynchronous one) into one description, checked with the schema and the rules of
@@ -173,6 +175,93 @@ cases:
     answers: [{ next_page: 2 }, { next_page: 3 }, { next_page: null }]
     worst_case: { quantity: 3, unit: calls }
     settled: { quantity: 3, unit: calls, from: requests, exceeded: false }
+    collection: null
+
+  # --- quantity: what one request costs (per: request or page) ----------------------------------------------------
+  - name: quantity_request_without_settle
+    function:
+      name: get_place
+      class: read
+      description: Get one place, billed 3 credits a request.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One place, input: { id: p-1 } }]
+      call: { method: GET, path: "/places/{id}" }
+      cost: { per: request, quantity: 3, unit: credits }
+    args: { id: p-1 }
+    answers: [{ id: p-1 }]
+    worst_case: { quantity: 3, unit: credits }
+    settled: { quantity: 3, unit: credits, from: requests, exceeded: false }
+    collection: null
+
+  - name: quantity_settle_at_worst_case
+    function: &search_places
+      name: search_places
+      class: read
+      description: Search the places around an anchor, billed 3 credits a request, the credits billed in each answer.
+      input: { type: object, additionalProperties: false, required: [q], properties: { q: { type: string } } }
+      examples: [{ title: By text, input: { q: alpha } }]
+      call: { method: POST, path: /places, body: { q: q } }
+      cost: { per: request, quantity: 3, unit: credits, settle: { path: credits } }
+    args: { q: alpha }
+    answers: [{ credits: 3 }]
+    worst_case: { quantity: 3, unit: credits }
+    settled: { quantity: 3, unit: credits, from: response, exceeded: false }
+    collection: null
+
+  - name: quantity_settle_below_worst_case
+    function: *search_places
+    args: { q: alpha }
+    answers: [{ credits: 1 }]
+    worst_case: { quantity: 3, unit: credits }
+    settled: { quantity: 1, unit: credits, from: response, exceeded: false }
+    collection: null
+
+  - name: quantity_settle_above_worst_case
+    function: *search_places
+    args: { q: alpha }
+    answers: [{ credits: 4 }]
+    worst_case: { quantity: 3, unit: credits }
+    settled: { quantity: 4, unit: credits, from: response, exceeded: true }
+    collection: null
+
+  - name: quantity_settle_unreadable
+    function: *search_places
+    args: { q: alpha }
+    answers: [{ credits: "3" }]
+    worst_case: { quantity: 3, unit: credits }
+    settled: { quantity: 3, unit: credits, from: unreadable, exceeded: false }
+    collection: null
+
+  - name: quantity_page_one_page
+    function: &list_places
+      name: list_places
+      class: read
+      description: List the places, one page at a time, each page billed 2 credits.
+      input: { type: object, additionalProperties: false, properties: { cursor: { type: string } } }
+      examples: [{ title: First page, input: {} }]
+      call: { method: GET, path: /places, query: { cursor: cursor } }
+      pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 4 }
+      cost: { per: page, quantity: 2, unit: credits }
+    args: {}
+    answers: [{ next_cursor: c-2 }]
+    worst_case: { quantity: 2, unit: credits }
+    settled: { quantity: 2, unit: credits, from: requests, exceeded: false }
+    collection: null
+
+  - name: quantity_page_all_pages
+    function: *list_places
+    args: { all_pages: true, max_pages: 3 }
+    answers: [{ next_cursor: c-2 }, { next_cursor: null }]
+    worst_case: { quantity: 6, unit: credits }
+    settled: { quantity: 4, unit: credits, from: requests, exceeded: false }
+    collection: null
+
+  - name: quantity_page_settled_without_answer
+    function: *list_places
+    args: {}
+    answers: []
+    worst_case: { quantity: 2, unit: credits }
+    settled: error
     collection: null
 
   # --- per: item -------------------------------------------------------------------------------------------------

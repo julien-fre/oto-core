@@ -141,7 +141,11 @@ export type Auth =
   | { readonly kind: "api_key"; readonly in: "header"; readonly name: string; readonly prefix?: string; readonly key: string }
   | { readonly kind: "api_key"; readonly in: "query"; readonly name: string; readonly prefix?: never; readonly key: string }
   | { readonly kind: "bearer"; readonly token: string }
-  | { readonly kind: "basic"; readonly username: string; readonly password: string }
+  /**
+   * `Authorization: Basic base64(username + ":" + password)`, le texte encodé en UTF-8. Sans `username`, l'identifiant est
+   * vide : `Basic base64(":" + password)`, une clé seule passée en mot de passe. Cas communs : `./auth-cases`.
+   */
+  | { readonly kind: "basic"; readonly username?: string; readonly password: string }
   | ({
       readonly kind: "oauth2_client_credentials"
       readonly tokenRequest: "json" | "form"
@@ -162,11 +166,17 @@ export type Auth =
 export type AccountMark = "credential_rejected" | "quota_exhausted"
 
 /**
- * Une condition sur le corps JSON de la réponse : la valeur au chemin pointé `path` (un indice de liste en chiffres) est
- * égale à l'une de `equals`. L'entrée ne vaut que si elle tient ; sinon l'hôte essaie l'entrée suivante du même statut.
- * Un statut 2xx n'est un refus que sous une condition (une erreur GraphQL sous un 200).
+ * Une condition sur le corps JSON de la réponse, sur la valeur au chemin pointé `path` (un indice de liste en chiffres),
+ * par un seul opérateur. `equals` : la valeur est l'une des valeurs listées, de même type, exacte (`190` n'est pas `"190"`,
+ * un texte garde sa casse). `contains` : la valeur est un texte qui contient l'un des textes listés, les deux mis en
+ * minuscules par `toLowerCase()` (la casse Unicode par défaut, sans locale) ; une valeur absente, nulle, un nombre, un
+ * booléen, une liste ou un objet ne contient rien, ni un corps qui n'est pas du JSON. L'entrée ne vaut que si la condition
+ * tient ; sinon l'hôte essaie l'entrée suivante du même statut. Un statut 2xx n'est un refus que sous une condition (une
+ * erreur GraphQL sous un 200). Cas communs : `./error-cases`.
  */
-export type BodyCondition = { readonly path: string; readonly equals: readonly (string | number | boolean)[] }
+export type BodyCondition =
+  | { readonly path: string; readonly equals: readonly (string | number | boolean)[]; readonly contains?: undefined }
+  | { readonly path: string; readonly contains: readonly string[]; readonly equals?: undefined }
 
 /**
  * Une ligne de la table d'erreurs du connecteur : un ou plusieurs statuts HTTP du tiers, une condition sur le corps
@@ -329,15 +339,18 @@ export type CostSettle = { readonly path: string }
 export type CostWeights = { readonly field: string; readonly values: Readonly<Record<string, number>> }
 
 /**
- * Ce que coûte un appel. Avant lui, son pire cas, calculé sur les arguments : `request` et `page`, une unité par requête
- * envoyée (une, ou chaque page d'une lecture paginée avec `all_pages`, jusqu'à `max_pages`) ; `item`, la taille de la
+ * Ce que coûte un appel. Avant lui, son pire cas, calculé sur les arguments : `request` et `page`, `quantity` unités (une
+ * sans elle) par requête envoyée (une, ou chaque page d'une lecture paginée avec `all_pages`, jusqu'à `max_pages`) ; `item`, la taille de la
  * liste `items` fois celle de la liste `times` (une si absente), deux arguments requis d'au moins un élément, ou la
  * somme, sur les éléments de `items`, des poids des valeurs que chacun liste (`weights`), jamais sur une fonction paginée. Après lui, `settle` : la quantité réelle, lue dans sa réponse ; absente ou illisible, on règle le
- * pire cas. Les deux comptent `unit`, telle que l'éditeur la nomme (`credits`), exigée par `item` et `settle` ; absente,
- * des requêtes (`request`) ou des pages (`page`).
+ * pire cas ; sans `settle`, `request` et `page` règlent les requêtes envoyées, fois `quantity`. Les deux comptent `unit`,
+ * telle que l'éditeur la nomme (`credits`), exigée par `item`, `settle` et `quantity` ; absente, des requêtes (`request`)
+ * ou des pages (`page`). `quantity`, un entier de deux ou plus, ne vaut qu'avec `request` et `page`. Cas communs :
+ * `./cost-cases`.
  */
 export type Cost =
-  | { readonly per: "request" | "page"; readonly unit?: string; readonly settle?: CostSettle }
+  | { readonly per: "request" | "page"; readonly quantity?: undefined; readonly unit?: string; readonly settle?: CostSettle }
+  | { readonly per: "request" | "page"; readonly quantity: number; readonly unit: string; readonly settle?: CostSettle }
   | { readonly per: "item"; readonly items: string; readonly times?: string; readonly unit: string; readonly settle?: CostSettle; readonly weights?: undefined }
   | { readonly per: "item"; readonly items: string; readonly weights: CostWeights; readonly unit: string; readonly settle?: CostSettle; readonly times?: undefined }
 

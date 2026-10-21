@@ -1134,7 +1134,7 @@ export const connector = defineConnector({
   name: "hubspot",
   label: "HubSpot",
   namespace: "hubspot",
-  version: "1.0.1",
+  version: "1.0.2",
   apiVersion: "v3",
   baseUrl: "https://api.hubapi.com",
   auth: {"kind": "bearer", "token": "access_token"},

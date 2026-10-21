@@ -10,7 +10,8 @@ pas dire :
    argument n'est sans place, et le `request_param` d'une pagination est un
    argument ;
 2. chaque référence de `auth` (`key`, `token`, `username`, `password`, `client_id`,
-   `client_secret`) nomme un champ de `credential` ;
+   `client_secret`) nomme un champ de `credential` ; en `basic`, `username` est facultatif
+   (absent, l'identifiant est vide), et nomme un champ quand il est déclaré ;
 3. un nom côté API reçoit une seule valeur : une constante de `call.constants` ne
    reprend pas un nom de la même place, un en-tête constant (du connecteur ou de la
    fonction) ni celui de l'authentification ni un autre en-tête, à la casse près, et

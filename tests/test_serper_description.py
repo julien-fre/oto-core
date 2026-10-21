@@ -43,6 +43,8 @@ VALUES = {
     "next_page_token": "page-token-0", "url": "https://images.example.test/photo.jpg",
 }
 COST = {"per": "request", "unit": "credits", "settle": {"path": "credits"}}
+# Une page Maps se facture 3 crédits (mesuré par oto 1) : son pire cas n'est jamais sous le réel.
+COSTS = {"search_maps": {**COST, "quantity": 3}}
 
 
 def _description() -> dict:
@@ -99,9 +101,9 @@ def _body_described(function: dict, arguments: dict) -> dict:
     return {api: arguments[argument] for api, argument in body.items() if argument in arguments}
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.1.0"
     check(description, SERPER)
 
 
@@ -158,7 +160,7 @@ def test_each_example_sends_what_the_client_sends_for_it():
 
 def test_each_call_costs_the_credits_serper_reports():
     for name, function in _functions().items():
-        assert function["cost"] == COST, name
+        assert function["cost"] == COSTS.get(name, COST), name
         assert function["class"] == "read" and "act" not in function, name
 
 
@@ -183,5 +185,5 @@ def test_the_typescript_output_and_the_python_table():
         assert f'name: "serper.{name}",' in module.source, name
     assert "scrape" not in module.source
     table = python.declared([checked])["serper"]
-    assert table == {name: {"cost": COST} for name in _client_endpoints()}
+    assert table == {name: {"cost": COSTS.get(name, COST)} for name in _client_endpoints()}
     assert DECLARED.get("serper") == table, "oto/connectors/declared.py is out of date: run `python -m fabrique`"

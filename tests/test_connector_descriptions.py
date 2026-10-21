@@ -187,6 +187,14 @@ def _api_key_query_with_prefix(d):
     d["connector"]["auth"] = {"kind": "api_key", "in": "query", "name": "key", "prefix": "Key ", "key": "client_id"}
 
 
+def _basic_without_password(d):
+    d["connector"]["auth"] = {"kind": "basic", "username": "client_id"}
+
+
+def _basic_with_empty_username(d):
+    d["connector"]["auth"] = {"kind": "basic", "username": "", "password": "client_secret"}
+
+
 def _api_key_without_place(d):
     d["connector"]["auth"] = {"kind": "api_key", "name": "X-Key", "key": "client_id"}
 
@@ -231,6 +239,17 @@ def _unknown_pkce(d):
     _oauth2_user(d, pkce="plain")
 
 
+@pytest.mark.parametrize("auth", [
+    {"kind": "basic", "username": "client_id", "password": "client_secret"},
+    {"kind": "basic", "password": "client_secret"},
+], ids=["basic", "basic_without_username"])
+def test_basic_auth_is_valid(auth):
+    """`username` est facultatif : absent, l'identifiant est vide (une clé seule, en mot de passe)."""
+    description = _sellsy()
+    description["connector"]["auth"] = auth
+    _validate(description)
+
+
 def test_oauth2_user_mutation_base_is_valid():
     """Les variantes `oauth2_user` ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
     description = _sellsy()
@@ -248,7 +267,7 @@ def test_oauth2_user_mutation_base_is_valid():
     _expectation_without_path, _probe_extra_key, _empty_stop_flag,
     _client_auth_missing, _token_url_and_token_urls, _base_url_and_base_urls, _single_choice, _text_without_pattern,
     _text_pattern_not_anchored, _url_setting_with_choices, _template_trailing_slash, _api_key_query_with_prefix,
-    _api_key_without_place, _oauth2_user_with_token_credential, _oauth2_user_with_client_id,
+    _api_key_without_place, _basic_without_password, _basic_with_empty_username, _oauth2_user_with_token_credential, _oauth2_user_with_client_id,
     _oauth2_user_without_identity, _rotates_without_refresh_token, _exchange_without_its_grant,
     _authorize_param_set_by_the_host, _unknown_pkce,
 ], ids=lambda f: f.__name__.lstrip("_"))
@@ -527,6 +546,8 @@ def test_account_signal_base_is_valid():
     """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
     description = _sellsy()
     _signal(description)
+    _signal(description, code="credits_spent", marks_account="quota_exhausted",
+            body={"path": "message", "contains": ["insufficient credits", "ran out of"]})
     description["functions"][0].setdefault("refusals", []).append(
         {"code": "credits_spent", "when": 402, "message": "Credits spent.", "marks_account": "quota_exhausted"})
     _validate(description)
@@ -537,9 +558,17 @@ def test_account_signal_base_is_valid():
     lambda d: _signal(d, body={"path": "error.code"}),
     lambda d: _signal(d, body={"path": "error.code", "equals": []}),
     lambda d: _signal(d, body={"path": "error.code", "equals": [{"code": 1}]}),
-    lambda d: _signal(d, body={"path": "error.code", "equals": ["a"], "contains": "b"}),
+    lambda d: _signal(d, body={"path": "error.code", "equals": ["a"], "matches": "b"}),
     lambda d: _signal(d, body={"path": "", "equals": ["a"]}),
-], ids=["unknown_mark", "body_without_equals", "equals_empty", "equals_not_a_scalar", "body_unknown_key", "empty_path"])
+    lambda d: _signal(d, body={"path": "message", "equals": ["a"], "contains": ["b"]}),
+    lambda d: _signal(d, body={"path": "message", "contains": []}),
+    lambda d: _signal(d, body={"path": "message", "contains": [""]}),
+    lambda d: _signal(d, body={"path": "message", "contains": [42]}),
+    lambda d: _signal(d, body={"path": "message", "contains": "insufficient credits"}),
+    lambda d: _signal(d, body={"path": "message", "contains": ["a", "a"]}),
+], ids=["unknown_mark", "body_without_equals", "equals_empty", "equals_not_a_scalar", "body_unknown_key", "empty_path",
+        "equals_and_contains", "contains_empty", "contains_empty_text", "contains_not_a_text", "contains_not_a_list",
+        "contains_twice"])
 def test_invalid_account_signal_is_rejected(mutate):
     description = _sellsy()
     mutate(description)
@@ -633,7 +662,10 @@ def _cost(d, **cost):
     {"per": "item", "items": "embed", "unit": "credits"},
     {"per": "item", "items": "embed", "times": "fields", "unit": "fields", "settle": {"path": "data.0.found"}},
     {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1, "b": 10}}, "unit": "credits", "settle": {"path": "cost.credits"}},
-], ids=["request", "page", "request_unit", "request_settle", "item", "item_times_settle", "item_weights_settle"])
+    {"per": "request", "quantity": 3, "unit": "credits"},
+    {"per": "page", "quantity": 2, "unit": "credits", "settle": {"path": "credits_used"}},
+], ids=["request", "page", "request_unit", "request_settle", "item", "item_times_settle", "item_weights_settle",
+        "request_quantity", "page_quantity_settle"])
 def test_cost_base_is_valid(cost):
     """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
     description = _sellsy()
@@ -669,12 +701,21 @@ def test_cost_base_is_valid(cost):
     {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"": 1}}, "unit": "credits"},
     {"per": "item", "items": "embed", "weights": {"field": "Fields", "values": {"a": 1}}, "unit": "credits"},
     {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1}, "default": 1}, "unit": "credits"},
+    {"per": "item", "items": "embed", "quantity": 3, "unit": "credits"},
+    {"per": "request", "quantity": 3},
+    {"per": "request", "quantity": 1, "unit": "credits"},
+    {"per": "request", "quantity": 0, "unit": "credits"},
+    {"per": "request", "quantity": -3, "unit": "credits"},
+    {"per": "request", "quantity": 2.5, "unit": "credits"},
+    {"per": "request", "quantity": "3", "unit": "credits"},
 ], ids=["unknown_per", "item_without_items", "item_without_unit", "items_per_request", "times_per_request",
         "times_without_items", "settle_without_unit", "settle_without_path", "settle_leading_dot", "settle_space",
         "settle_unknown_key", "empty_unit", "items_not_an_identifier", "unknown_key",
         "weights_per_request", "weights_with_times", "weights_without_unit", "weights_without_values",
         "weights_without_field", "weights_empty_table", "weight_zero", "weight_negative", "weight_not_an_integer",
-        "weight_text", "weight_empty_value", "weights_field_not_an_identifier", "weights_unknown_key"])
+        "weight_text", "weight_empty_value", "weights_field_not_an_identifier", "weights_unknown_key",
+        "quantity_per_item", "quantity_without_unit", "quantity_one", "quantity_zero", "quantity_negative",
+        "quantity_not_an_integer", "quantity_text"])
 def test_invalid_cost_is_rejected(cost):
     description = _sellsy()
     _cost(description, **cost)

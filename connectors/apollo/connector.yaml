@@ -33,9 +33,14 @@
 # for an omitted argument; Apollo then applies its own, which the client does not document.
 #
 # Errors: Apollo surfaces its message in the body (error, error_message, message). A 401 is a refused key and marks
-# the account; a 402 is an account out of credits and marks it. Apollo also says "insufficient credits" under a 422,
-# the status of a malformed request, with a message the client matches by pattern and that a body condition, which
-# compares whole values, does not say: such a 422 is the generic refusal, whose message says what it means. A 403
+# the account; a 402 is an account out of credits and marks it. Apollo also says it under a 422, the status of a
+# malformed request, with a message that is not fixed ("You have insufficient credits", "You ran out of mobile number
+# credits"), which the client recognizes by a pattern in the first of error_message, error and message: a 422 whose
+# text at one of these paths contains "insufficient credits", case aside, is the account out of credits and marks it,
+# never wider than the client, since a wrong mark would block an account that still has credits. The client's other
+# form, "ran out of <one or two words> credits", is not said: a body condition finds one fixed text, and "ran out of"
+# alone would be wider than the client. Such a 422 stays the generic refusal, without a mark, and its message says
+# what it means. Any other 422 names a rejected field. A 403
 # is a key without the master right or a plan without the endpoint: it marks nothing. The client spaces two
 # requests by one second and retries a short 429 itself; the rate declared here is the client's. A 5xx is not
 # retryable: a write (a send, an activation) may have gone through.
@@ -61,7 +66,7 @@ connector:
   name: apollo
   label: Apollo.io
   namespace: apollo
-  version: 1.0.0
+  version: 1.1.0
   api_version: v1
   base_url: https://api.apollo.io/api/v1
   auth:
@@ -84,13 +89,19 @@ connector:
     - { status: 401, code: key_refused, retryable: false, marks_account: credential_rejected,
         message: "Apollo refused the API key: unknown or revoked." }
     - { status: 402, code: credits_exhausted, retryable: false, marks_account: quota_exhausted,
-        message: "The Apollo account behind this key is out of credits. The call was correct: do not change it nor retry it." }
+        message: &out_of_credits "The Apollo account behind this key is out of credits. The call was correct: do not change it nor retry it." }
     - { status: 403, code: forbidden, retryable: false,
         message: "Apollo refused this endpoint for this key: it needs a master API key (Apollo, Settings, Integrations, API), or the plan does not include it. Retrying unchanged fails the same way." }
     - { status: 404, code: not_found, retryable: false,
         message: "Not found in Apollo: wrong id, or not visible to this team." }
+    - { status: 422, body: { path: error_message, contains: [insufficient credits] }, code: credits_exhausted,
+        retryable: false, marks_account: quota_exhausted, message: *out_of_credits }
+    - { status: 422, body: { path: error, contains: [insufficient credits] }, code: credits_exhausted,
+        retryable: false, marks_account: quota_exhausted, message: *out_of_credits }
+    - { status: 422, body: { path: message, contains: [insufficient credits] }, code: credits_exhausted,
+        retryable: false, marks_account: quota_exhausted, message: *out_of_credits }
     - { status: 422, code: invalid_request, retryable: false,
-        message: "Apollo refused the request; its message names the field. If it says insufficient credits, the account is out of credits: the call was correct, do not change it." }
+        message: "Apollo refused the request; its message names the field. If it says the account ran out of credits, the call was correct: do not change it." }
     - { status: 429, code: rate_limited, retryable: true,
         message: "Apollo rate limit reached: wait, then retry." }
     - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: false,
