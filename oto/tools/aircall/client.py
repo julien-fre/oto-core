@@ -1,6 +1,6 @@
 """Aircall Public API client (https://developer.aircall.io/api-references/) —
-read-only: calls, conversation intelligence of a call, users, teams, numbers,
-contacts.
+read-only: calls, the audio of a call as a file, conversation intelligence of a
+call, users, teams, numbers, contacts.
 
 HTTP Basic auth, `api_id` as user name and `api_token` as password, both
 created by an Aircall admin under Company Settings → API Keys. Host
@@ -20,10 +20,14 @@ unchanged.
   items whatever the page: narrow with `from` to go further.
 - **Calls history covers six months.** Lists are ordered by creation date,
   ascending unless `order="desc"`.
-- **Recording and voicemail URLs expire**: `recording` and `voicemail` (direct
-  mp3) are valid one hour, `recording_short_url` / `voicemail_short_url` three
-  hours (returned only with `fetch_short_urls=True`). Fetch them again rather
-  than storing them.
+- **The audio of a call is never a link** (description 1.1.0): Aircall gives
+  `recording` and `voicemail` (direct mp3, signed, valid one hour), their short
+  URLs (three hours) and `asset` (a secured page). Every read of a call removes
+  them (`CALL_ADDRESS_FIELDS`); `get_call_recording` and `get_call_voicemail`
+  download the audio at once and return it as a `FileOut` (name, bytes, type),
+  through `oto.connectors.files.file_output` and the declaration of the
+  description: the signed link is fetched without the account's credentials,
+  no redirect followed, 50 MB and 120 s at most.
 - **Conversation intelligence** (transcription, summary, topics, sentiments,
   action items) is served only to companies on the Aircall AI package (AI
   Assist or AI Assist Pro); the `realtime` transcription mode needs AI Assist
@@ -46,6 +50,7 @@ from urllib.parse import quote
 
 import requests
 
+from ...connectors.files import FileOut, file_output
 from ..common import raise_for_upstream
 from ..common.credentials import require
 
@@ -57,6 +62,9 @@ ORDERS = ("asc", "desc")
 CONTACT_ORDER_BY = ("created_at", "updated_at")
 DIRECTIONS = ("inbound", "outbound")
 TRANSCRIPTION_MODES = ("async", "realtime")
+# The addresses a call carries: signed links to its audio (one to three hours) and the secured page of its assets. They
+# never leave the client; the audio comes as a file (`get_call_recording`, `get_call_voicemail`).
+CALL_ADDRESS_FIELDS = ("recording", "recording_short_url", "voicemail", "voicemail_short_url", "asset")
 
 # A 429 is retried once if the counter resets within this many seconds; a
 # longer wait is the caller's call, not a hidden stall inside a request.
@@ -143,6 +151,22 @@ def _flag(value: Optional[bool]) -> Optional[str]:
     return "true" if value else "false"
 
 
+def _without_addresses(call: Any) -> Any:
+    """The call without its addresses (`CALL_ADDRESS_FIELDS`); anything but an object is left as is."""
+    if isinstance(call, dict):
+        for field in CALL_ADDRESS_FIELDS:
+            call.pop(field, None)
+    return call
+
+
+def _calls_without_addresses(answer: Any) -> Any:
+    """A list of calls (`{calls, meta}`) whose every call lost its addresses; `meta` is kept."""
+    if isinstance(answer, dict) and isinstance(answer.get("calls"), list):
+        for call in answer["calls"]:
+            _without_addresses(call)
+    return answer
+
+
 class AircallClient:
     """Aircall Public API, read-only. Basic auth `api_id:api_token`."""
 
@@ -178,19 +202,33 @@ class AircallClient:
         except (TypeError, ValueError):
             return None
 
-    def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    def _send(self, path: str, params: Optional[Dict[str, Any]] = None, *,
+              stream: bool = False) -> requests.Response:
+        """GET `path`, retried once on a 429 whose reset is close; a refusal of
+        the API raises `UpstreamHTTPError`."""
         clean = {k: v for k, v in (params or {}).items() if v is not None}
         url = f"{self.BASE_URL}{path}"
         resp = self.session.request("GET", url, params=clean or None,
-                                    timeout=_HTTP_TIMEOUT)
+                                    timeout=_HTTP_TIMEOUT, stream=stream)
         if resp.status_code == 429:
             wait = self._reset_wait(resp)
             if wait is not None and wait <= _RATE_LIMIT_MAX_WAIT:
                 time.sleep(wait)
                 resp = self.session.request("GET", url, params=clean or None,
-                                            timeout=_HTTP_TIMEOUT)
+                                            timeout=_HTTP_TIMEOUT, stream=stream)
         raise_for_upstream(resp, service="aircall")
+        return resp
+
+    def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        resp = self._send(path, params)
         return resp.json() if resp.content else {}
+
+    def _call_file(self, function: str, call_id: Any) -> FileOut:
+        """The audio file that `function` declares, read from GET /v1/calls/:id."""
+        ref = _object_id(call_id, "call_id")
+        answer = self._send(f"/v1/calls/{ref}", stream=True)
+        return file_output("aircall", function, answer=answer, args={"call_id": int(ref)},
+                           session=self.session, base_url=self.BASE_URL)
 
     @staticmethod
     def _page(page: Optional[int], per_page: Optional[int]) -> Dict[str, Any]:
@@ -233,16 +271,16 @@ class AircallClient:
     def list_calls(self, *, date_from: Timestamp = None, date_to: Timestamp = None,
                    order: Optional[str] = None, page: Optional[int] = None,
                    per_page: Optional[int] = None,
-                   fetch_contact: Optional[bool] = None,
-                   fetch_short_urls: Optional[bool] = None) -> Any:
-        """GET /v1/calls — calls of the company, bounded on their creation date.
+                   fetch_contact: Optional[bool] = None) -> Any:
+        """GET /v1/calls — calls of the company, bounded on their creation date,
+        without their addresses (`CALL_ADDRESS_FIELDS`).
 
         Six months of history; at most 10,000 calls through pagination.
         """
-        return self._list("/v1/calls", page=page, per_page=per_page,
-                          date_from=date_from, date_to=date_to, order=order,
-                          fetch_contact=_flag(fetch_contact),
-                          fetch_short_urls=_flag(fetch_short_urls))
+        return _calls_without_addresses(self._list(
+            "/v1/calls", page=page, per_page=per_page,
+            date_from=date_from, date_to=date_to, order=order,
+            fetch_contact=_flag(fetch_contact)))
 
     def search_calls(self, *, date_from: Timestamp = None,
                      date_to: Timestamp = None, order: Optional[str] = None,
@@ -250,28 +288,42 @@ class AircallClient:
                      user_id: Optional[Any] = None,
                      phone_number: Optional[str] = None,
                      page: Optional[int] = None, per_page: Optional[int] = None,
-                     fetch_contact: Optional[bool] = None,
-                     fetch_short_urls: Optional[bool] = None) -> Any:
-        """GET /v1/calls/search — calls filtered by direction, user or phone number.
+                     fetch_contact: Optional[bool] = None) -> Any:
+        """GET /v1/calls/search — calls filtered by direction, user or phone
+        number, without their addresses (`CALL_ADDRESS_FIELDS`).
 
         A call transferred from number A to number B is found by B, not by A.
         """
-        return self._list(
+        return _calls_without_addresses(self._list(
             "/v1/calls/search", page=page, per_page=per_page,
             date_from=date_from, date_to=date_to, order=order,
             direction=_choice("direction", direction, DIRECTIONS),
             user_id=_object_id(user_id, "user_id") if user_id is not None else None,
             phone_number=phone_number or None,
-            fetch_contact=_flag(fetch_contact),
-            fetch_short_urls=_flag(fetch_short_urls))
+            fetch_contact=_flag(fetch_contact)))
 
-    def get_call(self, call_id: Any, *, fetch_contact: Optional[bool] = None,
-                 fetch_short_urls: Optional[bool] = None) -> Any:
-        """GET /v1/calls/:id — one call, with its recording and voicemail URLs
-        when present (valid one hour; short URLs three hours)."""
-        return self._get(f"/v1/calls/{_object_id(call_id, 'call_id')}", {
-            "fetch_contact": _flag(fetch_contact),
-            "fetch_short_urls": _flag(fetch_short_urls)})
+    def get_call(self, call_id: Any, *, fetch_contact: Optional[bool] = None) -> Any:
+        """GET /v1/calls/:id — one call, without its addresses
+        (`CALL_ADDRESS_FIELDS`)."""
+        answer = self._get(f"/v1/calls/{_object_id(call_id, 'call_id')}",
+                           {"fetch_contact": _flag(fetch_contact)})
+        if isinstance(answer, dict):
+            _without_addresses(answer.get("call"))
+        return answer
+
+    def get_call_recording(self, call_id: Any) -> FileOut:
+        """The live recording of one call, as a file (`call-<id>-recording.mp3`).
+
+        Raises `UpstreamHTTPError` when the API refuses the call (404: unknown or
+        older than six months), `FileOutputError` when the file is refused
+        (`file_missing`: no recording on this call), `requests.Timeout` beyond
+        the 120 s of the function."""
+        return self._call_file("get_call_recording", call_id)
+
+    def get_call_voicemail(self, call_id: Any) -> FileOut:
+        """The voicemail a caller left on one inbound call, as a file
+        (`call-<id>-voicemail.mp3`); refusals as `get_call_recording`."""
+        return self._call_file("get_call_voicemail", call_id)
 
     # --- conversation intelligence -----------------------------------------
 
@@ -369,5 +421,5 @@ class AircallClient:
 __all__ = [
     "AircallClient", "basic_signature", "unix_seconds", "BASE_URL",
     "MIN_PER_PAGE", "MAX_PER_PAGE", "ORDERS", "CONTACT_ORDER_BY", "DIRECTIONS",
-    "TRANSCRIPTION_MODES",
+    "TRANSCRIPTION_MODES", "CALL_ADDRESS_FIELDS",
 ]

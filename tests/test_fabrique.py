@@ -1114,9 +1114,14 @@ def test_file_output_goes_to_the_python_table_with_the_function_timeout():
                               "max_bytes": 52428800}, "timeout_s": 30}
 
 
-def test_no_description_without_a_file_carries_one():
+def test_only_the_declared_files_are_carried():
+    carried = {}
     for path in CONNECTORS.glob("*/connector.yaml"):
-        assert "output: { file:" not in connector_module(check(_load(path), path)).source
+        checked = check(_load(path), path)
+        for function in checked.data["functions"]:
+            if "file" in function.get("output", {}):
+                carried[f"{checked.data['connector']['name']}.{function['name']}"] = function["output"]["file"]["from"]
+    assert carried == {"aircall.get_call_recording": "url", "aircall.get_call_voicemail": "url"}
 
 
 def _paginated_file(d):

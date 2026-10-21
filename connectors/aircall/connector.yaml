@@ -1,10 +1,13 @@
 # yaml-language-server: $schema=../connector.schema.json
 # Aircall Public API reference: https://developer.aircall.io/api-references/
+# 1.1.0: the addresses of a call's audio (recording, voicemail, their short URLs, the asset page) are stripped from
+# every read of a call; the audio comes as a file (get_call_recording, get_call_voicemail). Not yet stripped: the
+# audio URLs of a line's messages (messages.welcome, .voicemail, ...) in list_numbers and get_number, left for later.
 connector:
   name: aircall
   label: Aircall
   namespace: aircall
-  version: 1.0.0
+  version: 1.1.0
   api_version: v1 (users on v2)
   base_url: https://api.aircall.io
   auth:
@@ -33,14 +36,13 @@ functions:
     class: read
     description: >-
       List the calls of the Aircall company, bounded on their creation date:
-      who called whom, when, how long, the line, the agent, tags, comments, and
-      the recording or voicemail URLs. Six months of history only, and at most
-      10,000 calls through pagination: narrow with date_from to reach further.
-      Ascending by creation date unless order is desc. Recording and voicemail
-      URLs expire (direct mp3 one hour, short URLs three hours): fetch them
-      right before use. duration includes ringing; talk time is
+      who called whom, when, how long, the line, the agent, tags and comments.
+      Six months of history only, and at most 10,000 calls through pagination:
+      narrow with date_from to reach further. Ascending by creation date unless
+      order is desc. duration includes ringing; talk time is
       ended_at - answered_at. Times are UNIX seconds, UTC. meta.next_page_link
-      is null on the last page.
+      is null on the last page. The audio of a call is never a link: get it as
+      a file with get_call_recording or get_call_voicemail.
     input:
       type: object
       additionalProperties: false
@@ -69,9 +71,6 @@ functions:
         fetch_contact: &fetch_contact
           type: boolean
           description: "Add the contact details of each call."
-        fetch_short_urls: &fetch_short_urls
-          type: boolean
-          description: "Add the three-hour short URLs of recordings and voicemails."
     examples:
       - title: Latest calls since 1 September 2026
         input: { date_from: 1788220800, order: desc, per_page: 50 }
@@ -79,7 +78,23 @@ functions:
       method: GET
       path: /v1/calls
       query: { from: date_from, to: date_to, order: order, page: page, per_page: per_page,
-               fetch_contact: fetch_contact, fetch_short_urls: fetch_short_urls }
+               fetch_contact: fetch_contact }
+    # The signed links to the audio of a call (one to three hours) and its secured page never reach the agent.
+    output:
+      strip: &calls_addresses [calls.recording, calls.recording_short_url, calls.voicemail,
+                               calls.voicemail_short_url, calls.asset]
+      sample: &calls_sample
+        calls:
+          - &sample_call
+            id: 1
+            direction: inbound
+            duration: 42
+            recording: "https://files.example.test/recordings/c-1.mp3"
+            recording_short_url: "https://short.example.test/r/c-1"
+            voicemail: "https://files.example.test/voicemails/c-1.mp3"
+            voicemail_short_url: "https://short.example.test/v/c-1"
+            asset: "https://assets.example.test/recording/c-1"
+        meta: { count: 1, total: 1, current_page: 1, per_page: 20, next_page_link: null }
     cost: { per: request }
 
   - name: search_calls
@@ -87,8 +102,9 @@ functions:
     description: >-
       Search the calls of the Aircall company by direction, agent (user_id) or
       external phone number, bounded on their creation date. A call transferred
-      from line A to line B is found by B only. Same history, limits and
-      expiring URLs as list_calls.
+      from line A to line B is found by B only. Same history and limits as
+      list_calls; the audio of a call is never a link (get_call_recording,
+      get_call_voicemail).
     input:
       type: object
       additionalProperties: false
@@ -110,7 +126,6 @@ functions:
         page: *page
         per_page: *per_page
         fetch_contact: *fetch_contact
-        fetch_short_urls: *fetch_short_urls
     examples:
       - title: Inbound calls from one number
         input: { direction: inbound, phone_number: "+33100000000" }
@@ -121,15 +136,16 @@ functions:
       path: /v1/calls/search
       query: { direction: direction, user_id: user_id, phone_number: phone_number,
                from: date_from, to: date_to, order: order, page: page, per_page: per_page,
-               fetch_contact: fetch_contact, fetch_short_urls: fetch_short_urls }
+               fetch_contact: fetch_contact }
+    output: { strip: *calls_addresses, sample: *calls_sample }
     cost: { per: request }
 
   - name: get_call
     class: read
     description: >-
-      Get one Aircall call by its id, with its recording and voicemail URLs
-      when present. The direct URLs are valid one hour, the short URLs three
-      hours: fetch them right before use, never store them.
+      Get one Aircall call by its id: who called whom, when, how long, the
+      line, the agent, tags and comments. The audio of the call is never a
+      link: get it as a file with get_call_recording or get_call_voicemail.
     input:
       type: object
       additionalProperties: false
@@ -139,16 +155,82 @@ functions:
           type: integer
           minimum: 0
         fetch_contact: *fetch_contact
-        fetch_short_urls: *fetch_short_urls
     examples:
       - title: One call with its contact
         input: { call_id: 987654321, fetch_contact: true }
     refusals:
-      - { code: call_not_found, when: 404, message: "No call with this id in the last six months of this Aircall company." }
+      - &call_not_found { code: call_not_found, when: 404,
+          message: "No call with this id in the last six months of this Aircall company." }
     call:
       method: GET
       path: /v1/calls/{call_id}
-      query: { fetch_contact: fetch_contact, fetch_short_urls: fetch_short_urls }
+      query: { fetch_contact: fetch_contact }
+    output:
+      strip: [call.recording, call.recording_short_url, call.voicemail, call.voicemail_short_url, call.asset]
+      sample: { call: *sample_call }
+    cost: { per: request }
+
+  - name: get_call_recording
+    class: read
+    description: >-
+      Get the audio recording of one Aircall call as a file of yours, kept 24
+      hours: the answer gives its file id, to pass as is to a function that
+      takes a file (a transcription). Never a link. Only calls on a line with
+      live recording enabled have one; a call without it is refused as having
+      no file.
+    input:
+      type: object
+      additionalProperties: false
+      required: [call_id]
+      properties:
+        call_id: *call_id
+    examples:
+      - title: The recording of one call
+        input: { call_id: 987654321 }
+    refusals:
+      - *call_not_found
+    call: { method: GET, path: "/v1/calls/{call_id}" }
+    # call.recording is a link signed by its own query, valid one hour: downloaded at once, without the account's
+    # authentication, never followed through a redirect (the short URL redirects, so it is not used).
+    output:
+      file:
+        from: url
+        path: call.recording
+        auth: none
+        types: &mp3 { mp3: [audio/mpeg, audio/mp3] }
+        name: { template: "call-{call_id}-recording.mp3" }
+        max_bytes: 52428800
+    timeout_s: 120
+    cost: { per: request }
+
+  - name: get_call_voicemail
+    class: read
+    description: >-
+      Get the voicemail a caller left on one inbound Aircall call as a file of
+      yours, kept 24 hours: the answer gives its file id, to pass as is to a
+      function that takes a file (a transcription). Never a link. A call
+      without a voicemail is refused as having no file.
+    input:
+      type: object
+      additionalProperties: false
+      required: [call_id]
+      properties:
+        call_id: *call_id
+    examples:
+      - title: The voicemail of one call
+        input: { call_id: 987654321 }
+    refusals:
+      - *call_not_found
+    call: { method: GET, path: "/v1/calls/{call_id}" }
+    output:
+      file:
+        from: url
+        path: call.voicemail
+        auth: none
+        types: *mp3
+        name: { template: "call-{call_id}-voicemail.mp3" }
+        max_bytes: 52428800
+    timeout_s: 120
     cost: { per: request }
 
   - name: get_call_transcription

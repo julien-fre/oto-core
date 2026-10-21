@@ -6,7 +6,7 @@ export const listCalls = defineFunction({
   connector: "aircall",
   class: "read",
   act: false,
-  description: "List the calls of the Aircall company, bounded on their creation date: who called whom, when, how long, the line, the agent, tags, comments, and the recording or voicemail URLs. Six months of history only, and at most 10,000 calls through pagination: narrow with date_from to reach further. Ascending by creation date unless order is desc. Recording and voicemail URLs expire (direct mp3 one hour, short URLs three hours): fetch them right before use. duration includes ringing; talk time is ended_at - answered_at. Times are UNIX seconds, UTC. meta.next_page_link is null on the last page.",
+  description: "List the calls of the Aircall company, bounded on their creation date: who called whom, when, how long, the line, the agent, tags and comments. Six months of history only, and at most 10,000 calls through pagination: narrow with date_from to reach further. Ascending by creation date unless order is desc. duration includes ringing; talk time is ended_at - answered_at. Times are UNIX seconds, UTC. meta.next_page_link is null on the last page. The audio of a call is never a link: get it as a file with get_call_recording or get_call_voicemail.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -28,8 +28,7 @@ export const listCalls = defineFunction({
       },
       "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
       "per_page": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20},
-      "fetch_contact": {"type": "boolean", "description": "Add the contact details of each call."},
-      "fetch_short_urls": {"type": "boolean", "description": "Add the three-hour short URLs of recordings and voicemails."}
+      "fetch_contact": {"type": "boolean", "description": "Add the contact details of each call."}
     }
   },
   examples: [
@@ -40,10 +39,11 @@ export const listCalls = defineFunction({
     method: "GET",
     path: "/v1/calls",
     pathParams: [],
-    query: {"from": "date_from", "to": "date_to", "order": "order", "page": "page", "per_page": "per_page", "fetch_contact": "fetch_contact", "fetch_short_urls": "fetch_short_urls"},
+    query: {"from": "date_from", "to": "date_to", "order": "order", "page": "page", "per_page": "per_page", "fetch_contact": "fetch_contact"},
     body: {},
     headers: {},
   },
+  output: { strip: ["calls.recording", "calls.recording_short_url", "calls.voicemail", "calls.voicemail_short_url", "calls.asset"] },
   cost: { per: "request" },
 })
 
@@ -52,7 +52,7 @@ export const searchCalls = defineFunction({
   connector: "aircall",
   class: "read",
   act: false,
-  description: "Search the calls of the Aircall company by direction, agent (user_id) or external phone number, bounded on their creation date. A call transferred from line A to line B is found by B only. Same history, limits and expiring URLs as list_calls.",
+  description: "Search the calls of the Aircall company by direction, agent (user_id) or external phone number, bounded on their creation date. A call transferred from line A to line B is found by B only. Same history and limits as list_calls; the audio of a call is never a link (get_call_recording, get_call_voicemail).",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -81,8 +81,7 @@ export const searchCalls = defineFunction({
       },
       "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
       "per_page": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20},
-      "fetch_contact": {"type": "boolean", "description": "Add the contact details of each call."},
-      "fetch_short_urls": {"type": "boolean", "description": "Add the three-hour short URLs of recordings and voicemails."}
+      "fetch_contact": {"type": "boolean", "description": "Add the contact details of each call."}
     }
   },
   examples: [
@@ -94,10 +93,11 @@ export const searchCalls = defineFunction({
     method: "GET",
     path: "/v1/calls/search",
     pathParams: [],
-    query: {"direction": "direction", "user_id": "user_id", "phone_number": "phone_number", "from": "date_from", "to": "date_to", "order": "order", "page": "page", "per_page": "per_page", "fetch_contact": "fetch_contact", "fetch_short_urls": "fetch_short_urls"},
+    query: {"direction": "direction", "user_id": "user_id", "phone_number": "phone_number", "from": "date_from", "to": "date_to", "order": "order", "page": "page", "per_page": "per_page", "fetch_contact": "fetch_contact"},
     body: {},
     headers: {},
   },
+  output: { strip: ["calls.recording", "calls.recording_short_url", "calls.voicemail", "calls.voicemail_short_url", "calls.asset"] },
   cost: { per: "request" },
 })
 
@@ -106,15 +106,14 @@ export const getCall = defineFunction({
   connector: "aircall",
   class: "read",
   act: false,
-  description: "Get one Aircall call by its id, with its recording and voicemail URLs when present. The direct URLs are valid one hour, the short URLs three hours: fetch them right before use, never store them.",
+  description: "Get one Aircall call by its id: who called whom, when, how long, the line, the agent, tags and comments. The audio of the call is never a link: get it as a file with get_call_recording or get_call_voicemail.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "required": ["call_id"],
     "properties": {
       "call_id": {"type": "integer", "minimum": 0},
-      "fetch_contact": {"type": "boolean", "description": "Add the contact details of each call."},
-      "fetch_short_urls": {"type": "boolean", "description": "Add the three-hour short URLs of recordings and voicemails."}
+      "fetch_contact": {"type": "boolean", "description": "Add the contact details of each call."}
     }
   },
   examples: [
@@ -127,10 +126,73 @@ export const getCall = defineFunction({
     method: "GET",
     path: "/v1/calls/{call_id}",
     pathParams: ["call_id"],
-    query: {"fetch_contact": "fetch_contact", "fetch_short_urls": "fetch_short_urls"},
+    query: {"fetch_contact": "fetch_contact"},
     body: {},
     headers: {},
   },
+  output: { strip: ["call.recording", "call.recording_short_url", "call.voicemail", "call.voicemail_short_url", "call.asset"] },
+  cost: { per: "request" },
+})
+
+export const getCallRecording = defineFunction({
+  name: "aircall.get_call_recording",
+  connector: "aircall",
+  class: "read",
+  act: false,
+  description: "Get the audio recording of one Aircall call as a file of yours, kept 24 hours: the answer gives its file id, to pass as is to a function that takes a file (a transcription). Never a link. Only calls on a line with live recording enabled have one; a call without it is refused as having no file.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["call_id"],
+    "properties": {"call_id": {"type": "integer", "minimum": 0}}
+  },
+  examples: [
+    { title: "The recording of one call", input: {"call_id": 987654321} },
+  ],
+  refusals: [
+    { code: "call_not_found", when: 404, message: "No call with this id in the last six months of this Aircall company." },
+  ],
+  request: {
+    method: "GET",
+    path: "/v1/calls/{call_id}",
+    pathParams: ["call_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  timeoutMs: 120000,
+  output: { file: { from: "url", path: "call.recording", auth: "none", types: {"mp3": ["audio/mpeg", "audio/mp3"]}, name: { template: "call-{call_id}-recording.mp3" }, maxBytes: 52428800 } },
+  cost: { per: "request" },
+})
+
+export const getCallVoicemail = defineFunction({
+  name: "aircall.get_call_voicemail",
+  connector: "aircall",
+  class: "read",
+  act: false,
+  description: "Get the voicemail a caller left on one inbound Aircall call as a file of yours, kept 24 hours: the answer gives its file id, to pass as is to a function that takes a file (a transcription). Never a link. A call without a voicemail is refused as having no file.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["call_id"],
+    "properties": {"call_id": {"type": "integer", "minimum": 0}}
+  },
+  examples: [
+    { title: "The voicemail of one call", input: {"call_id": 987654321} },
+  ],
+  refusals: [
+    { code: "call_not_found", when: 404, message: "No call with this id in the last six months of this Aircall company." },
+  ],
+  request: {
+    method: "GET",
+    path: "/v1/calls/{call_id}",
+    pathParams: ["call_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  timeoutMs: 120000,
+  output: { file: { from: "url", path: "call.voicemail", auth: "none", types: {"mp3": ["audio/mpeg", "audio/mp3"]}, name: { template: "call-{call_id}-voicemail.mp3" }, maxBytes: 52428800 } },
   cost: { per: "request" },
 })
 
@@ -658,7 +720,7 @@ export const connector = defineConnector({
   name: "aircall",
   label: "Aircall",
   namespace: "aircall",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "v1 (users on v2)",
   baseUrl: "https://api.aircall.io",
   auth: {"kind": "basic", "username": "api_id", "password": "api_token"},
@@ -677,6 +739,8 @@ export const connector = defineConnector({
     listCalls,
     searchCalls,
     getCall,
+    getCallRecording,
+    getCallVoicemail,
     getCallTranscription,
     getCallSummary,
     getCallTopics,

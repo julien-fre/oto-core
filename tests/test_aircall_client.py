@@ -128,8 +128,10 @@ def test_un_none_ne_part_pas(cli, capture):
 
 
 def test_drapeaux_en_minuscules(cli, capture):
-    cli.get_call(1, fetch_contact=True, fetch_short_urls=False)
-    assert _params(capture) == {"fetch_contact": "true", "fetch_short_urls": "false"}
+    cli.get_call(1, fetch_contact=True)
+    assert _params(capture) == {"fetch_contact": "true"}
+    cli.list_calls(fetch_contact=False)
+    assert _params(capture) == {"fetch_contact": "false"}
 
 
 def test_recherche_d_appels(cli, capture):
@@ -228,3 +230,140 @@ def test_429_sans_en_tete_remonte(cli, capture):
     with pytest.raises(UpstreamHTTPError):
         cli.list_calls()
     assert len(capture["calls"]) == 1
+
+
+# --- aucune adresse d'enregistrement ne sort (1.1.0) -----------------------------------------
+
+_ADDRESSES = {
+    "recording": "https://files.example.test/r/c-1.mp3?signature=sig-0",
+    "recording_short_url": "https://short.example.test/r/c-1",
+    "voicemail": "https://files.example.test/v/c-1.mp3?signature=sig-0",
+    "voicemail_short_url": "https://short.example.test/v/c-1",
+    "asset": "https://assets.example.test/recording/c-1",
+}
+
+
+def _call(call_id=1):
+    return {"id": call_id, "direction": "inbound", "duration": 42, **_ADDRESSES}
+
+
+@pytest.mark.parametrize("appel", [
+    lambda c: c.list_calls(),
+    lambda c: c.search_calls(direction="inbound"),
+])
+def test_les_listes_d_appels_perdent_leurs_adresses_et_gardent_meta(cli, capture, appel):
+    meta = {"count": 2, "total": 2, "current_page": 1, "per_page": 20, "next_page_link": None}
+    capture["responses"].append(_Resp(200, {"calls": [_call(1), _call(2)], "meta": meta}))
+    answer = appel(cli)
+    assert answer["meta"] == meta
+    assert [c["id"] for c in answer["calls"]] == [1, 2]
+    for call in answer["calls"]:
+        assert not set(_ADDRESSES) & set(call)
+        assert call["duration"] == 42
+
+
+def test_un_appel_perd_ses_adresses(cli, capture):
+    capture["responses"].append(_Resp(200, {"call": _call(812)}))
+    answer = cli.get_call(812, fetch_contact=True)
+    assert answer == {"call": {"id": 812, "direction": "inbound", "duration": 42}}
+    assert _params(capture) == {"fetch_contact": "true"}
+
+
+def test_les_adresses_courtes_ne_se_demandent_plus(cli, capture):
+    for appel in (lambda: cli.list_calls(fetch_short_urls=True),
+                  lambda: cli.search_calls(fetch_short_urls=True),
+                  lambda: cli.get_call(1, fetch_short_urls=True)):
+        with pytest.raises(TypeError):
+            appel()
+    assert capture["calls"] == []
+
+
+# --- l'audio d'un appel, rendu en fichier ------------------------------------------------------
+
+from requests.adapters import HTTPAdapter  # noqa: E402
+
+import files_fake  # noqa: E402
+from oto.connectors.files import FileOut, FileOutputError  # noqa: E402
+from oto.tools.common import url_guard  # noqa: E402
+
+_AUDIO = {"status": 200, "headers": {"Content-Type": "audio/mpeg"}, "text": "ID3-audio"}
+
+
+class _Sequence(HTTPAdapter):
+    """Rend chaque réponse dans l'ordre (l'appel à l'API, puis le téléchargement) et note chaque requête."""
+
+    def __init__(self, *answers):
+        super().__init__()
+        self.answers = list(answers)
+        self.sent = []
+
+    def send(self, request, **kwargs):
+        self.sent.append(request)
+        if not self.answers:
+            raise AssertionError("nothing more should be sent")
+        return self.build_response(request, files_fake.raw(self.answers.pop(0)))
+
+
+def _json(status, value):
+    return {"status": status, "headers": {"Content-Type": "application/json"}, "json": value}
+
+
+@pytest.fixture()
+def wire(cli, monkeypatch):
+    monkeypatch.setattr(url_guard.socket, "getaddrinfo", files_fake.resolve_publicly)
+
+    def mount(*answers):
+        transport = _Sequence(*answers)
+        cli.session.mount("https://", transport)
+        cli.session.mount("http://", transport)
+        return transport
+    return mount
+
+
+@pytest.mark.parametrize("methode, champ", [
+    ("get_call_recording", "recording"),
+    ("get_call_voicemail", "voicemail"),
+])
+def test_l_audio_d_un_appel_est_un_fichier(cli, wire, methode, champ):
+    transport = wire(_json(200, {"call": _call(812)}), _AUDIO)
+    result = getattr(cli, methode)(812)
+    assert result == FileOut(name=f"call-812-{champ}.mp3", content=b"ID3-audio", mime="audio/mpeg")
+    api, download = transport.sent
+    assert api.method == "GET" and api.url == "https://api.aircall.io/v1/calls/812"
+    assert api.headers["Authorization"].startswith("Basic ")
+    assert download.url == _ADDRESSES[champ]
+    assert "Authorization" not in download.headers
+
+
+def test_un_appel_inconnu_ne_telecharge_rien(cli, wire):
+    transport = wire(_json(404, {"error": "Not Found"}))
+    with pytest.raises(UpstreamHTTPError) as e:
+        cli.get_call_recording(812)
+    assert e.value.status_code == 404
+    assert len(transport.sent) == 1
+
+
+def test_un_appel_sans_messagerie_n_a_pas_de_fichier(cli, wire):
+    call = {k: v for k, v in _call(812).items() if not k.startswith("voicemail")}
+    transport = wire(_json(200, {"call": {**call, "voicemail": None}}))
+    with pytest.raises(FileOutputError) as e:
+        cli.get_call_voicemail(812)
+    assert e.value.code == "file_missing"
+    assert len(transport.sent) == 1
+
+
+def test_une_adresse_en_http_est_refusee_sans_la_dire(cli, wire):
+    address = "http://files.example.test/r/c-1.mp3?signature=sig-0"
+    transport = wire(_json(200, {"call": {**_call(812), "recording": address}}))
+    with pytest.raises(FileOutputError) as e:
+        cli.get_call_recording(812)
+    assert e.value.code == "file_download_refused"
+    assert address not in str(e.value) and "sig-0" not in str(e.value)
+    assert len(transport.sent) == 1
+
+
+def test_un_id_d_appel_non_numerique_est_refuse_avant_tout_envoi(cli, wire):
+    transport = wire()
+    with pytest.raises(ValueError):
+        cli.get_call_recording("12/../users")
+    assert transport.sent == []
