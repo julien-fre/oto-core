@@ -23,6 +23,9 @@ CALENDAR = (GRAPH + "Calendars.ReadWrite",)
 #: Teams and channels the person belongs to, posting in channels, chats. No admin consent.
 TEAMS = (GRAPH + "Team.ReadBasic.All", GRAPH + "Channel.ReadBasic.All",
          GRAPH + "ChannelMessage.Send", GRAPH + "Chat.ReadWrite")
+#: OneNote: the person's notebooks and those she can reach in groups and SharePoint
+#: sites — read, create and change pages. No admin consent.
+NOTES = (GRAPH + "Notes.ReadWrite.All",)
 #: Reading channel messages: requires a tenant administrator's consent.
 TEAMS_ADMIN = (GRAPH + "ChannelMessage.Read.All",)
 #: On refresh, ask for everything already consented (`.default`) rather than a list:
@@ -41,7 +44,7 @@ def _strip(scope: str) -> str:
 
 
 _CANONICAL = {_strip(s).lower(): _strip(s)
-              for group in (IDENTITY, FILES, MAIL, CALENDAR, TEAMS, TEAMS_ADMIN, REFRESH)
+              for group in (IDENTITY, FILES, MAIL, CALENDAR, TEAMS, NOTES, TEAMS_ADMIN, REFRESH)
               for s in group}
 _CANONICAL.update({s: s for s in OIDC})
 

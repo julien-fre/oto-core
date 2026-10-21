@@ -18,6 +18,8 @@ def test_short_de_nos_constantes():
     assert scopes.short(scopes.TEAMS) == {"Team.ReadBasic.All", "Channel.ReadBasic.All",
                                           "ChannelMessage.Send", "Chat.ReadWrite"}
     assert scopes.short(scopes.REFRESH) == {".default", "offline_access"}
+    assert scopes.short(scopes.NOTES) == {"Notes.ReadWrite.All"}
+    assert scopes.short(scopes.NOTES) <= scopes.normalize("notes.readwrite.all User.Read")
 
 
 def test_scope_inconnu_garde_tel_que_rendu_sans_prefixe():
@@ -30,5 +32,5 @@ def test_scope_vide():
 
 def test_admin_a_part():
     every_user = (scopes.IDENTITY + scopes.FILES + scopes.MAIL + scopes.CALENDAR
-                  + scopes.TEAMS)
+                  + scopes.TEAMS + scopes.NOTES)
     assert not set(scopes.TEAMS_ADMIN) & set(every_user)
