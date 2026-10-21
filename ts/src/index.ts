@@ -15,6 +15,7 @@ import * as googleSheets from "./google_sheets"
 import * as hubspot from "./hubspot"
 import * as jefacture from "./jefacture"
 import * as klaviyo from "./klaviyo"
+import * as lemlist from "./lemlist"
 import * as linkedinUnipile from "./linkedin_unipile"
 import * as mailpool from "./mailpool"
 import * as malibou from "./malibou"
@@ -53,6 +54,7 @@ export { googleSheets }
 export { hubspot }
 export { jefacture }
 export { klaviyo }
+export { lemlist }
 export { linkedinUnipile }
 export { mailpool }
 export { malibou }
@@ -94,6 +96,7 @@ export const connectors: readonly Connector[] = [
   hubspot.connector,
   jefacture.connector,
   klaviyo.connector,
+  lemlist.connector,
   linkedinUnipile.connector,
   mailpool.connector,
   malibou.connector,
