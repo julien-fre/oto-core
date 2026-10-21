@@ -1281,7 +1281,7 @@ export const connector = defineConnector({
   name: "apollo",
   label: "Apollo.io",
   namespace: "apollo",
-  version: "1.1.0",
+  version: "1.1.1",
   apiVersion: "v1",
   baseUrl: "https://api.apollo.io/api/v1",
   auth: {"kind": "api_key", "in": "header", "name": "X-Api-Key", "key": "api_key"},

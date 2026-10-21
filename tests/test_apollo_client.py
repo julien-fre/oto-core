@@ -709,3 +709,49 @@ def test_the_poll_reads_an_empty_account_too():
     with _repond(422, {"error": "You have insufficient credits"}):
         with pytest.raises(ApolloCreditsExhausted):
             client.poll_webhook_result("718432950164203900")
+
+
+# ----------------------------------------------------------------------
+# Booléens en query : ce que lit Apollo, c'est l'URL que `requests` prépare,
+# pas le dict passé à `_request`. D'où une doublure au niveau du TRANSPORT
+# (`HTTPAdapter.send`), qui voit la requête préparée telle qu'elle partirait.
+# ----------------------------------------------------------------------
+
+def _sent_query(call):
+    """Fait un appel du client avec un transport doublé ; rend la query envoyée."""
+    import requests
+    from urllib.parse import parse_qsl, urlsplit
+
+    sent = []
+
+    def send(adapter, request, **kw):
+        sent.append(request)
+        r = requests.Response()
+        r.status_code, r._content, r.request, r.url = 200, b"{}", request, request.url
+        return r
+
+    with patch.object(requests.adapters.HTTPAdapter, "send", send):
+        call(ApolloClient(api_key="k"))
+    assert len(sent) == 1
+    return parse_qsl(urlsplit(sent[0].url).query, keep_blank_values=True)
+
+
+def test_add_contacts_sends_the_safeguard_flags_lowercase_in_the_url():
+    """`True`/`False` (majuscule Python) ne sont pas des booléens pour Apollo :
+    un garde-fou qu'on croit lever, ou tenir, ne serait ni l'un ni l'autre."""
+    query = _sent_query(lambda c: c.add_contacts_to_sequence(
+        sequence_id="seq1", send_email_from_email_account_id="acc1",
+        contact_ids=["c1", "c2"], sequence_no_email=True,
+        sequence_active_in_other_campaigns=False))
+    assert ("sequence_no_email", "true") in query
+    assert ("sequence_active_in_other_campaigns", "false") in query
+    assert not [v for _, v in query if v in ("True", "False")]
+    # Les listes restent répétées, inchangées.
+    assert [v for k, v in query if k == "contact_ids[]"] == ["c1", "c2"]
+    assert ("emailer_campaign_id", "seq1") in query
+
+
+def test_match_person_reveal_flag_leaves_lowercase_in_the_url():
+    query = _sent_query(lambda c: c.match_person(person_id="p1",
+                                                 reveal_personal_emails=False))
+    assert query == [("reveal_personal_emails", "false")]

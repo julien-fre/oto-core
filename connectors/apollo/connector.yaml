@@ -25,7 +25,7 @@
 # no settle, nothing showing that its answer carries it. Everything else costs one request.
 #
 # Lists in the query go with brackets (domains[]=a&domains[]=b), as the client sends them; booleans in the query
-# (reveal_personal_emails) are written true and false, which the client writes by hand for the same reason: Apollo
+# (reveal_personal_emails) are written true and false, as the client writes every boolean of its queries: Apollo
 # ignores what it does not recognize (Python would write True).
 #
 # The client sends page 1 and its own per_page when the call omits them (10 for organizations, 25 for the other
@@ -50,7 +50,7 @@
 #   builds; it reads back the phone reveal, itself left out;
 # - add_contacts_to_sequence: the sequence id goes both in the path and in the query (emailer_campaign_id, which
 #   Apollo requires), an argument goes to one place only; the sending mailbox may be a list sent without brackets,
-#   and the safety flags pass as Python booleans;
+#   and the safety flags are free keyword arguments;
 # - export_conversations and get_conversations_export: the export ends as a signed download address, which never
 #   goes to the agent, in a format that no source gives (a rendered file needs its type);
 # - the arguments the client reshapes: domain (wrapped in a one-element list), country (merged into locations),
@@ -66,7 +66,7 @@ connector:
   name: apollo
   label: Apollo.io
   namespace: apollo
-  version: 1.1.0
+  version: 1.1.1
   api_version: v1
   base_url: https://api.apollo.io/api/v1
   auth:
