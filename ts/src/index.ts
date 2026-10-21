@@ -10,6 +10,7 @@ import * as gmail from "./gmail"
 import * as googleCalendar from "./google_calendar"
 import * as googleDrive from "./google_drive"
 import * as googleSheets from "./google_sheets"
+import * as hubspot from "./hubspot"
 import * as klaviyo from "./klaviyo"
 import * as linkedinUnipile from "./linkedin_unipile"
 import * as mailpool from "./mailpool"
@@ -43,6 +44,7 @@ export { gmail }
 export { googleCalendar }
 export { googleDrive }
 export { googleSheets }
+export { hubspot }
 export { klaviyo }
 export { linkedinUnipile }
 export { mailpool }
@@ -79,6 +81,7 @@ export const connectors: readonly Connector[] = [
   googleCalendar.connector,
   googleDrive.connector,
   googleSheets.connector,
+  hubspot.connector,
   klaviyo.connector,
   linkedinUnipile.connector,
   mailpool.connector,
