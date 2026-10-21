@@ -12,7 +12,9 @@ carries the scopes chosen at creation, and gives access to that company only.
 Every path hangs under `/companies/{companyId}`. The id is not typed by the
 caller: it is read from the token introspection endpoint
 (`POST https://oauth.payfit.com/introspect`, body `{"token": ...}`), which
-answers `{active, scope, company_id}`. It is cached process-wide, keyed by a
+answers `{active, scope, company_id}`. The same answer gives the key's scopes
+(`get_key_scopes`): what the key may read and write is chosen at its creation in
+PayFit. Both are cached process-wide, keyed by a
 hash of the key — a server builds one client per call, so a cache held by the
 instance would introspect on every call.
 
@@ -77,7 +79,7 @@ top.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import requests
 
@@ -93,6 +95,8 @@ _INTROSPECT_URL = "https://oauth.payfit.com/introspect"
 
 # {sha256(api_key): company_id} — process-wide, never a key in clear.
 _COMPANY_IDS: Dict[str, str] = {}
+# {sha256(api_key): the key's scopes} — filled by the same introspection.
+_SCOPES: Dict[str, Tuple[str, ...]] = {}
 
 
 def _cred_key(api_key: str) -> str:
@@ -166,14 +170,27 @@ class PayfitClient(_PayrollMixin, _PeopleMixin, _ContractsMixin, _AbsencesMixin)
         return self._request("DELETE", path, json_body=payload)
 
     def get_company_id(self) -> str:
-        """The company the key belongs to, from token introspection (cached).
+        """The company the key belongs to, from token introspection (cached)."""
+        k = _cred_key(self.api_key)
+        if k not in _COMPANY_IDS:
+            self._introspect(k)
+        return _COMPANY_IDS[k]
+
+    def get_key_scopes(self) -> list:
+        """The scopes the key was created with in PayFit, sorted — from the same
+        introspection (cached). What the key may READ and WRITE is decided there:
+        `time:write` records an absence, `collaborators:write` a hire… A caller reads
+        it before writing rather than learning it from a 403."""
+        k = _cred_key(self.api_key)
+        if k not in _SCOPES:
+            self._introspect(k)
+        return list(_SCOPES[k])
+
+    def _introspect(self, k: str) -> None:
+        """`POST /introspect` → caches the company id and the scopes under `k`.
 
         The introspection answer is never copied into an exception: only its
         status code is, so a message can never carry the key."""
-        k = _cred_key(self.api_key)
-        cached = _COMPANY_IDS.get(k)
-        if cached:
-            return cached
         resp = self.session.request(
             "POST", self.INTROSPECT_URL, json={"token": self.api_key},
             timeout=_HTTP_TIMEOUT)
@@ -187,8 +204,12 @@ class PayfitClient(_PayrollMixin, _PeopleMixin, _ContractsMixin, _AbsencesMixin)
         company_id = payload.get("company_id") if isinstance(payload, dict) else None
         if not (isinstance(payload, dict) and payload.get("active") and company_id):
             raise UpstreamHTTPError(401, {"error": "inactive API key"}, service="payfit")
+        # RFC 7662: `scope` is ONE space-separated string; a list is tolerated.
+        scope = payload.get("scope")
+        scopes = scope.split() if isinstance(scope, str) else (
+            [str(x) for x in scope] if isinstance(scope, list) else [])
         _COMPANY_IDS[k] = str(company_id)
-        return _COMPANY_IDS[k]
+        _SCOPES[k] = tuple(sorted(set(scopes)))
 
     def _company_path(self, suffix: str = "", *, fr: bool = False) -> str:
         """`/companies/{id}{suffix}` — or `/companies-fr/{id}{suffix}`, which is a

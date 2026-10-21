@@ -3,7 +3,7 @@
 Mocke `requests.Session.request` : verbe + URL + params + corps, sans réseau ni
 clé réelle. Cible ce qui pourrait dériver en silence : l'en-tête d'auth, la
 résolution de l'id d'entreprise par introspection et son cache, la SURFACE (les
-27 méthodes, figées), les chemins et filtres, les bornes de pagination, le format
+28 méthodes, figées), les chemins et filtres, les bornes de pagination, le format
 de mois `AAAAMM`, le refus d'un identifiant qui réécrirait l'URL, le fait qu'un
 corps binaire ne passe jamais par `.json()`, et le fait qu'une erreur
 d'introspection ne recopie jamais la réponse.
@@ -45,8 +45,10 @@ class _Resp:
 @pytest.fixture(autouse=True)
 def _cache_vide():
     payfit_client._COMPANY_IDS.clear()
+    payfit_client._SCOPES.clear()
     yield
     payfit_client._COMPANY_IDS.clear()
+    payfit_client._SCOPES.clear()
 
 
 class _Seen(list):
@@ -79,7 +81,7 @@ def client():
 
 # La surface EXACTE : ajouter une méthode est un geste, pas un effet de bord.
 METHODS = {
-    "get_company_id", "get_company", "get_payroll_status",
+    "get_company_id", "get_key_scopes", "get_company", "get_payroll_status",
     "list_accounting_entries", "get_accounting_export", "get_payment_file",
     "get_document", "list_income_tax_documents", "list_auto_enrolment_documents",
     "list_health_insurance_contracts", "list_provident_fund_contracts",
@@ -128,6 +130,27 @@ def test_company_id_is_cached_process_wide_by_key(calls):
     PayfitClient(api_key="pf-other-key").get_company()
     assert [c["url"] for c in calls].count(INTROSPECT) == 2
     assert KEY not in json.dumps(list(payfit_client._COMPANY_IDS))
+
+
+def test_key_scopes_come_from_the_same_cached_introspection(calls):
+    calls.queued.append(_Resp({"active": True, "company_id": CO,
+                               "scope": "time:read time:write collaborators:read time:read"}))
+    c = PayfitClient(api_key=KEY)
+    assert c.get_key_scopes() == ["collaborators:read", "time:read", "time:write"]
+    assert c.get_company_id() == CO
+    PayfitClient(api_key=KEY).get_key_scopes()
+    assert [x["url"] for x in calls].count(INTROSPECT) == 1
+    assert KEY not in json.dumps(list(payfit_client._SCOPES))
+
+
+@pytest.mark.parametrize("scope,attendu", [
+    (["time:write", "contracts:read"], ["contracts:read", "time:write"]),
+    (None, []),
+    ("", []),
+])
+def test_key_scopes_tolerate_a_list_and_an_absent_scope(calls, scope, attendu):
+    calls.queued.append(_Resp({"active": True, "company_id": CO, "scope": scope}))
+    assert PayfitClient(api_key=KEY).get_key_scopes() == attendu
 
 
 # --- lecture ------------------------------------------------------------------
@@ -344,7 +367,7 @@ def test_introspection_failure_never_copies_the_answer(calls, client, resp):
         client.get_company()
     assert exc.value.status_code == 401
     assert KEY not in str(exc.value) and KEY not in json.dumps(exc.value.body)
-    assert not payfit_client._COMPANY_IDS
+    assert not payfit_client._COMPANY_IDS and not payfit_client._SCOPES
 
 
 def test_error_raises_with_status_code(calls, client):
