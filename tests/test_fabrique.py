@@ -1158,7 +1158,7 @@ def test_only_the_declared_files_are_carried():
             if "file" in function.get("output", {}):
                 carried[f"{checked.data['connector']['name']}.{function['name']}"] = function["output"]["file"]["from"]
     assert carried == {"aircall.get_call_recording": "url", "aircall.get_call_voicemail": "url",
-                       "allo.get_call_recording": "url"}
+                       "allo.get_call_recording": "url", "threecx.download_recording": "body"}
 
 
 def _paginated_file(d):
