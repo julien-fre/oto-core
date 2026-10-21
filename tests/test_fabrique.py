@@ -89,6 +89,39 @@ def test_valid_descriptions_pass():
         check(_load(path), path)
 
 
+# --- Retirer de la sortie (règle 18) ---------------------------------------------------------
+
+
+TYPEFORM_STRIP = CONNECTORS / "typeform" / "connector.yaml"
+AIRCALL = CONNECTORS / "aircall" / "connector.yaml"
+
+
+@pytest.mark.parametrize("path, function, output", [
+    (AIRCALL, "get_call", {"strip": ["call.recording", "call.voicemail"]}),
+    (AIRCALL, "list_calls", {"items": "calls", "strip": ["recording", "voicemail"]}),
+    (TYPEFORM_STRIP, "get_webhook", {"strip": ["secret", "secret_hint", "config.secret"]}),
+], ids=["wrapped_answer", "relative_to_items", "prefix_of_a_key"])
+def test_strip_paths_pass_and_are_carried_as_is(path, function, output):
+    description = _load(path)
+    _fn(description, function)["output"] = output
+    module = connector_module(check(description, path))
+    strip = ", ".join(f'"{key}"' for key in output["strip"])
+    assert f"strip: [{strip}]" in module.source
+
+
+@pytest.mark.parametrize("strip, refused, code", [
+    (["config", "config.secret"], "config.secret", "strip_path_overlaps"),
+    (["config.secret", "config"], "config.secret", "strip_path_overlaps"),
+    (["a.b", "a.b.c"], "a.b.c", "strip_path_overlaps"),
+], ids=["under_another", "under_a_later_one", "deeper"])
+def test_strip_rule_refuses(strip, refused, code):
+    description = _load(TYPEFORM_STRIP)
+    _fn(description, "get_webhook")["output"]["strip"] = strip
+    message = f"function get_webhook: output.strip {refused!r}: {code}"
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, TYPEFORM_STRIP)
+
+
 # --- Génération : refus nommés, pagination -----------------------------------------
 
 

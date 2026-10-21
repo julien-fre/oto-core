@@ -19,7 +19,8 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./cost-cases": "./src/cost-cases.ts",
-    "./file-cases": "./src/file-cases.ts"
+    "./file-cases": "./src/file-cases.ts",
+    "./strip-cases": "./src/strip-cases.ts"
   },
   "files": [
     "src",

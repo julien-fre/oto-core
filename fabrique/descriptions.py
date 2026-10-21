@@ -97,7 +97,12 @@ pas dire :
    arguments requis de l'entrée et finit par une extension déclarée ; aucun type
    déclaré n'est un type qu'un navigateur rend en page ou exécute (HTML, SVG, XML,
    JavaScript) ; `expect` est refusé avec `from: body`. La forme (extensions, types
-   MIME sans paramètre, `max_bytes` de 1 octet à 50 Mo) est celle du schéma.
+   MIME sans paramètre, `max_bytes` de 1 octet à 50 Mo) est celle du schéma ;
+18. retirer de la sortie (`output.strip`) : chaque entrée est un chemin, des clés non vides séparées par des points
+   (`strip_path_malformed`), déclaré une fois (`strip_path_twice`), jamais sous un autre chemin de la liste, qui le
+   retire déjà en entier (`strip_path_overlaps`). Le schéma dit déjà la forme et le doublon ; la règle les redit
+   avec leur code, le même que celui des cas communs (`connectors/_cases/strip.yaml`). Qu'un chemin désigne une
+   clé de la réponse ne se juge pas : le format ne porte aucune forme de la réponse avant `strip`.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -498,6 +503,39 @@ def check_output_file(data: dict, function: dict, where: str) -> None:
         raise DescriptionError(f"{where}: function {name}: expect is refused with output.file from: body, which has no JSON")
 
 
+# Les refus de la règle 18, les mêmes des deux côtés (cas communs `connectors/_cases/strip.yaml`).
+STRIP_REFUSALS = ("strip_path_malformed", "strip_path_overlaps", "strip_path_twice")
+
+
+def strip_refusal(paths: list[str]) -> tuple[str, str, str] | None:
+    """Le premier défaut d'une liste `strip`, `(code, chemin, raison)`, ou `None` : la règle 18 hors de toute description,
+    que les cas communs rejouent."""
+    seen: set[str] = set()
+    for path in paths:
+        if any(key == "" for key in path.split(".")):
+            return ("strip_path_malformed", path,
+                    "a path is keys separated by dots, each non-empty (no leading, trailing or doubled dot)")
+        if path in seen:
+            return ("strip_path_twice", path, "declared twice")
+        seen.add(path)
+    for path in paths:
+        above = next((other for other in paths if path.startswith(other + ".")), None)
+        if above is not None:
+            return ("strip_path_overlaps", path, f"lies under {above!r}, which is already removed whole")
+    return None
+
+
+def check_strip(function: dict, where: str) -> None:
+    """Règle 18 : chaque chemin de `strip` est bien formé, déclaré une fois, sous aucun autre."""
+    strip = (function.get("output") or {}).get("strip")
+    if strip is None:
+        return
+    refusal = strip_refusal(strip)
+    if refusal is not None:
+        code, path, reason = refusal
+        raise DescriptionError(f"{where}: function {function['name']}: output.strip {path!r}: {code}: {reason}")
+
+
 # Les mots d'un JSON Schema dont la valeur est un schéma, une liste de schémas, ou des schémas par nom : la donnée
 # personnelle se cherche là seulement, jamais dans `examples`, `default`, `const` ni `enum`, et le nom d'une propriété
 # (une propriété qui s'appellerait `personal`) n'est jamais lu comme un mot.
@@ -855,6 +893,7 @@ def check_rules(data: dict, where: str) -> None:
         check_async(data, function, where)
         check_files(function, where)
         check_output_file(data, function, where)
+        check_strip(function, where)
         check_personal(function, where)
     names = [function["name"] for function in data["functions"]]
     twice = sorted({n for n in names if names.count(n) > 1})

@@ -285,7 +285,14 @@ export type OutputFile = {
 export type Output = {
   /** Chemin pointé de la liste dans la réponse. */
   readonly items?: string
+  /**
+   * Clés retirées, chacune par son chemin (`call.recording`), avant `projection` : relatif à chaque élément de `items`
+   * quand il est déclaré, à la réponse entière sinon ; une liste rencontrée se traverse, le reste du chemin valant pour
+   * chacun de ses éléments ; une valeur absente, nulle ou scalaire n'a rien à retirer. Une clé qui contient un point ne
+   * se désigne pas. Cas communs : `./strip-cases`.
+   */
   readonly strip?: readonly string[]
+  /** Clés de premier niveau gardées, après `strip`. */
   readonly projection?: readonly string[]
   /** Forme d'un enregistrement, après `items`, `strip` et `projection`. */
   readonly schema?: JsonSchema

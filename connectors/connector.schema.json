@@ -53,6 +53,11 @@
       "type": "string",
       "pattern": "^[^.\\s]+(\\.[^.\\s]+)*$"
     },
+    "strip_path": {
+      "description": "A key removed from the output, or a path to one: keys separated by dots, each non-empty (call.recording). Relative to each element of items when it is declared, to the whole answer otherwise; a list met on the way is crossed, the rest of the path applying to each of its elements. A key that holds a dot cannot be named.",
+      "type": "string",
+      "pattern": "^[^.]+(\\.[^.]+)*$"
+    },
     "timeout_s": {
       "description": "A timeout in seconds: the connector's, or one function's. At most 300, the ceiling the host package of oto 2 runs.",
       "type": "integer",
@@ -821,7 +826,13 @@
           "properties": {
             "schema": { "description": "Shape of one record, after items/strip/projection are applied.", "$ref": "#/$defs/output_schema" },
             "items": { "description": "Dotted path of the list in the response.", "$ref": "#/$defs/text" },
-            "strip": { "description": "Keys removed.", "type": "array", "items": { "$ref": "#/$defs/text" } },
+            "strip": {
+              "description": "Keys removed, each by its path (strip_path), before projection. A path under another is refused (rule 18 of the fabrique).",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/strip_path" }
+            },
             "projection": { "description": "Keys kept.", "type": "array", "items": { "$ref": "#/$defs/text" } },
             "file": { "$ref": "#/$defs/output_file" }
           }

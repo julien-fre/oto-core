@@ -815,3 +815,32 @@ def test_invalid_file_output_is_rejected(changes):
     _file(description, **changes)
     with pytest.raises(ValidationError):
         _validate(description)
+
+
+# --- Retirer de la sortie (output.strip) ---------------------------------------------------------
+# Le schéma dit la forme d'un chemin et refuse un doublon ; le chemin sous un autre est la règle 18 de la fabrique
+# (`tests/test_fabrique.py`), qui nomme aussi chaque refus par son code (`tests/test_strip_cases.py`).
+
+
+def _strip(d, strip):
+    """`get_estimate` retire des clés de sa sortie, à côté de son schéma de sortie."""
+    d["functions"][1]["output"]["strip"] = strip
+
+
+@pytest.mark.parametrize("strip", [["pdf_link"], ["company.pdf_link", "rows.pdf_link"], ["related.0"], ["a key"]],
+                         ids=["top_level", "paths", "numeric_segment_is_a_key", "space_in_a_key"])
+def test_strip_base_is_valid(strip):
+    description = _sellsy()
+    _strip(description, strip)
+    _validate(description)
+
+
+@pytest.mark.parametrize("strip", [[], [""], [".company"], ["company."], ["company..pdf_link"], ["."],
+                                   ["pdf_link", "pdf_link"], "pdf_link"],
+                         ids=["empty", "empty_path", "leading_dot", "trailing_dot", "empty_segment", "only_a_dot",
+                              "twice", "not_a_list"])
+def test_invalid_strip_is_rejected(strip):
+    description = _sellsy()
+    _strip(description, strip)
+    with pytest.raises(ValidationError):
+        _validate(description)
