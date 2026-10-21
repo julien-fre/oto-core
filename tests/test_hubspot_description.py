@@ -1,10 +1,11 @@
-"""La description `hubspot` 1.0.0 : celle du client existant (`oto.tools.hubspot`), sans rien y changer.
+"""La description `hubspot` 1.0.1 : celle du client existant (`oto.tools.hubspot`), qui ne gagne que `filter_groups`.
 
 Une fonction par méthode du client qui envoie une seule requête à `api.hubapi.com`, sous son nom, avec ses noms
 d'arguments et les clés que le client envoie à HubSpot (chemin, query, corps). Restent hors du fichier, au client écrit
 à la main : les compositions (`batch_read_objects`, `create_note`), les requêtes que le format ne sait pas dire (liste
 répétée en query, corps qui est un tableau ou l'argument lui-même) et l'argument `filters` de `search_objects`, que le
-client emballe dans `filterGroups`. Les gardes ci-dessous lisent le client lui-même : un endpoint, un argument ou une clé
+client emballe dans `filterGroups` : la description déclare à sa place `filter_groups`, la forme native que le client
+envoie telle quelle (1.0.1). Les gardes ci-dessous lisent le client lui-même : un endpoint, un argument ou une clé
 qu'il ajoute sans la description fait échouer le test ; une écriture servie du côté lecture aussi.
 """
 from __future__ import annotations
@@ -35,7 +36,8 @@ LEFT_OUT = {
 }
 # Les arguments d'une méthode que sa fonction ne prend pas, et pourquoi.
 ARGUMENTS_LEFT_OUT = {
-    "search_objects": {"filters": "the client wraps them in filterGroups: [{filters}], a nesting body does not say"},
+    "search_objects": {"filters": "the client wraps them in filterGroups: [{filters}], a nesting body does not say; "
+                                  "filter_groups, sent as is, is declared instead"},
 }
 # Ce que le client envoie quand l'appel ne le donne pas, et que la description ne déclare pas en défaut : HubSpot prend
 # 10 par défaut, le client 100 ; l'hôte n'envoie rien pour un argument absent.
@@ -66,6 +68,12 @@ VALUES = {
     "processing_types": ["MANUAL"], "count": 20, "offset": 40, "additional_properties": ["hs_list_size"],
     "enroll_objects_in_workflows": True, "record_ids_to_add": ["1"], "record_ids_to_remove": ["2"],
     "source_list_id": "41", "record_id": "1001",
+    "filter_groups": [
+        {"filters": [{"propertyName": "lifecyclestage", "operator": "EQ", "value": "customer"}]},
+        {"filters": [{"propertyName": "amount", "operator": "BETWEEN", "value": 10, "highValue": 20},
+                     {"propertyName": "hs_lead_status", "operator": "IN", "values": ["NEW"]},
+                     {"propertyName": "email", "operator": "HAS_PROPERTY"}]},
+    ],
 }
 COST = {"per": "request"}
 WRITING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -143,9 +151,9 @@ def _client_view(sent: tuple[str, str, dict, dict]) -> tuple[str, str, dict, dic
     return method, url, {k: (_in_query(v) if isinstance(v, (bool, list)) else v) for k, v in params.items()}, body
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_0_1_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.0.1"
     check(description, HUBSPOT)
 
 
@@ -242,3 +250,21 @@ def test_the_typescript_output_and_the_python_table():
     assert set(table) == set(_functions())
     assert all(entry["cost"] == COST for entry in table.values())
     assert DECLARED.get("hubspot") == table, "oto/connectors/declared.py is out of date: run `python -m fabrique`"
+
+
+def test_search_filters_through_filter_groups_and_every_operator_of_the_reference():
+    """Les opérateurs du guide de recherche CRM de HubSpot (relu le 2026-10-21), chacun avec les seules clés qu'il prend."""
+    search = _functions()["search_objects"]
+    assert search["call"]["body"]["filterGroups"] == "filter_groups"
+    branches = search["input"]["properties"]["filter_groups"]["items"]["properties"]["filters"]["items"]["oneOf"]
+    keys = {}
+    for branch in branches:
+        operator = branch["properties"]["operator"]
+        for name in operator.get("enum", [operator.get("const")]):
+            keys[name] = set(branch["required"]) - {"propertyName", "operator"}
+            assert set(branch["properties"]) == set(branch["required"]) and not branch["additionalProperties"], name
+    assert keys == {
+        **{o: {"value"} for o in ("EQ", "NEQ", "LT", "LTE", "GT", "GTE", "CONTAINS_TOKEN", "NOT_CONTAINS_TOKEN")},
+        "BETWEEN": {"value", "highValue"}, "IN": {"values"}, "NOT_IN": {"values"},
+        "HAS_PROPERTY": set(), "NOT_HAS_PROPERTY": set(),
+    }

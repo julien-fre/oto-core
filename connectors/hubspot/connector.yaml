@@ -2,8 +2,8 @@
 # HubSpot CRM API v3 (https://developers.hubspot.com/docs/api/crm/understanding-the-crm). The values come from the
 # Python client, oto.tools.hubspot, which this description follows: one request per method to api.hubapi.com, the
 # private app access token as a bearer token, JSON bodies. The function names, the argument names and the keys sent
-# to HubSpot are the client's; the client is not changed (tests/test_hubspot_description.py reads it to keep both
-# equal).
+# to HubSpot are the client's (tests/test_hubspot_description.py reads it to keep both equal). The client gained one
+# argument for this file, filter_groups of search_objects (1.0.1); what it sends for its other calls is unchanged.
 #
 # One token = one private app of one portal (HubSpot account). HubSpot grants its scopes object by object: a token
 # may read contacts and not tickets, or read without writing. A missing scope is a 403 whose category is
@@ -37,7 +37,14 @@
 # - create_property and update_property: the body is the definition argument itself (its keys at the top level),
 #   which body does not say (it maps a key of the body to an argument);
 # - the filters argument of search_objects, which the client wraps in filterGroups ([{filters}]), a nesting that
-#   body does not say: the description searches by query, properties and sorts.
+#   body does not say. Since 1.0.1 the client also takes filter_groups, HubSpot's native form sent as is in
+#   filterGroups, which the description declares: the agent filters with one group for AND, several for OR. The
+#   client refuses filters and filter_groups together.
+#
+# Filter operators, from HubSpot's CRM search guide (read 2026-10-21): EQ, NEQ, LT, LTE, GT, GTE and CONTAINS_TOKEN,
+# NOT_CONTAINS_TOKEN take value; BETWEEN takes value and highValue; IN and NOT_IN take values; HAS_PROPERTY and
+# NOT_HAS_PROPERTY take none. At most 5 groups, 6 filters per group, 18 filters in all; the schema bounds the first
+# two, the description says the third.
 # No probe: the account read that oto 1 probes with (GET /account-info/v3/details) is no method of the client, and
 # list_owners, the only read without a required argument, needs a scope of its own (crm.objects.owners.read) that a
 # working token may lack.
@@ -45,7 +52,7 @@ connector:
   name: hubspot
   label: HubSpot
   namespace: hubspot
-  version: 1.0.0
+  version: 1.0.1
   api_version: v3
   base_url: https://api.hubapi.com
   auth:
@@ -151,13 +158,18 @@ functions:
   - name: search_objects
     class: read
     description: >-
-      Search the records of one CRM object type. query is a full-text search
-      over the type's default searchable properties (a name, an email, a
-      domain). sorts orders the results by one property. Returns total and
-      results, each with its id and the properties asked for; pass
-      paging.next.after as after for the next page. HubSpot serves at most
-      10,000 results per search and about 5 searches per second per portal;
-      a just created or updated record can take a few seconds to be found.
+      Search the records of one CRM object type by full-text query, by
+      filters on property values, or both. filter_groups: the filters inside
+      one group must all match (AND); the record matches if any group matches
+      (OR); at most 5 groups, 6 filters per group, 18 in all. A filter names a
+      property by internal name and an operator: EQ, NEQ, LT, LTE, GT, GTE,
+      CONTAINS_TOKEN (* as wildcard), NOT_CONTAINS_TOKEN take value; BETWEEN
+      takes value and highValue; IN, NOT_IN take values (exact match);
+      HAS_PROPERTY, NOT_HAS_PROPERTY take nothing. Dates go as epoch
+      milliseconds; dropdowns take their option value. sorts orders by one
+      property. Returns total and results; pass paging.next.after as after
+      for the next page. At most 10,000 results per search, about 5 searches
+      per second; a record just written can take a few seconds to be found.
     input:
       type: object
       additionalProperties: false
@@ -180,7 +192,69 @@ functions:
               propertyName: { type: string, pattern: "^[A-Za-z0-9_]+$" }
               direction: { enum: [ASCENDING, DESCENDING] }
           description: "One sort: [{propertyName: createdate, direction: DESCENDING}]."
+        filter_groups:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            type: object
+            additionalProperties: false
+            required: [filters]
+            properties:
+              filters:
+                type: array
+                minItems: 1
+                maxItems: 6
+                items:
+                  oneOf:
+                    - type: object
+                      additionalProperties: false
+                      required: [propertyName, operator, value]
+                      properties:
+                        propertyName: &filter_property { type: string, pattern: "^[A-Za-z0-9_]+$", description: "Internal name of the property." }
+                        operator: { enum: [EQ, NEQ, LT, LTE, GT, GTE, CONTAINS_TOKEN, NOT_CONTAINS_TOKEN] }
+                        value: &filter_value { type: [string, number, boolean], personal: true }
+                    - type: object
+                      additionalProperties: false
+                      required: [propertyName, operator, value, highValue]
+                      properties:
+                        propertyName: *filter_property
+                        operator: { const: BETWEEN }
+                        value: { type: [string, number], description: "Low bound, included." }
+                        highValue: { type: [string, number], description: "High bound, included." }
+                    - type: object
+                      additionalProperties: false
+                      required: [propertyName, operator, values]
+                      properties:
+                        propertyName: *filter_property
+                        operator: { enum: [IN, NOT_IN] }
+                        values: { type: array, minItems: 1, items: { type: [string, number], personal: true } }
+                    - type: object
+                      additionalProperties: false
+                      required: [propertyName, operator]
+                      properties:
+                        propertyName: *filter_property
+                        operator: { enum: [HAS_PROPERTY, NOT_HAS_PROPERTY] }
+          description: "Filter groups, OR between groups, AND inside a group: [{filters: [{propertyName, operator, value}]}]."
     examples:
+      - title: Customer contacts or open leads, newest first
+        input:
+          object_type: contacts
+          properties: [firstname, lastname, email, lifecyclestage]
+          filter_groups:
+            - filters: [{ propertyName: lifecyclestage, operator: EQ, value: customer }]
+            - filters:
+                - { propertyName: hs_lead_status, operator: IN, values: [NEW, OPEN] }
+                - { propertyName: email, operator: HAS_PROPERTY }
+          sorts: [{ propertyName: createdate, direction: DESCENDING }]
+      - title: Deals closing in a date range above an amount
+        input:
+          object_type: deals
+          properties: [dealname, amount, closedate]
+          filter_groups:
+            - filters:
+                - { propertyName: closedate, operator: BETWEEN, value: "1790812800000", highValue: "1798761600000" }
+                - { propertyName: amount, operator: GTE, value: 10000 }
       - title: Contacts matching a name, newest first
         input:
           object_type: contacts
@@ -192,7 +266,7 @@ functions:
     call:
       method: POST
       path: /crm/v3/objects/{object_type}/search
-      body: { limit: limit, query: query, properties: properties, sorts: sorts, after: after }
+      body: { limit: limit, query: query, filterGroups: filter_groups, properties: properties, sorts: sorts, after: after }
     pagination: *pagination
     output: { items: results }
     cost: *cost

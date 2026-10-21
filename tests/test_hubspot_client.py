@@ -370,3 +370,56 @@ def test_shipped_membership_names_are_the_ones_this_client_exposes():
         assert hasattr(hs.HubSpotClient, shipped), shipped
     for stale in ("get_list_members", "add_list_members", "remove_list_members"):
         assert not hasattr(hs.HubSpotClient, stale), stale
+
+
+# --- Recherche : `filters` (oto 1) inchangé, `filter_groups` (forme native) ---
+
+_FILTERS = [
+    {"propertyName": "lifecyclestage", "operator": "EQ", "value": "customer"},
+    {"propertyName": "hs_lead_status", "operator": "IN", "values": ["NEW", "OPEN"]},
+]
+# Les octets que le client envoyait avant `filter_groups` (relevés sur la 1.0.0 de la description, avant d'y toucher) :
+# oto 1 n'appelle la recherche qu'avec `filters`, et rien ne doit en changer.
+_FROZEN_FILTERS_ONLY = (
+    b'{"limit": 100, "filterGroups": [{"filters": [{"propertyName": "lifecyclestage", "operator": "EQ", '
+    b'"value": "customer"}, {"propertyName": "hs_lead_status", "operator": "IN", "values": ["NEW", "OPEN"]}]}]}'
+)
+_FROZEN_EVERY_ARGUMENT = (
+    b'{"limit": 100, "query": "acme", "filterGroups": [{"filters": [{"propertyName": "lifecyclestage", '
+    b'"operator": "EQ", "value": "customer"}, {"propertyName": "hs_lead_status", "operator": "IN", '
+    b'"values": ["NEW", "OPEN"]}]}], "properties": ["dealname"], "sorts": [{"propertyName": "createdate", '
+    b'"direction": "DESCENDING"}], "after": "200"}'
+)
+
+
+def _bytes_sent(call) -> bytes:
+    """Le corps tel que `requests` le met sur le fil pour cet appel."""
+    import requests
+
+    return requests.Request(call["method"], call["url"], json=call["json"]).prepare().body
+
+
+def test_a_search_with_filters_alone_sends_the_same_bytes_as_before(http):
+    _client().search_objects("contacts", filters=_FILTERS)
+    _client().search_objects(
+        "deals", query="acme", filters=_FILTERS, properties=["dealname"], limit=500, after="200",
+        sorts=[{"propertyName": "createdate", "direction": "DESCENDING"}])
+
+    assert [c["url"] for c in http["calls"]] == [
+        "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "https://api.hubapi.com/crm/v3/objects/deals/search",
+    ]
+    assert [_bytes_sent(c) for c in http["calls"]] == [_FROZEN_FILTERS_ONLY, _FROZEN_EVERY_ARGUMENT]
+
+
+def test_filter_groups_go_as_they_are_in_filter_groups(http):
+    groups = [{"filters": _FILTERS[:1]}, {"filters": _FILTERS[1:]}]
+    _client().search_objects("contacts", filter_groups=groups)
+
+    assert http["calls"][0]["json"] == {"limit": 100, "filterGroups": groups}
+
+
+def test_filters_and_filter_groups_together_are_refused_before_any_call(http):
+    with pytest.raises(ValueError, match="filters or filter_groups"):
+        _client().search_objects("contacts", filters=_FILTERS, filter_groups=[{"filters": _FILTERS}])
+    assert http["calls"] == []

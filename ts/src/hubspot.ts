@@ -112,7 +112,7 @@ export const searchObjects = defineFunction({
   connector: "hubspot",
   class: "read",
   act: false,
-  description: "Search the records of one CRM object type. query is a full-text search over the type's default searchable properties (a name, an email, a domain). sorts orders the results by one property. Returns total and results, each with its id and the properties asked for; pass paging.next.after as after for the next page. HubSpot serves at most 10,000 results per search and about 5 searches per second per portal; a just created or updated record can take a few seconds to be found.",
+  description: "Search the records of one CRM object type by full-text query, by filters on property values, or both. filter_groups: the filters inside one group must all match (AND); the record matches if any group matches (OR); at most 5 groups, 6 filters per group, 18 in all. A filter names a property by internal name and an operator: EQ, NEQ, LT, LTE, GT, GTE, CONTAINS_TOKEN (* as wildcard), NOT_CONTAINS_TOKEN take value; BETWEEN takes value and highValue; IN, NOT_IN take values (exact match); HAS_PROPERTY, NOT_HAS_PROPERTY take nothing. Dates go as epoch milliseconds; dropdowns take their option value. sorts orders by one property. Returns total and results; pass paging.next.after as after for the next page. At most 10,000 results per search, about 5 searches per second; a record just written can take a few seconds to be found.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -152,6 +152,90 @@ export const searchObjects = defineFunction({
         },
         "description": "One sort: [{propertyName: createdate, direction: DESCENDING}]."
       },
+      "filter_groups": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 5,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["filters"],
+          "properties": {
+            "filters": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 6,
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["propertyName", "operator", "value"],
+                    "properties": {
+                      "propertyName": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_]+$",
+                        "description": "Internal name of the property."
+                      },
+                      "operator": {
+                        "enum": ["EQ", "NEQ", "LT", "LTE", "GT", "GTE", "CONTAINS_TOKEN", "NOT_CONTAINS_TOKEN"]
+                      },
+                      "value": {"type": ["string", "number", "boolean"], "personal": true}
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["propertyName", "operator", "value", "highValue"],
+                    "properties": {
+                      "propertyName": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_]+$",
+                        "description": "Internal name of the property."
+                      },
+                      "operator": {"const": "BETWEEN"},
+                      "value": {"type": ["string", "number"], "description": "Low bound, included."},
+                      "highValue": {"type": ["string", "number"], "description": "High bound, included."}
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["propertyName", "operator", "values"],
+                    "properties": {
+                      "propertyName": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_]+$",
+                        "description": "Internal name of the property."
+                      },
+                      "operator": {"enum": ["IN", "NOT_IN"]},
+                      "values": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": ["string", "number"], "personal": true}
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["propertyName", "operator"],
+                    "properties": {
+                      "propertyName": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_]+$",
+                        "description": "Internal name of the property."
+                      },
+                      "operator": {"enum": ["HAS_PROPERTY", "NOT_HAS_PROPERTY"]}
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "description": "Filter groups, OR between groups, AND inside a group: [{filters: [{propertyName, operator, value}]}]."
+      },
       "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
       "max_pages": {
         "type": "integer",
@@ -163,6 +247,8 @@ export const searchObjects = defineFunction({
     }
   },
   examples: [
+    { title: "Customer contacts or open leads, newest first", input: {"object_type": "contacts", "properties": ["firstname", "lastname", "email", "lifecyclestage"], "filter_groups": [{"filters": [{"propertyName": "lifecyclestage", "operator": "EQ", "value": "customer"}]}, {"filters": [{"propertyName": "hs_lead_status", "operator": "IN", "values": ["NEW", "OPEN"]}, {"propertyName": "email", "operator": "HAS_PROPERTY"}]}], "sorts": [{"propertyName": "createdate", "direction": "DESCENDING"}]} },
+    { title: "Deals closing in a date range above an amount", input: {"object_type": "deals", "properties": ["dealname", "amount", "closedate"], "filter_groups": [{"filters": [{"propertyName": "closedate", "operator": "BETWEEN", "value": "1790812800000", "highValue": "1798761600000"}, {"propertyName": "amount", "operator": "GTE", "value": 10000}]}]} },
     { title: "Contacts matching a name, newest first", input: {"object_type": "contacts", "query": "dupont", "properties": ["firstname", "lastname", "email"], "sorts": [{"propertyName": "createdate", "direction": "DESCENDING"}]} },
     { title: "Companies matching a domain", input: {"object_type": "companies", "query": "example.test", "limit": 10} },
   ],
@@ -172,7 +258,7 @@ export const searchObjects = defineFunction({
     path: "/crm/v3/objects/{object_type}/search",
     pathParams: ["object_type"],
     query: {},
-    body: {"limit": "limit", "query": "query", "properties": "properties", "sorts": "sorts", "after": "after"},
+    body: {"limit": "limit", "query": "query", "filterGroups": "filter_groups", "properties": "properties", "sorts": "sorts", "after": "after"},
     headers: {},
   },
   pagination: { kind: "cursor", requestParam: "after", next: "paging.next.after", maxPages: 10 },
@@ -1048,7 +1134,7 @@ export const connector = defineConnector({
   name: "hubspot",
   label: "HubSpot",
   namespace: "hubspot",
-  version: "1.0.0",
+  version: "1.0.1",
   apiVersion: "v3",
   baseUrl: "https://api.hubapi.com",
   auth: {"kind": "bearer", "token": "access_token"},
