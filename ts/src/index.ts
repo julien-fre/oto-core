@@ -2,6 +2,7 @@
 import * as affinity from "./affinity"
 import * as aircall from "./aircall"
 import * as amplitude from "./amplitude"
+import * as apollo from "./apollo"
 import * as claap from "./claap"
 import * as elevenlabs from "./elevenlabs"
 import * as fod from "./fod"
@@ -36,6 +37,7 @@ import type { Connector } from "./types"
 export { affinity }
 export { aircall }
 export { amplitude }
+export { apollo }
 export { claap }
 export { elevenlabs }
 export { fod }
@@ -73,6 +75,7 @@ export const connectors: readonly Connector[] = [
   affinity.connector,
   aircall.connector,
   amplitude.connector,
+  apollo.connector,
   claap.connector,
   elevenlabs.connector,
   fod.connector,

@@ -71,7 +71,6 @@ without_description:
   anthropic: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   anthropic_batch: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   apify: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  apollo: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   ashby: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   attio: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   audio: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
