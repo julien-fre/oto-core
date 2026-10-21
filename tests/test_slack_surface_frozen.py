@@ -42,7 +42,7 @@ EXPECTED_MEMBERS = {
     'list_usergroups': "(self, include_users: 'bool' = False, include_disabled: 'bool' = False, include_count: 'bool' = False, as_user: 'Optional[bool]' = None) -> 'List[Dict[str, Any]]'",
     'open_dm': '(self, user: str, as_user: Optional[bool] = None) -> Dict[str, Any]',
     'post_ephemeral': '(self, channel: str, user: str, text: str = None, blocks: List[Dict] = None) -> Dict[str, Any]',
-    'post_message': '(self, channel: str, text: str = None, blocks: List[Dict] = None, thread_ts: str = None, as_user: Optional[bool] = None) -> Dict[str, Any]',
+    'post_message': '(self, channel: str, text: str = None, blocks: List[Dict] = None, thread_ts: str = None, as_user: Optional[bool] = None, unfurl_links: Optional[bool] = None, unfurl_media: Optional[bool] = None) -> Dict[str, Any]',
     'replies': '(self, channel: str, thread_ts: str, limit: int = 50, cursor: Optional[str] = None, oldest: Optional[str] = None, latest: Optional[str] = None, inclusive: bool = False, as_user: Optional[bool] = None) -> Dict[str, Any]',
     'search_messages': '(self, query: str, count: int = 20) -> Dict[str, Any]',
     'set_usergroup_users': "(self, usergroup: 'str', users: 'Iterable[str]', as_user: 'Optional[bool]' = None) -> 'Dict[str, Any]'",

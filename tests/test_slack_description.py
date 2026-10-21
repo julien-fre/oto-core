@@ -1,4 +1,5 @@
-"""La description `slack` 1.0.0 : celle du client existant (`oto.tools.slack`), sans rien y changer.
+"""La description `slack` 1.1.0 : celle du client existant (`oto.tools.slack`), sans rien y changer ; depuis 1.1.0,
+les deux drapeaux d'aperçu des liens de `post_message` (`unfurl_links`, `unfurl_media`).
 
 Une fonction par méthode du client, sous son nom, avec ses noms d'arguments et les clés que le client envoie à Slack
 (query d'un GET, corps JSON d'un POST). Un seul jeton, celui du bot : le format signe chaque appel d'un connecteur par un
@@ -98,7 +99,7 @@ VALUES = {
     "text": "The weekly report is ready.", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*Ready*"}}],
     "user": "U0000000001", "user_id": "U0000000001", "name": "white_check_mark", "email": "marie@example.test",
     "file_id": "F0000000001", "include_users": True, "include_disabled": True, "include_count": True,
-    "usergroup": "S0000000001",
+    "usergroup": "S0000000001", "unfurl_links": False, "unfurl_media": False,
 }
 
 
@@ -190,9 +191,9 @@ def _valid(schema: dict, value) -> bool:
     return jsonschema.Draft202012Validator(schema).is_valid(value)
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.1.0"
     check(description, SLACK)
 
 

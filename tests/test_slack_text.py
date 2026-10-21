@@ -13,7 +13,7 @@ from oto.tools.slack.text import chunk_text, escape_false_emoji_shortcodes
 def test_clock_time_followed_by_punctuation_colon_is_escaped():
     # Cas exact du signal #575 (session e836f3f7, 25/08) : le `:` de ponctuation
     # après "51" referme le `:` de "20:51" en un faux shortcode `:51:`.
-    text = "20:02 to 20:51: one Partoo voice asked"
+    text = "20:02 to 20:51: one Acme voice asked"
     out = escape_false_emoji_shortcodes(text)
     assert ":51:" not in out              # le motif qui déclenchait le faux shortcode a disparu
     assert "51" in out                    # les chiffres ne sont plus avalés
@@ -21,7 +21,7 @@ def test_clock_time_followed_by_punctuation_colon_is_escaped():
 
 
 def test_escaped_text_is_visually_identical_once_zero_width_space_stripped():
-    text = "20:02 to 20:51: one Partoo voice asked"
+    text = "20:02 to 20:51: one Acme voice asked"
     out = escape_false_emoji_shortcodes(text)
     assert out.replace("\u200b", "") == text
 

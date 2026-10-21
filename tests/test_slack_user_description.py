@@ -1,4 +1,5 @@
-"""La description `slack_user` 1.0.0 : le client existant (`oto.tools.slack`) sur le jeton d'utilisateur, sans rien y changer.
+"""La description `slack_user` 1.1.0 : le client existant (`oto.tools.slack`) sur le jeton d'utilisateur, sans rien y changer ;
+depuis 1.1.0, les deux drapeaux d'aperçu des liens de `post_message` (`unfurl_links`, `unfurl_media`).
 
 Un second connecteur plutôt qu'un second jeton dans le format (décidé par Alexis le 2026-10-22) : `slack` décrit le
 jeton du bot, `slack_user` celui de la personne. Le client garde les deux et choisit l'un par appel ; chaque fonction
@@ -71,7 +72,7 @@ VALUES = {
     "cursor": "dXNlcjpVMEc5V0ZYTlo=", "oldest": "1767225600", "latest": "1767312000.000200", "inclusive": True,
     "thread_ts": TS, "ts": TS, "text": "Thanks, I'll look at it.", "user": "U0000000001",
     "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*Thanks*"}}], "name": "white_check_mark",
-    "file_id": "F0000000001",
+    "file_id": "F0000000001", "unfurl_links": False, "unfurl_media": False,
 }
 
 
@@ -166,9 +167,9 @@ def _valid(schema: dict, value) -> bool:
     return jsonschema.Draft202012Validator(schema).is_valid(value)
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
     description = _load(SLACK_USER)
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.1.0"
     check(description, SLACK_USER)
 
 

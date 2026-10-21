@@ -206,7 +206,7 @@ export const postMessage = defineFunction({
   connector: "slack",
   class: "sensitive",
   act: true,
-  description: "Post a message to a channel or DM, under the Slack app's name, or reply in a thread (thread_ts, the parent's ts). text is Slack mrkdwn, 4,000 characters at most: split a longer text yourself, the later parts as replies under the first. Slack reads a number between two colons (20:51:, 12:30:00) as an emoji code and swallows it: such a text is refused, write the time without seconds and with no colon right after it. blocks (Block Kit) go as given, text then being their fallback. The answer gives ts, the anchor of a reply.",
+  description: "Post a message to a channel or DM, under the Slack app's name, or reply in a thread (thread_ts, the parent's ts). text is Slack mrkdwn, 4,000 characters at most: split a longer text yourself, the later parts as replies under the first. Slack reads a number between two colons (20:51:, 12:30:00) as an emoji code and swallows it: such a text is refused, write the time without seconds and with no colon right after it. blocks (Block Kit) go as given, text then being their fallback. unfurl_links and unfurl_media false post it without link previews. The answer gives ts, the anchor of a reply.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -233,12 +233,21 @@ export const postMessage = defineFunction({
         "personal": true,
         "description": "Block Kit blocks, sent as given."
       },
-      "thread_ts": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "description": "Message ts (1767225600.000100)."}
+      "thread_ts": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "description": "Message ts (1767225600.000100)."},
+      "unfurl_links": {
+        "type": "boolean",
+        "description": "false: no preview of the text links under the message; true: ask for it. Absent: Slack's default."
+      },
+      "unfurl_media": {
+        "type": "boolean",
+        "description": "false: no preview of the media links (images, videos). Absent: Slack's default."
+      }
     }
   },
   examples: [
     { title: "A message in a channel", input: {"channel": "C0000000001", "text": "The weekly report is ready."} },
     { title: "A reply in a thread", input: {"channel": "C0000000001", "text": "Done, see the summary above.", "thread_ts": "1767225600.000100"} },
+    { title: "A link without its preview", input: {"channel": "C0000000001", "text": "Release notes: https://example.com/release-notes", "unfurl_links": false, "unfurl_media": false} },
   ],
   refusals: [],
   request: {
@@ -246,7 +255,7 @@ export const postMessage = defineFunction({
     path: "/chat.postMessage",
     pathParams: [],
     query: {},
-    body: {"channel": "channel", "text": "text", "blocks": "blocks", "thread_ts": "thread_ts"},
+    body: {"channel": "channel", "text": "text", "blocks": "blocks", "thread_ts": "thread_ts", "unfurl_links": "unfurl_links", "unfurl_media": "unfurl_media"},
     headers: {},
   },
   cost: { per: "request" },
@@ -569,7 +578,7 @@ export const connector = defineConnector({
   name: "slack",
   label: "Slack",
   namespace: "slack",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "Web API",
   baseUrl: "https://slack.com/api",
   auth: {"kind": "bearer", "token": "bot_token"},

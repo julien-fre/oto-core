@@ -199,6 +199,8 @@ class SlackClient(_UsergroupsMixin):
         blocks: List[Dict] = None,
         thread_ts: str = None,
         as_user: Optional[bool] = None,
+        unfurl_links: Optional[bool] = None,
+        unfurl_media: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         Send a message to a channel or DM. A bare clock time or any other
@@ -220,10 +222,19 @@ class SlackClient(_UsergroupsMixin):
             thread_ts: Thread timestamp for reply
             as_user: True = post via user token (appears as the human user).
                 False = bot token (appears as the bot app). None = client default.
+            unfurl_links: Slack's `unfurl_links`: False = no preview of the
+                text links under the message, True = previews asked for.
+                None = not sent, Slack's default. Sent on every part when split.
+            unfurl_media: Slack's `unfurl_media`: False = no preview of the
+                media links. None = not sent, Slack's default. Sent on every
+                part when split.
 
         Returns:
             Message data with `ts` — plus `ts_all`/`split_into` when split.
         """
+        unfurl = {key: value for key, value in (("unfurl_links", unfurl_links),
+                                                 ("unfurl_media", unfurl_media))
+                  if value is not None}
         if blocks or not text or len(text) <= _MAX_TEXT_LEN:
             data = {"channel": channel}
             if text:
@@ -232,6 +243,7 @@ class SlackClient(_UsergroupsMixin):
                 data["blocks"] = blocks
             if thread_ts:
                 data["thread_ts"] = thread_ts
+            data.update(unfurl)
             return self._request("POST", "chat.postMessage", as_user=as_user, json=data)
 
         parts = _chunk_text(text)
@@ -243,6 +255,7 @@ class SlackClient(_UsergroupsMixin):
             data = {"channel": channel, "text": _escape_false_emoji_shortcodes(part)}
             if reply_to:
                 data["thread_ts"] = reply_to
+            data.update(unfurl)
             resp = self._request("POST", "chat.postMessage", as_user=as_user, json=data)
             ts_all.append(resp.get("ts"))
             if i == 0:

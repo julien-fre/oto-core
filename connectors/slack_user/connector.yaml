@@ -28,6 +28,8 @@
 # two colons that Slack would read as an emoji code, except :100: and :1234:, and splits a text over 4,000 characters.
 # The description refuses such a text (pattern) and caps it at 4,000 characters (maxLength), as connectors/slack does;
 # under these bounds the client sends exactly what the host sends. update_message does not preprocess.
+# Link previews (1.1.0): unfurl_links and unfurl_media go to chat.postMessage as given, only when the call gives
+# them, as the client sends them on every part it splits; absent, Slack's default holds, unchanged for oto 1.
 #
 # Pagination: conversations.history by cursor (response_metadata.next_cursor, has_more), declared; not
 # conversations.replies, which repeats the thread's parent first on every page. search.messages pages by number, and
@@ -52,7 +54,7 @@ connector:
   name: slack_user
   label: Slack (personal token)
   namespace: slack_user
-  version: 1.0.0
+  version: 1.1.0
   api_version: Web API
   base_url: https://slack.com/api
   auth: { kind: bearer, token: user_token }
@@ -236,7 +238,8 @@ functions:
       parts as replies under the first. Slack reads a number between two colons
       (20:51:, 12:30:00) as an emoji code and swallows it: such a text is refused,
       write the time without seconds and with no colon right after it. blocks go
-      as given. The answer gives ts, the anchor of a reply.
+      as given. unfurl_links and unfurl_media false post
+      it without link previews. The answer gives ts, the anchor of a reply.
     input:
       type: object
       additionalProperties: false
@@ -258,13 +261,20 @@ functions:
           personal: true
           description: "Block Kit blocks, sent as given."
         thread_ts: *message_ts
+        unfurl_links:
+          type: boolean
+          description: "false: no preview of the text links under the message; true: ask for it. Absent: Slack's default."
+        unfurl_media:
+          type: boolean
+          description: "false: no preview of the media links (images, videos). Absent: Slack's default."
     examples:
       - { title: A message in a DM, input: { channel: D0000000001, text: "Thanks, I'll look at it this afternoon." } }
       - { title: A reply in a thread, input: { channel: C0000000001, text: "Agreed, let's ship it.", thread_ts: "1767225600.000100" } }
+      - { title: A link without its preview, input: { channel: C0000000001, text: "Release notes: https://example.com/release-notes", unfurl_links: false, unfurl_media: false } }
     call:
       method: POST
       path: /chat.postMessage
-      body: { channel: channel, text: text, blocks: blocks, thread_ts: thread_ts }
+      body: { channel: channel, text: text, blocks: blocks, thread_ts: thread_ts, unfurl_links: unfurl_links, unfurl_media: unfurl_media }
     cost: *request
     confirm: { summary: "Post a message to Slack conversation {channel} under the person's own name, seen by its members." }
 
