@@ -25,6 +25,7 @@ import * as pappers from "./pappers"
 import * as pennylane from "./pennylane"
 import * as pennylaneFirm from "./pennylane_firm"
 import * as sellsy from "./sellsy"
+import * as serper from "./serper"
 import * as sivan from "./sivan"
 import * as typeform from "./typeform"
 import * as wttjAts from "./wttj_ats"
@@ -57,6 +58,7 @@ export { pappers }
 export { pennylane }
 export { pennylaneFirm }
 export { sellsy }
+export { serper }
 export { sivan }
 export { typeform }
 export { wttjAts }
@@ -92,6 +94,7 @@ export const connectors: readonly Connector[] = [
   pennylane.connector,
   pennylaneFirm.connector,
   sellsy.connector,
+  serper.connector,
   sivan.connector,
   typeform.connector,
   wttjAts.connector,

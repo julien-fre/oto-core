@@ -140,7 +140,6 @@ without_description:
   resend: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   salesforce: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   serpapi: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  serper: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   signwell: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   silae: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   sirene: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
