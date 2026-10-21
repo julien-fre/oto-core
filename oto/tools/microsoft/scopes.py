@@ -5,7 +5,7 @@ A consumer asks for the union of the surfaces it needs at sign-in
 covers it: `short(FILES) <= normalize(grant.scope)`.
 
 All the scopes below are consentable by the person themselves, except
-`TEAMS_ADMIN`, which requires a tenant administrator (see
+`TEAMS_ADMIN` and `DIRECTORY`, which require a tenant administrator (see
 `auth.admin_consent_url`).
 """
 from __future__ import annotations
@@ -26,6 +26,10 @@ TEAMS = (GRAPH + "Team.ReadBasic.All", GRAPH + "Channel.ReadBasic.All",
 #: OneNote: the person's notebooks and those she can reach in groups and SharePoint
 #: sites — read, create and change pages. No admin consent.
 NOTES = (GRAPH + "Notes.ReadWrite.All",)
+#: The organization's directory, READ: users and licences, groups and members, sign-ins,
+#: SharePoint sites. Requires a tenant administrator's consent.
+DIRECTORY = (GRAPH + "Directory.Read.All", GRAPH + "AuditLog.Read.All",
+             GRAPH + "Sites.Read.All")
 #: Reading channel messages: requires a tenant administrator's consent.
 TEAMS_ADMIN = (GRAPH + "ChannelMessage.Read.All",)
 #: On refresh, ask for everything already consented (`.default`) rather than a list:
@@ -44,7 +48,8 @@ def _strip(scope: str) -> str:
 
 
 _CANONICAL = {_strip(s).lower(): _strip(s)
-              for group in (IDENTITY, FILES, MAIL, CALENDAR, TEAMS, NOTES, TEAMS_ADMIN, REFRESH)
+              for group in (IDENTITY, FILES, MAIL, CALENDAR, TEAMS, NOTES, DIRECTORY, TEAMS_ADMIN,
+                             REFRESH)
               for s in group}
 _CANONICAL.update({s: s for s in OIDC})
 

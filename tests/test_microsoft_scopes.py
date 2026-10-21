@@ -34,3 +34,4 @@ def test_admin_a_part():
     every_user = (scopes.IDENTITY + scopes.FILES + scopes.MAIL + scopes.CALENDAR
                   + scopes.TEAMS + scopes.NOTES)
     assert not set(scopes.TEAMS_ADMIN) & set(every_user)
+    assert not {scopes.GRAPH + "Directory.Read.All", scopes.GRAPH + "AuditLog.Read.All"} & set(every_user)
