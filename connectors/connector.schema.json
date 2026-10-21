@@ -834,6 +834,9 @@
               "items": { "$ref": "#/$defs/strip_path" }
             },
             "projection": { "description": "Keys kept.", "type": "array", "items": { "$ref": "#/$defs/text" } },
+            "sample": {
+              "description": "A made-up raw answer of the API, a guard of the fabrique only: required when a path of strip holds a dot, refused otherwise; each path of strip must reach a key in it (rule 19). Made-up values only, addresses in domains reserved for tests (example.test). Never a contract of the answer: not validated at run time, not documentation, not a source of types, never in the generated output."
+            },
             "file": { "$ref": "#/$defs/output_file" }
           }
         },

@@ -2,13 +2,15 @@
 
 Le fichier porte un bloc `connector` synthétique, des cas et des sorties refusées. Un cas porte sa fonction en forme
 source (`call`, `output` avec `strip`), la réponse JSON simulée de l'API et la sortie taillée qu'en reçoit l'agent
-(`shaped`) ; une sortie refusée porte un bloc `output`, le chemin que le refus nomme et l'un des trois refus de la règle
-18. La fabrique assemble les fonctions des cas en une description, contrôlée par le schéma et les règles de toute
+(`shaped`) ; une fonction qui retire un chemin à points porte son exemple de réponse (`output.sample`, règle 19), que la
+sortie TypeScript ne porte pas. Une sortie refusée porte un bloc `output`, le chemin que le refus nomme (`null` pour un
+refus de l'exemple lui-même) et un refus de la règle 18 ou de la règle 19. La fabrique assemble les fonctions des cas en une description, contrôlée par le schéma et les règles de toute
 description, vérifie que chaque sortie refusée l'est bien, avec ce code et ce chemin, puis convertit la description
 comme une description :
 
-- en TypeScript, `ts/src/strip-cases.ts` : le module de ce connecteur (`connector_module`), les trois refus, la liste
-  des cas et celle des sorties refusées, que les tests du paquet de l'hôte jouent contre son moteur. Des données de
+- en TypeScript, `ts/src/strip-cases.ts` : le module de ce connecteur (`connector_module`), les trois refus de la
+  règle 18, la liste des cas et celle des sorties refusées par la règle 18 (celles de la règle 19 jugent l'exemple, que
+  l'hôte ne voit jamais : elles ne sortent pas), que les tests du paquet de l'hôte jouent contre son moteur. Des données de
   test : l'index ne le réexporte pas, le paquet `ts/` l'expose sous `./strip-cases` ;
 - en Python, rien : la lib n'applique la sortie d'aucune description. `tests/test_strip_cases.py` joue les cas contre
   une référence écrite dans le test.
@@ -25,8 +27,8 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from .cases import case_functions
-from .descriptions import (CONNECTORS, REPO, STRIP_REFUSALS, Description, DescriptionError, check_rules, check_schema,
-                           strip_refusal)
+from .descriptions import (CONNECTORS, REPO, SAMPLE_REFUSALS, STRIP_REFUSALS, Description, DescriptionError,
+                           check_rules, check_schema, output_refusal)
 from .typescript import camel, connector_module, js, js_block
 
 CASES = CONNECTORS / "_cases" / "strip.yaml"
@@ -68,8 +70,8 @@ SCHEMA = {
                     "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
                     "output": {"type": "object", "required": ["strip"],
                                "properties": {"strip": {"type": "array", "items": {"type": "string"}}}},
-                    "path": {"type": "string"},
-                    "refusal": {"enum": list(REFUSALS)},
+                    "path": {"type": ["string", "null"]},
+                    "refusal": {"enum": list(REFUSALS + SAMPLE_REFUSALS)},
                 },
             },
         },
@@ -108,14 +110,14 @@ def _check_case(case: dict, where: str) -> None:
 
 
 def _check_refused(loaded: StripCases, refused: dict, where: str) -> None:
-    """Une sortie refusée l'est par la règle 18, avec son code et son chemin ; jamais par une autre règle."""
+    """Une sortie refusée l'est par la règle 18 ou 19, avec son code et son chemin ; jamais par une autre règle."""
     at = f"{where}: refused output {refused['name']}"
-    expected = strip_refusal(refused["output"]["strip"])
+    expected = output_refusal(refused["output"])
     try:
         check_rules(carrying(loaded, refused["output"]), where)
     except DescriptionError as error:
         if expected is None:
-            raise DescriptionError(f"{at} is refused by another rule than 18: {error}") from None
+            raise DescriptionError(f"{at} is refused by another rule than 18 or 19: {error}") from None
     else:
         raise DescriptionError(f"{at} is accepted by the fabrique")
     code, path, _ = expected
@@ -207,7 +209,7 @@ def typescript_source(strip_cases: StripCases) -> str:
     if head == module.source:
         raise DescriptionError(f"{source}: the generated module no longer imports from ./types as expected")
     cases = ",\n".join(_case_source(case) for case in strip_cases.cases)
-    refused = ",\n".join(_refused_source(entry) for entry in strip_cases.refused)
+    refused = ",\n".join(_refused_source(entry) for entry in strip_cases.refused if entry["refusal"] in REFUSALS)
     return (head + CASE_TYPE.format(refusals=js(list(REFUSALS)))
             + "\n/** The common cases of output.strip, in the order of the file. */\n"
             + "export const stripCases: readonly StripCase[] = [\n" + cases + ",\n]\n"

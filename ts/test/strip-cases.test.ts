@@ -34,6 +34,8 @@ describe("strip cases", () => {
   it("should carry dotted paths as declared", () => {
     const getCall = connector.functions.find((fn) => fn.name === "strip_cases.get_call")
     expect(getCall?.output?.strip).toEqual(["call.recording", "call.voicemail"])
+    // `output.sample` est une garde de la fabrique : jamais dans une définition générée.
+    for (const fn of connector.functions) expect(Object.keys(fn.output ?? {})).not.toContain("sample")
   })
 
   it.each(stripRefusedOutputs.map((r) => [r.name, r] as const))("%s: one refusal, on a path it declares", (_name, r) => {

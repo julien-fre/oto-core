@@ -835,6 +835,16 @@ def test_strip_base_is_valid(strip):
     _validate(description)
 
 
+@pytest.mark.parametrize("sample", [{"company": {"pdf_link": "https://files.example.test/e.pdf"}}, [], None, "x"],
+                         ids=["object", "list", "null", "text"])
+def test_sample_is_any_json(sample):
+    """`output.sample` : n'importe quel JSON pour le schéma ; ce qu'il doit porter est la règle 19 de la fabrique."""
+    description = _sellsy()
+    _strip(description, ["company.pdf_link"])
+    description["functions"][1]["output"]["sample"] = sample
+    _validate(description)
+
+
 @pytest.mark.parametrize("strip", [[], [""], [".company"], ["company."], ["company..pdf_link"], ["."],
                                    ["pdf_link", "pdf_link"], "pdf_link"],
                          ids=["empty", "empty_path", "leading_dot", "trailing_dot", "empty_segment", "only_a_dot",

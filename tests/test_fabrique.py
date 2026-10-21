@@ -13,6 +13,7 @@ import re
 import pytest
 import yaml
 
+from fabrique import python
 from fabrique.build import generate, stale
 from fabrique.descriptions import CONNECTORS, DescriptionError, check, served
 from fabrique.typescript import NotGenerated, connector_module, function_source, js_block
@@ -97,9 +98,12 @@ AIRCALL = CONNECTORS / "aircall" / "connector.yaml"
 
 
 @pytest.mark.parametrize("path, function, output", [
-    (AIRCALL, "get_call", {"strip": ["call.recording", "call.voicemail"]}),
+    (AIRCALL, "get_call", {"strip": ["call.recording", "call.voicemail"],
+                           "sample": {"call": {"id": 1, "recording": "https://files.example.test/r.mp3",
+                                               "voicemail": "https://files.example.test/v.mp3"}}}),
     (AIRCALL, "list_calls", {"items": "calls", "strip": ["recording", "voicemail"]}),
-    (TYPEFORM_STRIP, "get_webhook", {"strip": ["secret", "secret_hint", "config.secret"]}),
+    (TYPEFORM_STRIP, "get_webhook", {"strip": ["secret", "secret_hint", "config.secret"],
+                                     "sample": {"secret": "s-0", "secret_hint": "s", "config": {"secret": "s-0"}}}),
 ], ids=["wrapped_answer", "relative_to_items", "prefix_of_a_key"])
 def test_strip_paths_pass_and_are_carried_as_is(path, function, output):
     description = _load(path)
@@ -107,6 +111,28 @@ def test_strip_paths_pass_and_are_carried_as_is(path, function, output):
     module = connector_module(check(description, path))
     strip = ", ".join(f'"{key}"' for key in output["strip"])
     assert f"strip: [{strip}]" in module.source
+    assert "sample" not in module.source and "files.example.test" not in module.source
+
+
+def test_sample_reaches_neither_output():
+    description = _load(AIRCALL)
+    _fn(description, "get_call")["output"] = {
+        "strip": ["call.recording"], "sample": {"call": {"recording": "https://files.example.test/r.mp3"}}}
+    checked = check(description, AIRCALL)
+    assert "files.example.test" not in connector_module(checked).source
+    assert "files.example.test" not in python.python_source([checked])
+
+
+@pytest.mark.parametrize("output, at, code", [
+    ({"strip": ["call.recording"]}, "output.strip 'call.recording'", "strip_path_unsampled"),
+    ({"strip": ["call.recording"], "sample": {"call": {"id": 1}}}, "output.strip 'call.recording'", "strip_path_absent"),
+    ({"strip": ["recording"], "sample": {"recording": "x"}}, "output.sample", "strip_sample_unused"),
+], ids=["unsampled", "absent", "unused"])
+def test_sample_rule_refuses(output, at, code):
+    description = _load(AIRCALL)
+    _fn(description, "get_call")["output"] = output
+    with pytest.raises(DescriptionError, match=re.escape(f"function get_call: {at}: {code}")):
+        check(description, AIRCALL)
 
 
 @pytest.mark.parametrize("strip, refused, code", [

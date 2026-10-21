@@ -3,8 +3,9 @@
 La lib n'applique la sortie d'aucune description (ni `items`, ni `strip`, ni `projection`) : seul le moteur du paquet de
 l'hôte le fait. Les cas se jouent donc ici contre une référence écrite dans le test, qui dit la sémantique du format
 (« Retirer de la sortie ») ; le paquet de l'hôte joue les mêmes cas, sortis par la fabrique dans
-`ts/src/strip-cases.ts`, contre son moteur. Les sorties refusées le sont par la fabrique (règle 18), avec leur code et
-le chemin qu'elles nomment.
+`ts/src/strip-cases.ts`, contre son moteur. Les sorties refusées le sont par la fabrique (règles 18 et 19), avec leur
+code et le chemin qu'elles nomment ; celles de la règle 19 (l'exemple de réponse, `output.sample`) ne valent que pour la
+fabrique et ne sortent pas en TypeScript.
 """
 from __future__ import annotations
 
@@ -70,12 +71,13 @@ def test_strip_case(case):
 @pytest.mark.parametrize("refused", LOADED.refused, ids=[refused["name"] for refused in LOADED.refused])
 def test_refused_output_is_refused_by_the_fabrique(refused):
     description = strip_cases.carrying(LOADED, refused["output"])
-    expected = f"function {strip_cases.CARRIER}: output.strip {refused['path']!r}: {refused['refusal']}"
+    at = "output.sample" if refused["path"] is None else f"output.strip {refused['path']!r}"
+    expected = f"function {strip_cases.CARRIER}: {at}: {refused['refusal']}"
     with pytest.raises(DescriptionError, match=re.escape(expected)):
         check_rules(description, "connectors/_cases/strip.yaml")
 
 
-@pytest.mark.parametrize("refused", [r for r in LOADED.refused if r["refusal"] != "strip_path_overlaps"],
+@pytest.mark.parametrize("refused", [r for r in LOADED.refused if r["refusal"] in ("strip_path_malformed", "strip_path_twice")],
                          ids=lambda r: r["name"])
 def test_malformed_or_twice_is_refused_by_the_schema_too(refused):
     description = strip_cases.carrying(LOADED, refused["output"])
@@ -83,11 +85,44 @@ def test_malformed_or_twice_is_refused_by_the_schema_too(refused):
 
 
 def test_cases_cover_every_refusal():
-    assert sorted({r["refusal"] for r in LOADED.refused}) == sorted(strip_cases.REFUSALS)
+    assert sorted({r["refusal"] for r in LOADED.refused}) == sorted(strip_cases.REFUSALS + strip_cases.SAMPLE_REFUSALS)
+
+
+def test_every_dotted_case_carries_a_sample_that_its_paths_designate():
+    for case in LOADED.cases:
+        output = case["function"]["output"]
+        assert ("sample" in output) == any("." in path for path in output["strip"]), case["name"]
+
+
+@pytest.mark.parametrize("value", [
+    "https://files.example.test/r.mp3", "https://api.example.com/x", "https://a.b.example/x", "http://h.invalid",
+    "https://localhost/x", "someone@example.test", "plain text", "s-0",
+], ids=["test", "example_com", "example_tld", "invalid", "localhost", "mail_test", "text", "identifier"])
+def test_sample_admits_reserved_addresses(value):
+    description = strip_cases.carrying(LOADED, {"strip": ["call.recording"], "sample": {"call": {"recording": value}}})
+    check_rules(description, "connectors/_cases/strip.yaml")
+
+
+@pytest.mark.parametrize("value", [
+    "https://files.not-reserved.zz/r.mp3", "https://example.test.zz/x", "ftp://files.not-reserved.zz",
+    "someone@not-reserved.zz", "see https://files.example.test and https://other.zz/x",
+], ids=["host", "reserved_as_a_label", "other_scheme", "mail", "second_address"])
+def test_sample_refuses_a_foreign_address_without_echoing_it(value):
+    description = strip_cases.carrying(LOADED, {"strip": ["call.recording"], "sample": {"call": {"recording": value}}})
+    with pytest.raises(DescriptionError, match=re.escape("output.sample: strip_sample_foreign_address")) as raised:
+        check_rules(description, "connectors/_cases/strip.yaml")
+    assert "zz" not in str(raised.value) and "call.recording" in str(raised.value)
+
+
+def test_sample_address_in_a_key_is_judged_too():
+    description = strip_cases.carrying(
+        LOADED, {"strip": ["call.recording"], "sample": {"call": {"recording": "r", "https://files.not-reserved.zz": 1}}})
+    with pytest.raises(DescriptionError, match="strip_sample_foreign_address"):
+        check_rules(description, "connectors/_cases/strip.yaml")
 
 
 def test_refused_output_that_the_fabrique_accepts_is_refused_at_load(tmp_path):
-    text = strip_cases.CASES.read_text(encoding="utf-8").replace("strip: [call..recording]", "strip: [call.recording]", 1)
+    text = strip_cases.CASES.read_text(encoding="utf-8").replace("strip: [call..recording]", "strip: [secret]", 1)
     path = tmp_path / "strip.yaml"
     path.write_text(text, encoding="utf-8")
     with pytest.raises(DescriptionError, match="refused output empty_segment is accepted by the fabrique"):

@@ -101,8 +101,15 @@ pas dire :
 18. retirer de la sortie (`output.strip`) : chaque entrée est un chemin, des clés non vides séparées par des points
    (`strip_path_malformed`), déclaré une fois (`strip_path_twice`), jamais sous un autre chemin de la liste, qui le
    retire déjà en entier (`strip_path_overlaps`). Le schéma dit déjà la forme et le doublon ; la règle les redit
-   avec leur code, le même que celui des cas communs (`connectors/_cases/strip.yaml`). Qu'un chemin désigne une
-   clé de la réponse ne se juge pas : le format ne porte aucune forme de la réponse avant `strip`.
+   avec leur code, le même que celui des cas communs (`connectors/_cases/strip.yaml`) ;
+19. l'exemple de réponse (`output.sample`), une garde de la fabrique seulement : exigé dès qu'un chemin de `strip`
+   porte un point (`strip_path_unsampled`), refusé sinon (`strip_sample_unused`) ; il ne contient que des valeurs
+   inventées, aucune adresse (`scheme://hôte`, courriel) hors des domaines réservés aux tests — `.test`,
+   `.example`, `.invalid`, `localhost`, `example.com`, `.net`, `.org` — ni identifiants dans une adresse
+   (`strip_sample_foreign_address`, le message dit où, jamais la valeur) ; chaque chemin de `strip` y désigne une
+   clé, dans au moins un élément, relatif à `items` et à travers les listes comme à l'exécution
+   (`strip_path_absent`). L'exemple ne sort ni en TypeScript ni en Python : ni contrat de réponse, ni validation à
+   l'exécution, ni documentation, ni source de types.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -525,15 +532,106 @@ def strip_refusal(paths: list[str]) -> tuple[str, str, str] | None:
     return None
 
 
+# Les refus de la règle 19 : l'exemple de réponse, une garde de la fabrique seulement (l'hôte ne le voit jamais).
+SAMPLE_REFUSALS = ("strip_path_absent", "strip_path_unsampled", "strip_sample_foreign_address", "strip_sample_unused")
+# Une adresse dans un texte : `scheme://autorité`, ou un courriel ; seuls les domaines réservés aux tests y sont admis.
+ADDRESS = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://([^\s/?#]*)")
+MAIL = re.compile(r"[^\s@/:]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
+RESERVED_TLDS = ("test", "example", "invalid", "localhost")
+RESERVED_DOMAINS = ("example.com", "example.net", "example.org")
+
+
+def _reserved(host: str) -> bool:
+    host = host.lower().strip("[]").rstrip(".")
+    return (host == "localhost" or host.rsplit(".", 1)[-1] in RESERVED_TLDS
+            or any(host == domain or host.endswith("." + domain) for domain in RESERVED_DOMAINS))
+
+
+def _foreign(text: str) -> bool:
+    """Un texte qui nomme une adresse hors des domaines réservés, ou des identifiants dans une adresse."""
+    for authority in ADDRESS.findall(text):
+        if "@" in authority or not _reserved(authority.rsplit(":", 1)[0] if authority.count(":") == 1 else authority):
+            return True
+    return any(not _reserved(domain) for domain in MAIL.findall(text))
+
+
+def _texts(value: object, at: str):
+    """Chaque texte d'un JSON (clé ou valeur), avec sa place (`call.recording`, `calls.0`)."""
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            place = f"{at}.{key}" if at else str(key)
+            yield place, str(key)
+            yield from _texts(inner, place)
+    elif isinstance(value, list):
+        for index, inner in enumerate(value):
+            yield from _texts(inner, f"{at}.{index}" if at else str(index))
+    elif isinstance(value, str):
+        yield at or "(root)", value
+
+
+def _value_at(value: object, path: str) -> object:
+    """La valeur au chemin pointé de `items`, un index de liste en nombre (la lecture de l'exécution)."""
+    for key in path.split("."):
+        if isinstance(value, list) and key.isdigit():
+            value = value[int(key)] if int(key) < len(value) else None
+        elif isinstance(value, dict):
+            value = value.get(key)
+        else:
+            return None
+    return value
+
+
+def _designates(value: object, keys: list[str]) -> bool:
+    """Le chemin atteint sa clé dans au moins un élément : une liste se traverse, comme à l'exécution."""
+    if isinstance(value, list):
+        return any(_designates(element, keys) for element in value)
+    if not isinstance(value, dict) or keys[0] not in value:
+        return False
+    return len(keys) == 1 or _designates(value[keys[0]], keys[1:])
+
+
+def sample_refusal(output: dict) -> tuple[str, str | None, str] | None:
+    """Le premier défaut de l'exemple de réponse, `(code, chemin ou None, raison)`, ou `None` : la règle 19."""
+    strip = output.get("strip") or []
+    dotted = [path for path in strip if "." in path]
+    if "sample" not in output:
+        if dotted:
+            return ("strip_path_unsampled", dotted[0],
+                    "a dotted path needs output.sample, a made-up raw answer it is judged against")
+        return None
+    if not dotted:
+        return ("strip_sample_unused", None, "a sample serves only to judge the dotted paths of strip, and none is declared")
+    sample = output["sample"]
+    for place, text in _texts(sample, ""):
+        if _foreign(text):
+            return ("strip_sample_foreign_address", None,
+                    f"the text at {place!r} names an address outside the domains reserved for tests (.test, .example, "
+                    ".invalid, localhost, example.com) or credentials in an address: a sample holds made-up values only")
+    root = sample
+    if "items" in output:
+        root = _value_at(sample, output["items"])
+        if not isinstance(root, list):
+            return ("strip_path_absent", strip[0], f"output.items {output['items']!r} is not a list in output.sample")
+    for path in strip:
+        if not _designates(root, path.split(".")):
+            where = "each element of items" if "items" in output else "output.sample"
+            return ("strip_path_absent", path, f"designates nothing in {where}")
+    return None
+
+
+def output_refusal(output: dict) -> tuple[str, str | None, str] | None:
+    """Le premier défaut de `strip` et de son exemple : la règle 18, puis la 19."""
+    return (strip_refusal(output["strip"]) if output.get("strip") else None) or sample_refusal(output)
+
+
 def check_strip(function: dict, where: str) -> None:
-    """Règle 18 : chaque chemin de `strip` est bien formé, déclaré une fois, sous aucun autre."""
-    strip = (function.get("output") or {}).get("strip")
-    if strip is None:
-        return
-    refusal = strip_refusal(strip)
+    """Règles 18 et 19 : chaque chemin de `strip` est bien formé, déclaré une fois, sous aucun autre, et un chemin à
+    points désigne une clé de l'exemple de réponse, qui n'est là que pour lui."""
+    refusal = output_refusal(function.get("output") or {})
     if refusal is not None:
         code, path, reason = refusal
-        raise DescriptionError(f"{where}: function {function['name']}: output.strip {path!r}: {code}: {reason}")
+        at = "output.sample" if path is None else f"output.strip {path!r}"
+        raise DescriptionError(f"{where}: function {function['name']}: {at}: {code}: {reason}")
 
 
 # Les mots d'un JSON Schema dont la valeur est un schéma, une liste de schémas, ou des schémas par nom : la donnée
