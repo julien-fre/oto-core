@@ -6,13 +6,24 @@
 # search_conversation_items, get_conversation_item, get_conversation_items) strip recording_url,
 # recording_download_url (signed, 48 hours) and its expiry; the audio comes as a file (get_call_recording), in place
 # of get_recording_link, which returned a signed link (60 minutes) that plays without an Allo login.
+# 1.2.0: the whole team API, the Partner API aside (/v2/api/partner/*, a reseller key, not a team key): custom fields
+# of people and companies, tag and note edits, discussion threads, summary templates, webhooks, the call flow and the AI
+# receptionist of a line, calendars and voices, named Power Dialer queues and sessions. Deletes, publishing a call flow
+# and switching the receptionist are sensitive. Threads and queues name a call by its id, never embed it: nothing to
+# strip; the shape of a dialer session is unpublished, and a strip follows if it carries a call. list_voices strips
+# demo_url, the address of a voice's audio sample: no audio address reaches the agent. A dialer session's answer is
+# unpublished and still to be checked. No secret reaches the agent either: every answer that carries a webhook's
+# signing_secret (list_webhooks, get_webhook, create_webhook, update_webhook) strips it; it is read in Allo.
+# The named queues (/v2/api/dialing-queues, /{queue_id}, /{queue_id}/numbers, /{queue_id}/assignee aside), DELETE
+# /current and the sessions are served to the key (get_me) but absent from the OpenAPI and the reference: their
+# arguments mirror those of /current, without user_id and email on a queue named by id.
 # Lists are paged by number from 1 and answer pagination {page, size, total_count, total_pages, has_more}, without the
 # next page number that the format's pagination reads: no pagination is declared, the agent passes page itself.
 connector:
   name: allo
   label: Allo
   namespace: allo
-  version: 1.1.0
+  version: 1.2.0
   api_version: v2 (SMS on v1)
   base_url: https://api.withallo.com
   auth:
@@ -69,6 +80,20 @@ functions:
       - title: The active members
         input: { status: ACTIVE }
     call: { method: GET, path: /v2/api/users, query: { role: role, status: status } }
+
+  - name: get_user
+    class: read
+    description: One member of the team (id, name, email, role, status).
+    input:
+      type: object
+      additionalProperties: false
+      required: [user_id]
+      properties:
+        user_id: { type: string, minLength: 1, description: "usr-* id, from list_users." }
+    examples:
+      - title: A member
+        input: { user_id: usr-abc123 }
+    call: { method: GET, path: "/v2/api/users/{user_id}" }
 
   - name: list_numbers
     class: read
@@ -314,6 +339,24 @@ functions:
         input: { name: Meeting booked }
     call: { method: POST, path: /v2/api/tags, body: { name: name, color: color } }
 
+  - name: delete_tag
+    class: sensitive
+    description: >-
+      Delete a team tag by its key; it disappears from the tag list. A tag
+      synced from a CRM integration cannot be deleted.
+    input:
+      type: object
+      additionalProperties: false
+      required: [tag_id]
+      properties:
+        tag_id: { type: string, minLength: 1, description: "The tag key, from list_tags." }
+    examples:
+      - title: Delete a tag
+        input: { tag_id: meeting_booked }
+    call: { method: DELETE, path: "/v2/api/tags/{tag_id}" }
+    confirm:
+      summary: "Delete Allo tag {tag_id} for the whole team."
+
   - name: add_item_tags
     class: write
     description: Tag a call with one or more tag keys.
@@ -384,6 +427,53 @@ functions:
       path: "/v2/api/conversations/{contact_number}/notes"
       body: { content: content, allo_number: allo_number, sender_id: sender_id }
 
+  - name: get_conversation_note
+    class: read
+    description: One internal note on a conversation, by id.
+    input:
+      type: object
+      additionalProperties: false
+      required: [note_id]
+      properties:
+        note_id: &note_id { type: string, minLength: 1, description: "not-* id." }
+    examples:
+      - title: A note
+        input: { note_id: not-abc123 }
+    call: { method: GET, path: "/v2/api/conversations/notes/{note_id}" }
+
+  - name: update_conversation_note
+    class: write
+    description: >-
+      Replace the content of a note on a conversation; only its author may.
+      Mention a teammate inline with @[Name](usr-...).
+    input:
+      type: object
+      additionalProperties: false
+      required: [note_id, content]
+      properties:
+        note_id: *note_id
+        content: &note_content { type: string, minLength: 1, maxLength: 4000 }
+    examples:
+      - title: Correct a note
+        input: { note_id: not-abc123, content: "Wants a demo on Tuesday." }
+    call: { method: PATCH, path: "/v2/api/conversations/notes/{note_id}", body: { content: content } }
+
+  - name: delete_conversation_note
+    class: sensitive
+    description: Delete a note on a conversation; only its author may.
+    input:
+      type: object
+      additionalProperties: false
+      required: [note_id]
+      properties:
+        note_id: *note_id
+    examples:
+      - title: Delete a note
+        input: { note_id: not-abc123 }
+    call: { method: DELETE, path: "/v2/api/conversations/notes/{note_id}" }
+    confirm:
+      summary: "Delete Allo note {note_id}."
+
   - name: list_person_notes
     class: read
     description: The notes on a person's CRM profile.
@@ -414,6 +504,153 @@ functions:
       - title: A note on a person
         input: { person_id: per-abc123, content: "Decision maker for telephony." }
     call: { method: POST, path: "/v2/api/crm/people/{person_id}/notes", body: { content: content } }
+
+  - name: update_person_note
+    class: write
+    description: Replace the content of a note on a person's CRM profile; only its author may.
+    input:
+      type: object
+      additionalProperties: false
+      required: [person_id, note_id, content]
+      properties:
+        person_id: *person_id
+        note_id: *note_id
+        content: *note_content
+    examples:
+      - title: Correct a person note
+        input: { person_id: per-abc123, note_id: not-def456, content: "Decision maker for telephony and CRM." }
+    call:
+      method: PATCH
+      path: "/v2/api/crm/people/{person_id}/notes/{note_id}"
+      body: { content: content }
+
+  - name: delete_person_note
+    class: sensitive
+    description: Delete a note on a person's CRM profile; only its author may.
+    input:
+      type: object
+      additionalProperties: false
+      required: [person_id, note_id]
+      properties:
+        person_id: *person_id
+        note_id: *note_id
+    examples:
+      - title: Delete a person note
+        input: { person_id: per-abc123, note_id: not-def456 }
+    call: { method: DELETE, path: "/v2/api/crm/people/{person_id}/notes/{note_id}" }
+    confirm:
+      summary: "Delete Allo note {note_id} of person {person_id}."
+
+  - name: find_thread
+    class: read
+    description: >-
+      The discussion thread of one call, text or conversation note, if it has
+      one (an item has one thread at most): the team's comments on it.
+    input:
+      type: object
+      additionalProperties: false
+      required: [entity_type, entity_id]
+      properties:
+        entity_type: &entity_type { type: string, enum: [CALL, TEXT_MESSAGE, CONVERSATION_NOTE] }
+        entity_id: &entity_id { type: string, minLength: 1, description: "cll-* for a call, msg-* for a text, not-* for a note." }
+    examples:
+      - title: The thread of a call
+        input: { entity_type: CALL, entity_id: cll-abc123 }
+    call: { method: GET, path: /v2/api/threads, query: { entity_type: entity_type, entity_id: entity_id } }
+
+  - name: get_thread
+    class: read
+    description: A thread with all its comments, its item and whether it is resolved.
+    input:
+      type: object
+      additionalProperties: false
+      required: [thread_id]
+      properties:
+        thread_id: &thread_id { type: string, minLength: 1, description: "cth-* id." }
+    examples:
+      - title: A thread
+        input: { thread_id: cth-abc123 }
+    call: { method: GET, path: "/v2/api/threads/{thread_id}" }
+
+  - name: create_thread
+    class: write
+    description: >-
+      Start the discussion thread of a call, text or conversation note with a
+      first comment; an item has one thread at most. Mention a teammate inline
+      with @[Name](usr-...).
+    input:
+      type: object
+      additionalProperties: false
+      required: [entity_type, entity_id, content]
+      properties:
+        entity_type: *entity_type
+        entity_id: *entity_id
+        content: *note_content
+    examples:
+      - title: Ask a teammate about a call
+        input: { entity_type: CALL, entity_id: cll-abc123, content: "@[Marie](usr-abc123) can you follow up?" }
+    call:
+      method: POST
+      path: /v2/api/threads
+      body: { entity_type: entity_type, entity_id: entity_id, content: content }
+
+  - name: add_thread_comment
+    class: write
+    description: Add a comment to a thread.
+    input:
+      type: object
+      additionalProperties: false
+      required: [thread_id, content]
+      properties:
+        thread_id: *thread_id
+        content: *note_content
+    examples:
+      - title: Reply in a thread
+        input: { thread_id: cth-abc123, content: "Done, quote sent." }
+    call: { method: POST, path: "/v2/api/threads/{thread_id}/comments", body: { content: content } }
+
+  - name: update_thread_comment
+    class: write
+    description: Replace the content of a comment; only its author may.
+    input:
+      type: object
+      additionalProperties: false
+      required: [comment_id, content]
+      properties:
+        comment_id: { type: string, minLength: 1, description: "thc-* id." }
+        content: *note_content
+    examples:
+      - title: Correct a comment
+        input: { comment_id: thc-abc123, content: "Done, quote sent on Monday." }
+    call: { method: PATCH, path: "/v2/api/threads/comments/{comment_id}", body: { content: content } }
+
+  - name: resolve_thread
+    class: write
+    description: Mark a thread resolved.
+    input:
+      type: object
+      additionalProperties: false
+      required: [thread_id]
+      properties:
+        thread_id: *thread_id
+    examples:
+      - title: Resolve a thread
+        input: { thread_id: cth-abc123 }
+    call: { method: POST, path: "/v2/api/threads/{thread_id}/resolve" }
+
+  - name: unresolve_thread
+    class: write
+    description: Reopen a resolved thread.
+    input:
+      type: object
+      additionalProperties: false
+      required: [thread_id]
+      properties:
+        thread_id: *thread_id
+    examples:
+      - title: Reopen a thread
+        input: { thread_id: cth-abc123 }
+    call: { method: POST, path: "/v2/api/threads/{thread_id}/unresolve" }
 
   - name: search_people
     class: read
@@ -666,6 +903,164 @@ functions:
         input: {}
     call: { method: GET, path: /v2/api/crm/companies/attributes, query: { page: page, size: size } }
 
+  - name: create_person_attribute
+    class: write
+    description: >-
+      A custom field of people; its key is derived from the label (lowercase,
+      no accents, _ between words, 64 characters). A DROPDOWN field needs
+      options, any other type takes none. Idempotent: the same label and type
+      again return the existing field with already_existed=true, and the label
+      of a deleted field restores it with its stored values.
+    input:
+      type: object
+      additionalProperties: false
+      required: [label, type]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 255 }
+        type: &attribute_type { type: string, enum: [TEXT, NUMBER, DATE, BOOLEAN, DROPDOWN] }
+        options: &attribute_options
+          type: array
+          minItems: 1
+          description: "The allowed values of a DROPDOWN field. Send an option's current key to keep it when renaming its label."
+          items:
+            type: object
+            additionalProperties: false
+            required: [label]
+            properties:
+              label: { type: string, minLength: 1 }
+              key: { type: string, minLength: 1 }
+      if: &is_dropdown { properties: { type: { const: DROPDOWN } } }
+      then: { required: [options] }
+      else: { not: { required: [options] } }
+    examples:
+      - title: A text field
+        input: { label: Lead source, type: TEXT }
+      - title: A dropdown field
+        input: { label: Plan, type: DROPDOWN, options: [{ label: Starter }, { label: Enterprise }] }
+    call: { method: POST, path: /v2/api/crm/attributes, body: { label: label, type: type, options: options } }
+
+  - name: update_person_attribute
+    class: write
+    description: >-
+      Change a custom field of people: only the fields given change; its key
+      and type never do. options replaces the whole list (DROPDOWN only). A
+      field synced from a CRM integration cannot be edited.
+    input:
+      type: object
+      additionalProperties: false
+      required: [key]
+      minProperties: 2
+      properties:
+        key: &attribute_key { type: string, minLength: 1, description: "The field key, from the list of fields." }
+        label: { type: string, minLength: 1 }
+        description: { type: string, description: "A blank value clears it." }
+        options: *attribute_options
+    examples:
+      - title: Rename a field
+        input: { key: lead_source, label: Source }
+    call:
+      method: PATCH
+      path: "/v2/api/crm/attributes/{key}"
+      body: { label: label, description: description, options: options }
+
+  - name: delete_person_attribute
+    class: sensitive
+    description: >-
+      Remove a custom field of people: it leaves the list and the people, and
+      writing it is refused. Its stored values are kept: creating a field with
+      the same label and type restores it with them. Built-in fields and fields
+      synced from a CRM integration cannot be deleted.
+    input:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key: *attribute_key
+    examples:
+      - title: Remove a field
+        input: { key: lead_source }
+    call: { method: DELETE, path: "/v2/api/crm/attributes/{key}" }
+    confirm:
+      summary: "Remove the people field {key} from Allo (its values are kept; creating it again restores them)."
+
+  - name: create_company_attribute
+    class: write
+    description: >-
+      A custom attribute of companies; its key is derived from the label. A
+      DROPDOWN attribute needs options, any other type takes none. prompt tells
+      Allo's AI how to fill it from calls, should_prompt_override whether it may
+      overwrite a value already set. Idempotent: the same key and type again
+      return the existing attribute with already_existed=true.
+    input:
+      type: object
+      additionalProperties: false
+      required: [label, type]
+      properties:
+        label: { type: string, minLength: 1 }
+        type: *attribute_type
+        options: *attribute_options
+        prompt: &attribute_prompt { type: string, description: "A blank value clears it." }
+        should_prompt_override: { type: boolean }
+      if: *is_dropdown
+      then: { required: [options] }
+      else: { not: { required: [options] } }
+    examples:
+      - title: A segment filled by the AI
+        input: { label: Segment, type: DROPDOWN, options: [{ label: SMB }, { label: Enterprise }],
+                 prompt: "Pick the segment that matches the company size mentioned on the call." }
+    call:
+      method: POST
+      path: /v2/api/crm/companies/attributes
+      body: { label: label, type: type, options: options, prompt: prompt,
+              should_prompt_override: should_prompt_override }
+
+  - name: update_company_attribute
+    class: write
+    description: >-
+      Change a custom attribute of companies: only the fields given change; its
+      key and type never do. options replaces the whole list (DROPDOWN only).
+      An attribute synced from a CRM integration only takes prompt,
+      should_prompt_override and is_visible.
+    input:
+      type: object
+      additionalProperties: false
+      required: [key]
+      minProperties: 2
+      properties:
+        key: *attribute_key
+        label: { type: string, minLength: 1 }
+        options: *attribute_options
+        prompt: *attribute_prompt
+        should_prompt_override: { type: boolean }
+        is_visible: { type: boolean, description: "Show or hide it in the Allo apps." }
+    examples:
+      - title: Hide an attribute
+        input: { key: segment, is_visible: false }
+    call:
+      method: PATCH
+      path: "/v2/api/crm/companies/attributes/{key}"
+      body: { label: label, options: options, prompt: prompt, should_prompt_override: should_prompt_override,
+              is_visible: is_visible }
+
+  - name: delete_company_attribute
+    class: sensitive
+    description: >-
+      Delete a custom attribute of companies and clear its value on every
+      company. Irreversible: unlike a field of people, nothing restores the
+      values. An attribute synced from a CRM integration cannot be deleted.
+    input:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key: *attribute_key
+    examples:
+      - title: Delete an attribute
+        input: { key: segment }
+    call: { method: DELETE, path: "/v2/api/crm/companies/attributes/{key}" }
+    confirm:
+      summary: "Delete the company attribute {key} and its value on every company: irreversible."
+
   - name: get_dialing_queue
     class: read
     description: >-
@@ -741,7 +1136,7 @@ functions:
       additionalProperties: false
       required: [numbers]
       properties:
-        numbers:
+        numbers: &queue_numbers
           type: array
           minItems: 1
           items:
@@ -789,6 +1184,186 @@ functions:
       method: DELETE
       path: /v2/api/dialing-queues/current/numbers
       query: { number: number, position: position, unassigned: unassigned, user_id: user_id, email: email }
+
+  - name: delete_current_dialing_queue
+    class: sensitive
+    description: >-
+      Delete the current Power Dialer queue of the key owner, or of a teammate
+      by user_id or email, with its numbers.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        user_id: *queue_user
+        email: *queue_email
+    examples:
+      - title: Delete my current queue
+        input: {}
+    call: { method: DELETE, path: /v2/api/dialing-queues/current, query: { user_id: user_id, email: email } }
+    confirm:
+      summary: "Delete the current Power Dialer queue and its numbers."
+
+  - name: list_dialing_queues
+    class: read
+    description: The team's Power Dialer queues (pdl-*) the key may see, with their name, creator, assignee and settings.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        page: *page
+        size: *size
+    examples:
+      - title: The queues
+        input: {}
+    call: { method: GET, path: /v2/api/dialing-queues, query: { page: page, size: size } }
+
+  - name: create_dialing_queue
+    class: write
+    description: >-
+      A new, empty Power Dialer queue, assigned to the key owner or to a
+      teammate (user_id or email); the key owner is its creator.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        name: &queue_name { type: string, minLength: 1, maxLength: 255 }
+        user_id: *queue_user
+        email: *queue_email
+    examples:
+      - title: A queue for a campaign
+        input: { name: October follow-ups }
+    call: { method: POST, path: /v2/api/dialing-queues, body: { name: name, user_id: user_id, email: email } }
+
+  - name: get_dialing_queue_by_id
+    class: read
+    description: The numbers of one Power Dialer queue by position, with its name and settings.
+    input:
+      type: object
+      additionalProperties: false
+      required: [queue_id]
+      properties:
+        queue_id: &queue_id { type: string, minLength: 1, description: "pdl-* id, from list_dialing_queues." }
+        page: *page
+        size: *size
+    examples:
+      - title: A queue
+        input: { queue_id: pdl-abc123 }
+    call: { method: GET, path: "/v2/api/dialing-queues/{queue_id}", query: { page: page, size: size } }
+
+  - name: update_dialing_queue_by_id
+    class: write
+    description: >-
+      The settings of one Power Dialer queue: name, voicemail handling (SKIP or
+      NO_SKIP), do not disturb while dialing. Only the fields given change.
+    input:
+      type: object
+      additionalProperties: false
+      required: [queue_id]
+      properties:
+        queue_id: *queue_id
+        name: *queue_name
+        voicemail_handling: { type: string, enum: [SKIP, NO_SKIP] }
+        do_not_disturb: { type: string, enum: [ENABLED, DISABLED] }
+    examples:
+      - title: Skip voicemails
+        input: { queue_id: pdl-abc123, voicemail_handling: SKIP }
+    call:
+      method: PATCH
+      path: "/v2/api/dialing-queues/{queue_id}"
+      body: { name: name, voicemail_handling: voicemail_handling, do_not_disturb: do_not_disturb }
+
+  - name: delete_dialing_queue
+    class: sensitive
+    description: Delete one Power Dialer queue and its numbers.
+    input:
+      type: object
+      additionalProperties: false
+      required: [queue_id]
+      properties:
+        queue_id: *queue_id
+    examples:
+      - title: Delete a queue
+        input: { queue_id: pdl-abc123 }
+    call: { method: DELETE, path: "/v2/api/dialing-queues/{queue_id}" }
+    confirm:
+      summary: "Delete Power Dialer queue {queue_id} and its numbers."
+
+  - name: add_numbers_to_queue
+    class: write
+    description: >-
+      Append numbers to one Power Dialer queue; each entry a number (E.164)
+      and optionally the contact's details. The answer lists the entries added
+      and skipped.
+    input:
+      type: object
+      additionalProperties: false
+      required: [queue_id, numbers]
+      properties:
+        queue_id: *queue_id
+        numbers: *queue_numbers
+    examples:
+      - title: Two prospects to call
+        input: { queue_id: pdl-abc123, numbers: [{ number: "+33199000001", name: Marie }, { number: "+33199000002" }] }
+    call: { method: POST, path: "/v2/api/dialing-queues/{queue_id}/numbers", body: { numbers: numbers } }
+
+  - name: remove_numbers_from_queue
+    class: write
+    description: >-
+      Remove entries from one Power Dialer queue: by number (every
+      occurrence), by position (0-based), both (one occurrence), or
+      unassigned=true (every entry not yet called).
+    input:
+      type: object
+      additionalProperties: false
+      required: [queue_id]
+      properties:
+        queue_id: *queue_id
+        number: { type: string, minLength: 1, personal: true }
+        position: { type: integer, minimum: 0 }
+        unassigned: { type: boolean }
+    examples:
+      - title: Clear what was not called
+        input: { queue_id: pdl-abc123, unassigned: true }
+    call:
+      method: DELETE
+      path: "/v2/api/dialing-queues/{queue_id}/numbers"
+      query: { number: number, position: position, unassigned: unassigned }
+
+  - name: assign_dialing_queue
+    class: write
+    description: >-
+      Hand a Power Dialer queue, numbers and creator kept, to another member of
+      the team, by user_id or email (user_id wins). Only the key of an admin or
+      a manager who created the queue or runs it may.
+    input:
+      type: object
+      additionalProperties: false
+      required: [queue_id]
+      properties:
+        queue_id: *queue_id
+        user_id: { type: string, minLength: 1, description: "The new assignee, from list_users." }
+        email: { type: string, format: email, personal: true, description: "The new assignee's email, when no user_id." }
+      anyOf:
+        - { required: [user_id] }
+        - { required: [email] }
+    examples:
+      - title: Give a queue to a teammate
+        input: { queue_id: pdl-abc123, email: rep@example.com }
+    call: { method: PATCH, path: "/v2/api/dialing-queues/{queue_id}/assignee", body: { user_id: user_id, email: email } }
+
+  - name: get_dialer_session
+    class: read
+    description: One Power Dialer session, by id.
+    input:
+      type: object
+      additionalProperties: false
+      required: [session_id]
+      properties:
+        session_id: { type: string, minLength: 1 }
+    examples:
+      - title: A session
+        input: { session_id: pds-abc123 }
+    call: { method: GET, path: "/v2/api/dialing-queues/sessions/{session_id}" }
 
   - name: get_team_metrics
     class: read
@@ -880,3 +1455,621 @@ functions:
     cost: { per: request }
     confirm:
       summary: "Send a text to {to} now: it cannot be recalled."
+
+  - name: list_summary_templates
+    class: read
+    description: The team's call summary templates (tst-*), each with its sections.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - title: The summary templates
+        input: {}
+    call: { method: GET, path: /v2/api/summary_templates }
+
+  - name: get_summary_template
+    class: read
+    description: One call summary template, with its context, icon and sections.
+    input:
+      type: object
+      additionalProperties: false
+      required: [template_id]
+      properties:
+        template_id: &template_id { type: string, minLength: 1, description: "tst-* id." }
+    examples:
+      - title: A template
+        input: { template_id: tst-abc123 }
+    call: { method: GET, path: "/v2/api/summary_templates/{template_id}" }
+
+  - name: create_summary_template
+    class: write
+    description: >-
+      A call summary template for the team: its name, the context that helps
+      the AI summarize (4000 characters at most), an icon, and up to 10
+      ordered sections, each a title and instructions.
+    input:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: &template_name { type: string, minLength: 1 }
+        call_context: &call_context { type: string, maxLength: 4000 }
+        icon: &template_icon { type: string, minLength: 1, description: "An emoji, for instance." }
+        sections: &template_sections
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              title: { type: string, minLength: 1 }
+              instructions: { type: string, minLength: 1 }
+              order: { type: integer, minimum: 0, description: "0-based position of the section." }
+    examples:
+      - title: A sales call template
+        input: { name: Sales call, call_context: B2B software sales calls,
+                 sections: [{ title: Pain points, instructions: "List the prospect's pain points", order: 0 }] }
+    call:
+      method: POST
+      path: /v2/api/summary_templates
+      body: { name: name, call_context: call_context, icon: icon, sections: sections }
+
+  - name: update_summary_template
+    class: write
+    description: >-
+      Replace a call summary template whole: name, context, icon and sections;
+      what is left out is cleared, so read it first and send it all back.
+    input:
+      type: object
+      additionalProperties: false
+      required: [template_id, name]
+      properties:
+        template_id: *template_id
+        name: *template_name
+        call_context: *call_context
+        icon: *template_icon
+        sections: *template_sections
+    examples:
+      - title: Rename a template
+        input: { template_id: tst-abc123, name: Discovery call }
+    call:
+      method: PUT
+      path: "/v2/api/summary_templates/{template_id}"
+      body: { name: name, call_context: call_context, icon: icon, sections: sections }
+
+  - name: delete_summary_template
+    class: sensitive
+    description: Deactivate a call summary template; it is no longer offered for summaries.
+    input:
+      type: object
+      additionalProperties: false
+      required: [template_id]
+      properties:
+        template_id: *template_id
+    examples:
+      - title: Delete a template
+        input: { template_id: tst-abc123 }
+    call: { method: DELETE, path: "/v2/api/summary_templates/{template_id}" }
+    confirm:
+      summary: "Delete Allo summary template {template_id}."
+
+  - name: set_default_summary_template
+    class: write
+    description: >-
+      The summary template a line's call summaries use by default. Without
+      summary_template_id, the line's default is cleared.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number]
+      properties:
+        number: &line_number { type: string, minLength: 1, description: "An Allo line, E.164, from list_numbers." }
+        summary_template_id: { type: string, minLength: 1, description: "tst-* id." }
+    examples:
+      - title: A default template for a line
+        input: { number: "+33199000000", summary_template_id: tst-abc123 }
+    call:
+      method: PUT
+      path: "/v2/api/numbers/{number}/default_summary_template"
+      body: { summary_template_id: summary_template_id }
+
+  - name: list_webhooks
+    class: read
+    description: >-
+      The webhook endpoints of the account (url, topics, label, enabled). The
+      signing secret of an endpoint is never given: it is read in Allo.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - title: The webhooks
+        input: {}
+    call: { method: GET, path: /v2/api/webhooks }
+    # A secret never reaches the agent: the signing_secret of an endpoint is read in Allo.
+    output:
+      strip: &webhook_secret [data.signing_secret]
+      sample: { data: [&sample_webhook { id: ep_abc123, url: "https://hooks.example.test/allo", topics: [call.completed], enabled: true, signing_secret: sample-signing-secret }] }
+
+  - name: get_webhook
+    class: read
+    description: >-
+      One webhook endpoint (url, topics, label, enabled). Its signing secret,
+      which verifies the deliveries, is never given: it is read in Allo.
+    input:
+      type: object
+      additionalProperties: false
+      required: [webhook_id]
+      properties:
+        webhook_id: &webhook_id { type: string, minLength: 1 }
+    examples:
+      - title: A webhook
+        input: { webhook_id: ep_abc123 }
+    call: { method: GET, path: "/v2/api/webhooks/{webhook_id}" }
+    output: { strip: *webhook_secret, sample: { data: *sample_webhook } }
+
+  - name: create_webhook
+    class: write
+    description: >-
+      A webhook endpoint: Allo posts the events of topics to url (https). The
+      signing secret that verifies the deliveries is never given: it is read
+      in Allo.
+    input:
+      type: object
+      additionalProperties: false
+      required: [url, topics]
+      properties:
+        url: &webhook_url { type: string, pattern: "^https://", description: "The https address that receives the events." }
+        topics: &webhook_topics
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [call.received, call.triggered, call.answered, call.completed, tag.added, tag.removed,
+                   sms.received, sms.sent, contact.created, contact.updated, summary.updated]
+        description: &webhook_label { type: string, description: "A label." }
+    examples:
+      - title: Completed calls to a receiver
+        input: { url: "https://hooks.acme.example/allo", topics: [call.completed], description: CRM sync }
+    call: { method: POST, path: /v2/api/webhooks, body: { url: url, topics: topics, description: description } }
+    output: { strip: *webhook_secret, sample: { data: *sample_webhook } }
+
+  - name: update_webhook
+    class: write
+    description: >-
+      Change a webhook endpoint: only the fields given change; topics replaces
+      the whole set; enabled=false stops the deliveries. Its signing secret is
+      never given: it is read in Allo.
+    input:
+      type: object
+      additionalProperties: false
+      required: [webhook_id]
+      minProperties: 2
+      properties:
+        webhook_id: *webhook_id
+        url: *webhook_url
+        topics: *webhook_topics
+        description: *webhook_label
+        enabled: { type: boolean }
+    examples:
+      - title: Pause a webhook
+        input: { webhook_id: ep_abc123, enabled: false }
+    call:
+      method: PUT
+      path: "/v2/api/webhooks/{webhook_id}"
+      body: { url: url, topics: topics, description: description, enabled: enabled }
+    output: { strip: *webhook_secret, sample: { data: *sample_webhook } }
+
+  - name: delete_webhook
+    class: sensitive
+    description: Delete a webhook endpoint and its delivery history, for good.
+    input:
+      type: object
+      additionalProperties: false
+      required: [webhook_id]
+      properties:
+        webhook_id: *webhook_id
+    examples:
+      - title: Delete a webhook
+        input: { webhook_id: ep_abc123 }
+    call: { method: DELETE, path: "/v2/api/webhooks/{webhook_id}" }
+    confirm:
+      summary: "Delete Allo webhook {webhook_id} and its delivery history."
+
+  - name: list_webhook_event_types
+    class: read
+    description: The event topics a webhook may subscribe to, with what each sends.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - title: The event topics
+        input: {}
+    call: { method: GET, path: /v2/api/webhooks/event_types }
+
+  - name: get_call_flow
+    class: read
+    description: >-
+      The call flow of a line (the tree that routes its inbound calls): the
+      published one by default, or status=draft for the working draft (the
+      published one when there is no draft), with its lock_version.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number]
+      properties:
+        number: *line_number
+        status: { type: string, enum: [draft, published] }
+    examples:
+      - title: The live call flow of a line
+        input: { number: "+33199000000" }
+    call: { method: GET, path: "/v2/api/numbers/{number}/call_flow", query: { status: status } }
+
+  - name: get_call_flow_draft
+    class: read
+    description: >-
+      The working draft of a line's call flow only, with its lock_version to
+      pass when saving or publishing; never the published flow.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number]
+      properties:
+        number: *line_number
+    examples:
+      - title: The draft of a line
+        input: { number: "+33199000000" }
+    # The code Allo puts in error.code (OpenAPI, getCallFlowDraft).
+    refusals:
+      - { code: call_flow_draft_not_found, when: 404, body: { path: error.code, equals: [CALL_FLOW_DRAFT_NOT_FOUND] },
+          message: "This line has no call flow draft." }
+    call: { method: GET, path: "/v2/api/numbers/{number}/call_flow/draft" }
+
+  - name: save_call_flow_draft
+    class: write
+    description: >-
+      Create or replace the working draft of a line's call flow; nothing is
+      live until publish_call_flow. definition is the flow tree (camelCase
+      keys), schema_version the server's current one. lock_version (from the
+      last read) and base_published_version detect a concurrent edit or
+      publish (409). engine_subset FULL_FLOW runs the whole tree: send it for
+      a flow built through the API.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number, definition, schema_version]
+      properties:
+        number: *line_number
+        definition: { type: object }
+        schema_version: { type: integer }
+        lock_version: { type: integer }
+        base_published_version: { type: integer }
+        engine_subset: { type: string, enum: [NESTED_IVR, FULL_FLOW] }
+    examples:
+      - title: Save a draft
+        input: { number: "+33199000000", definition: { root: { type: menu } }, schema_version: 1, lock_version: 3,
+                 engine_subset: FULL_FLOW }
+    refusals:
+      - { code: call_flow_changed, when: 409, message: "The call flow changed since it was read (edited or published): read it again." }
+    call:
+      method: PUT
+      path: "/v2/api/numbers/{number}/call_flow/draft"
+      body: { definition: definition, schema_version: schema_version, lock_version: lock_version,
+              base_published_version: base_published_version, engine_subset: engine_subset }
+
+  - name: publish_call_flow
+    class: sensitive
+    description: >-
+      Publish the working draft of a line's call flow: it routes the line's
+      live inbound calls at once. Validation is stricter than on save, and a
+      failure publishes nothing; the draft is consumed.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number, lock_version]
+      properties:
+        number: *line_number
+        lock_version: { type: integer, description: "The lock_version of the draft, from its last read." }
+    examples:
+      - title: Publish a draft
+        input: { number: "+33199000000", lock_version: 4 }
+    refusals:
+      - { code: call_flow_changed, when: 409, message: "The call flow changed since it was read (edited or published): read it again." }
+    call: { method: POST, path: "/v2/api/numbers/{number}/call_flow/publish", body: { lock_version: lock_version } }
+    confirm:
+      summary: "Publish the call flow draft of line {number}: its live calls are routed by it at once."
+
+  - name: get_receptionist
+    class: read
+    description: >-
+      The whole configuration of a line's AI receptionist: business details,
+      voice and language, prompt, capabilities, business hours, transfer
+      rules, calendars and knowledge sources, status. Read it before any write:
+      collections are replaced whole.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number]
+      properties:
+        number: *line_number
+    examples:
+      - title: The receptionist of a line
+        input: { number: "+33199000000" }
+    call: { method: GET, path: "/v2/api/numbers/{number}/agent" }
+
+  - name: update_receptionist
+    class: write
+    description: >-
+      Change a line's AI receptionist, prompt and status aside: a single value
+      given changes, one left out stays; capabilities, business_hours,
+      transfer_rules and scheduling.calendars given replace the configured set
+      whole (a capability left out is turned off), so read get_receptionist
+      first. Does not put the receptionist on the line.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number]
+      minProperties: 2
+      properties:
+        number: *line_number
+        name: { type: string, maxLength: 64 }
+        business_name: { type: string, maxLength: 64 }
+        business_address: { type: string, maxLength: 255 }
+        business_phone: { type: string, maxLength: 64, description: "E.164." }
+        business_email: { type: string, maxLength: 64 }
+        business_website: { type: string, maxLength: 64 }
+        business_industry: { type: string, maxLength: 64 }
+        language: { type: string, enum: [fr, fr-CA, en-US, en-GB, es, de, hr] }
+        voice_id: { type: string, minLength: 1, description: "An id from list_voices, under the receptionist's language." }
+        greeting_message: { type: string, maxLength: 1000 }
+        closing_message: { type: string, maxLength: 1000 }
+        tone_of_voice: { type: string, enum: [FRIENDLY, PROFESSIONAL, NEUTRAL, ENTHUSIASTIC] }
+        answer_type: { type: string, enum: [CONCISE, STANDARD, DETAILED] }
+        capabilities: { type: object, additionalProperties: { type: boolean }, description: "Every toggle, e.g. SCHEDULING, CALL_TRANSFER." }
+        business_hours:
+          type: object
+          additionalProperties: false
+          required: [schedule]
+          properties:
+            timezone: { type: string, description: "IANA time zone." }
+            schedule:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [day, schedule]
+                properties:
+                  day: { type: string, enum: [MO, TU, WE, TH, FR, SA, SU] }
+                  schedule:
+                    type: array
+                    description: "Open periods in seconds since midnight; an empty list closes the day."
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [start_time, end_time]
+                      properties:
+                        start_time: { type: integer, minimum: 0, maximum: 86399 }
+                        end_time: { type: integer, minimum: 0, maximum: 86399 }
+        transfer_rules:
+          type: array
+          description: "Every rule; [] removes them all."
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              description: { type: string, description: "The caller's reason, as a caller would say it." }
+              type: { type: string, enum: [EXTERNAL_NUMBER, MEMBER, INBOX] }
+              transfer_message: { type: string }
+              target_number: { type: string, description: "For EXTERNAL_NUMBER, E.164." }
+              target_member_id: { type: string, description: "For MEMBER, a usr-* id." }
+              target_line_number: { type: string, description: "For INBOX, another Allo line, E.164." }
+        scheduling:
+          type: object
+          additionalProperties: false
+          properties:
+            calendars:
+              type: object
+              description: "Every calendar it may book on, keyed by an id from list_calendars, each to its event types as get_calendar gives them."
+              additionalProperties:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [id, slug, title]
+                  properties:
+                    id: { type: string }
+                    slug: { type: string }
+                    title: { type: string }
+                    length_in_minutes: { type: integer }
+                    description: { type: string, description: "When to book this one, as the caller's reason." }
+        knowledge:
+          type: object
+          additionalProperties: false
+          properties:
+            text: { type: string, maxLength: 25000, description: "Deprecated by Allo: add websites instead." }
+    examples:
+      - title: Business details and a warmer tone
+        input: { number: "+33199000000", business_name: Acme Plumbing, tone_of_voice: FRIENDLY }
+    call:
+      method: PATCH
+      path: "/v2/api/numbers/{number}/agent"
+      body: { name: name, business_name: business_name, business_address: business_address,
+              business_phone: business_phone, business_email: business_email, business_website: business_website,
+              business_industry: business_industry, language: language, voice_id: voice_id,
+              greeting_message: greeting_message, closing_message: closing_message, tone_of_voice: tone_of_voice,
+              answer_type: answer_type, capabilities: capabilities, business_hours: business_hours,
+              transfer_rules: transfer_rules, scheduling: scheduling, knowledge: knowledge }
+
+  - name: set_receptionist_status
+    class: sensitive
+    description: >-
+      Put a line's AI receptionist on the line (ACTIVE) or take it off
+      (FORWARDING: calls go to the business phone). Changes how the live line
+      routes real calls at once.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number, status]
+      properties:
+        number: *line_number
+        status: { type: string, enum: [ACTIVE, FORWARDING] }
+    examples:
+      - title: Put the receptionist on
+        input: { number: "+33199000000", status: ACTIVE }
+    call: { method: PUT, path: "/v2/api/numbers/{number}/agent/status", body: { status: status } }
+    confirm:
+      summary: "Set the AI receptionist of line {number} to {status}: its live calls change at once."
+
+  - name: set_receptionist_prompt
+    class: write
+    description: >-
+      Replace the whole prompt of a line's AI receptionist: send every section,
+      the unchanged ones too (read get_receptionist first). objective,
+      personality and behaviors are required, each section once; a content
+      holds 3000 characters at most; required_fields takes fields instead.
+      Facts about the business belong in its knowledge, not here.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number, sections]
+      properties:
+        number: *line_number
+        sections:
+          type: array
+          minItems: 3
+          items:
+            type: object
+            additionalProperties: false
+            required: [section]
+            properties:
+              section: { type: string, enum: [objective, personality, behaviors, prohibited, required_fields, objective_completion] }
+              content: { type: string, maxLength: 3000 }
+              fields:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [label, question, complete_when]
+                  properties:
+                    label: { type: string }
+                    question: { type: string }
+                    complete_when: { type: string }
+    examples:
+      - title: A booking receptionist
+        input: { number: "+33199000000", sections: [
+                   { section: objective, content: "Book a visit for every caller with a leak." },
+                   { section: personality, content: "Calm and brief." },
+                   { section: behaviors, content: "Ask for the address first." }] }
+    call: { method: PUT, path: "/v2/api/numbers/{number}/agent/prompt", body: { sections: sections } }
+
+  - name: add_receptionist_website
+    class: write
+    description: >-
+      Add a public website to the knowledge of a line's AI receptionist. Allo
+      crawls it in the background and answers at once; the receptionist uses
+      it once indexed, and a failed crawl is not reported. A site another line
+      already has is linked, not crawled again.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number, url]
+      properties:
+        number: *line_number
+        url: { type: string, minLength: 1, description: "Without a scheme, https:// is assumed." }
+    examples:
+      - title: Learn from the company site
+        input: { number: "+33199000000", url: "https://acme.example" }
+    call: { method: POST, path: "/v2/api/numbers/{number}/agent/knowledge/websites", body: { url: url } }
+
+  - name: update_receptionist_website
+    class: write
+    description: >-
+      Turn a website on (ACTIVE) or off (DISABLED) for this line, its crawled
+      content kept; ACTIVE on a website of the team's library adds it to the
+      line.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number, website_id, status]
+      properties:
+        number: *line_number
+        website_id: &website_id { type: string, minLength: 1, description: "From get_receptionist, under knowledge." }
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+    examples:
+      - title: Stop using a website on this line
+        input: { number: "+33199000000", website_id: kws-abc123, status: DISABLED }
+    call:
+      method: PATCH
+      path: "/v2/api/numbers/{number}/agent/knowledge/websites/{website_id}"
+      body: { status: status }
+
+  - name: delete_receptionist_website
+    class: sensitive
+    description: >-
+      Delete a website from the team's knowledge library, for every line of
+      the team; to stop one line using it, turn it off instead.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number, website_id]
+      properties:
+        number: *line_number
+        website_id: *website_id
+    examples:
+      - title: Delete a website
+        input: { number: "+33199000000", website_id: kws-abc123 }
+    call: { method: DELETE, path: "/v2/api/numbers/{number}/agent/knowledge/websites/{website_id}" }
+    confirm:
+      summary: "Delete website {website_id} from the knowledge of every Allo line of the team."
+
+  - name: delete_receptionist_file
+    class: sensitive
+    description: >-
+      Delete an uploaded document from the team's knowledge library, for every
+      line of the team. Documents are uploaded in the Allo app only.
+    input:
+      type: object
+      additionalProperties: false
+      required: [number, file_id]
+      properties:
+        number: *line_number
+        file_id: { type: string, minLength: 1, description: "From get_receptionist, under knowledge." }
+    examples:
+      - title: Delete a document
+        input: { number: "+33199000000", file_id: kfl-abc123 }
+    call: { method: DELETE, path: "/v2/api/numbers/{number}/agent/knowledge/files/{file_id}" }
+    confirm:
+      summary: "Delete document {file_id} from the knowledge of every Allo line of the team."
+
+  - name: list_calendars
+    class: read
+    description: >-
+      The calendars connected to the workspace that the key's user can see (all
+      of them for an admin), booked on by a receptionist or not. Connecting one
+      is done in the Allo app.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - title: The calendars
+        input: {}
+    call: { method: GET, path: /v2/api/calendars }
+
+  - name: get_calendar
+    class: read
+    description: One connected calendar with the event types its provider offers now, read live.
+    input:
+      type: object
+      additionalProperties: false
+      required: [calendar_id]
+      properties:
+        calendar_id: { type: string, minLength: 1 }
+    examples:
+      - title: A calendar
+        input: { calendar_id: cal-abc123 }
+    call: { method: GET, path: "/v2/api/calendars/{calendar_id}" }
+
+  - name: list_voices
+    class: read
+    description: The voices an AI receptionist may speak with, by language; each id is a voice_id.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - title: The voices
+        input: {}
+    call: { method: GET, path: /v2/api/voices }
+    # demo_url, the address of a voice's audio sample, never reaches the agent: no audio address does.
+    output:
+      strip: [data.demo_url]
+      sample: { data: [{ id: maya, language: en-US, gender: FEMALE, demo_url: "https://files.example.test/voices/maya.mp3" }] }

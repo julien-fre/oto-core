@@ -43,9 +43,9 @@ def _addresses(value) -> list[str]:
     return [value] if isinstance(value, str) and "://" in value else []
 
 
-def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_2_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.1.0"
+    assert description["connector"]["version"] == "1.2.0"
     check(description, ALLO)
 
 
@@ -73,6 +73,39 @@ def test_no_address_reaches_the_agent_from_the_sample_and_pagination_stays():
     for name in ("list_conversations", "search_conversation_items"):
         output = _fn(description, name)["output"]
         assert "pagination" in shaped(output["sample"], output), name
+
+
+def test_no_audio_address_reaches_the_agent_from_the_voices_1_2_0():
+    """1.2.0: `demo_url`, the address of a voice's audio sample, is stripped like a call's recording addresses."""
+    output = _fn(_description(), "list_voices")["output"]
+    assert output["strip"] == ["data.demo_url"]
+    assert _addresses(output["sample"]), "the sample carries the address it proves stripped"
+    assert _addresses(shaped(output["sample"], output)) == []
+    assert shaped(output["sample"], output)["data"][0]["id"] == "maya"
+
+
+WEBHOOK_ANSWERS = ("list_webhooks", "get_webhook", "create_webhook", "update_webhook")
+
+
+def test_no_webhook_answer_gives_the_signing_secret_1_2_0():
+    """1.2.0, decided by Alexis on 2026-10-23: a secret never reaches the agent; a webhook's signing secret is read
+    in Allo, and no description promises it."""
+    description = _description()
+    for name in WEBHOOK_ANSWERS:
+        function = _fn(description, name)
+        output = function["output"]
+        assert output["strip"] == ["data.signing_secret"], name
+        assert "signing_secret" in str(output["sample"]), f"{name}: the sample carries the secret it proves stripped"
+        assert "signing_secret" not in str(shaped(output["sample"], output)), name
+        assert "signing_secret" not in function["description"] and "read in Allo" in function["description"], name
+
+
+def test_only_the_answers_that_carry_an_audio_address_or_a_secret_strip_1_2_0():
+    """Every answer of the team API that carries an audio address (OpenAPI read on 2026-10-22: a call's recording
+    addresses, a voice's sample) or a secret (a webhook's signing secret) is stripped, and only those: a strip
+    removed or added elsewhere fails here."""
+    stripping = {f["name"] for f in _description()["functions"] if "strip" in f.get("output", {})}
+    assert stripping == set(CALL_READS) | {"list_voices"} | set(WEBHOOK_ANSWERS)
 
 
 def test_the_recording_is_a_file_from_the_signed_link():
@@ -133,3 +166,18 @@ def test_the_python_table_declares_the_file_with_its_timeout():
     assert table["get_call_recording"] == {"file": FILE, "timeout_s": 120}
     assert table["send_sms"] == {"cost": {"per": "request"}}
     assert DECLARED["allo"] == table, "oto/connectors/declared.py is out of date: run `python -m fabrique`"
+
+
+def test_what_destroys_or_rewires_a_live_line_is_sensitive_1_2_0():
+    """1.2.0: every delete, publishing a call flow and switching the receptionist are confirmed before running;
+    the removal of queue entries stays a write, like `remove_queue_numbers`."""
+    functions = {f["name"]: f for f in _description()["functions"]}
+    sensitive = {name for name, f in functions.items() if f["class"] == "sensitive"}
+    deletes = {name for name, f in functions.items() if f["call"]["method"] == "DELETE"}
+    assert deletes - sensitive == {"remove_item_tag", "remove_queue_numbers", "remove_numbers_from_queue"}
+    assert sensitive == (deletes - {"remove_item_tag", "remove_queue_numbers", "remove_numbers_from_queue"}) | {
+        "send_sms", "publish_call_flow", "set_receptionist_status"}
+    for name in sensitive:
+        assert functions[name]["confirm"]["summary"], name
+    assert "irreversible" in functions["delete_company_attribute"]["confirm"]["summary"]
+    assert "restores" in functions["delete_person_attribute"]["confirm"]["summary"]

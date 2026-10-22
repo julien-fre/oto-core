@@ -50,6 +50,32 @@ export const listUsers = defineFunction({
   },
 })
 
+export const getUser = defineFunction({
+  name: "allo.get_user",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "One member of the team (id, name, email, role, status).",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["user_id"],
+    "properties": {"user_id": {"type": "string", "minLength": 1, "description": "usr-* id, from list_users."}}
+  },
+  examples: [
+    { title: "A member", input: {"user_id": "usr-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/users/{user_id}",
+    pathParams: ["user_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
 export const listNumbers = defineFunction({
   name: "allo.list_numbers",
   connector: "allo",
@@ -357,6 +383,33 @@ export const createTag = defineFunction({
   },
 })
 
+export const deleteTag = defineFunction({
+  name: "allo.delete_tag",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete a team tag by its key; it disappears from the tag list. A tag synced from a CRM integration cannot be deleted.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["tag_id"],
+    "properties": {"tag_id": {"type": "string", "minLength": 1, "description": "The tag key, from list_tags."}}
+  },
+  examples: [
+    { title: "Delete a tag", input: {"tag_id": "meeting_booked"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/tags/{tag_id}",
+    pathParams: ["tag_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete Allo tag {tag_id} for the whole team." },
+})
+
 export const addItemTags = defineFunction({
   name: "allo.add_item_tags",
   connector: "allo",
@@ -481,6 +534,88 @@ export const createConversationNote = defineFunction({
   },
 })
 
+export const getConversationNote = defineFunction({
+  name: "allo.get_conversation_note",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "One internal note on a conversation, by id.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note_id"],
+    "properties": {"note_id": {"type": "string", "minLength": 1, "description": "not-* id."}}
+  },
+  examples: [
+    { title: "A note", input: {"note_id": "not-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/conversations/notes/{note_id}",
+    pathParams: ["note_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const updateConversationNote = defineFunction({
+  name: "allo.update_conversation_note",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Replace the content of a note on a conversation; only its author may. Mention a teammate inline with @[Name](usr-...).",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note_id", "content"],
+    "properties": {
+      "note_id": {"type": "string", "minLength": 1, "description": "not-* id."},
+      "content": {"type": "string", "minLength": 1, "maxLength": 4000}
+    }
+  },
+  examples: [
+    { title: "Correct a note", input: {"note_id": "not-abc123", "content": "Wants a demo on Tuesday."} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/conversations/notes/{note_id}",
+    pathParams: ["note_id"],
+    query: {},
+    body: {"content": "content"},
+    headers: {},
+  },
+})
+
+export const deleteConversationNote = defineFunction({
+  name: "allo.delete_conversation_note",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete a note on a conversation; only its author may.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note_id"],
+    "properties": {"note_id": {"type": "string", "minLength": 1, "description": "not-* id."}}
+  },
+  examples: [
+    { title: "Delete a note", input: {"note_id": "not-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/conversations/notes/{note_id}",
+    pathParams: ["note_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete Allo note {note_id}." },
+})
+
 export const listPersonNotes = defineFunction({
   name: "allo.list_person_notes",
   connector: "allo",
@@ -540,6 +675,269 @@ export const createPersonNote = defineFunction({
     pathParams: ["person_id"],
     query: {},
     body: {"content": "content"},
+    headers: {},
+  },
+})
+
+export const updatePersonNote = defineFunction({
+  name: "allo.update_person_note",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Replace the content of a note on a person's CRM profile; only its author may.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["person_id", "note_id", "content"],
+    "properties": {
+      "person_id": {"type": "string", "minLength": 1, "description": "per-* id."},
+      "note_id": {"type": "string", "minLength": 1, "description": "not-* id."},
+      "content": {"type": "string", "minLength": 1, "maxLength": 4000}
+    }
+  },
+  examples: [
+    { title: "Correct a person note", input: {"person_id": "per-abc123", "note_id": "not-def456", "content": "Decision maker for telephony and CRM."} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/crm/people/{person_id}/notes/{note_id}",
+    pathParams: ["person_id", "note_id"],
+    query: {},
+    body: {"content": "content"},
+    headers: {},
+  },
+})
+
+export const deletePersonNote = defineFunction({
+  name: "allo.delete_person_note",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete a note on a person's CRM profile; only its author may.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["person_id", "note_id"],
+    "properties": {
+      "person_id": {"type": "string", "minLength": 1, "description": "per-* id."},
+      "note_id": {"type": "string", "minLength": 1, "description": "not-* id."}
+    }
+  },
+  examples: [
+    { title: "Delete a person note", input: {"person_id": "per-abc123", "note_id": "not-def456"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/crm/people/{person_id}/notes/{note_id}",
+    pathParams: ["person_id", "note_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete Allo note {note_id} of person {person_id}." },
+})
+
+export const findThread = defineFunction({
+  name: "allo.find_thread",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The discussion thread of one call, text or conversation note, if it has one (an item has one thread at most): the team's comments on it.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["entity_type", "entity_id"],
+    "properties": {
+      "entity_type": {"type": "string", "enum": ["CALL", "TEXT_MESSAGE", "CONVERSATION_NOTE"]},
+      "entity_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "cll-* for a call, msg-* for a text, not-* for a note."
+      }
+    }
+  },
+  examples: [
+    { title: "The thread of a call", input: {"entity_type": "CALL", "entity_id": "cll-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/threads",
+    pathParams: [],
+    query: {"entity_type": "entity_type", "entity_id": "entity_id"},
+    body: {},
+    headers: {},
+  },
+})
+
+export const getThread = defineFunction({
+  name: "allo.get_thread",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "A thread with all its comments, its item and whether it is resolved.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["thread_id"],
+    "properties": {"thread_id": {"type": "string", "minLength": 1, "description": "cth-* id."}}
+  },
+  examples: [
+    { title: "A thread", input: {"thread_id": "cth-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/threads/{thread_id}",
+    pathParams: ["thread_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const createThread = defineFunction({
+  name: "allo.create_thread",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Start the discussion thread of a call, text or conversation note with a first comment; an item has one thread at most. Mention a teammate inline with @[Name](usr-...).",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["entity_type", "entity_id", "content"],
+    "properties": {
+      "entity_type": {"type": "string", "enum": ["CALL", "TEXT_MESSAGE", "CONVERSATION_NOTE"]},
+      "entity_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "cll-* for a call, msg-* for a text, not-* for a note."
+      },
+      "content": {"type": "string", "minLength": 1, "maxLength": 4000}
+    }
+  },
+  examples: [
+    { title: "Ask a teammate about a call", input: {"entity_type": "CALL", "entity_id": "cll-abc123", "content": "@[Marie](usr-abc123) can you follow up?"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/threads",
+    pathParams: [],
+    query: {},
+    body: {"entity_type": "entity_type", "entity_id": "entity_id", "content": "content"},
+    headers: {},
+  },
+})
+
+export const addThreadComment = defineFunction({
+  name: "allo.add_thread_comment",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Add a comment to a thread.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["thread_id", "content"],
+    "properties": {
+      "thread_id": {"type": "string", "minLength": 1, "description": "cth-* id."},
+      "content": {"type": "string", "minLength": 1, "maxLength": 4000}
+    }
+  },
+  examples: [
+    { title: "Reply in a thread", input: {"thread_id": "cth-abc123", "content": "Done, quote sent."} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/threads/{thread_id}/comments",
+    pathParams: ["thread_id"],
+    query: {},
+    body: {"content": "content"},
+    headers: {},
+  },
+})
+
+export const updateThreadComment = defineFunction({
+  name: "allo.update_thread_comment",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Replace the content of a comment; only its author may.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["comment_id", "content"],
+    "properties": {
+      "comment_id": {"type": "string", "minLength": 1, "description": "thc-* id."},
+      "content": {"type": "string", "minLength": 1, "maxLength": 4000}
+    }
+  },
+  examples: [
+    { title: "Correct a comment", input: {"comment_id": "thc-abc123", "content": "Done, quote sent on Monday."} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/threads/comments/{comment_id}",
+    pathParams: ["comment_id"],
+    query: {},
+    body: {"content": "content"},
+    headers: {},
+  },
+})
+
+export const resolveThread = defineFunction({
+  name: "allo.resolve_thread",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Mark a thread resolved.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["thread_id"],
+    "properties": {"thread_id": {"type": "string", "minLength": 1, "description": "cth-* id."}}
+  },
+  examples: [
+    { title: "Resolve a thread", input: {"thread_id": "cth-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/threads/{thread_id}/resolve",
+    pathParams: ["thread_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const unresolveThread = defineFunction({
+  name: "allo.unresolve_thread",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Reopen a resolved thread.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["thread_id"],
+    "properties": {"thread_id": {"type": "string", "minLength": 1, "description": "cth-* id."}}
+  },
+  examples: [
+    { title: "Reopen a thread", input: {"thread_id": "cth-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/threads/{thread_id}/unresolve",
+    pathParams: ["thread_id"],
+    query: {},
+    body: {},
     headers: {},
   },
 })
@@ -953,6 +1351,235 @@ export const listCompanyAttributes = defineFunction({
   },
 })
 
+export const createPersonAttribute = defineFunction({
+  name: "allo.create_person_attribute",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "A custom field of people; its key is derived from the label (lowercase, no accents, _ between words, 64 characters). A DROPDOWN field needs options, any other type takes none. Idempotent: the same label and type again return the existing field with already_existed=true, and the label of a deleted field restores it with its stored values.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["label", "type"],
+    "properties": {
+      "label": {"type": "string", "minLength": 1, "maxLength": 255},
+      "type": {"type": "string", "enum": ["TEXT", "NUMBER", "DATE", "BOOLEAN", "DROPDOWN"]},
+      "options": {
+        "type": "array",
+        "minItems": 1,
+        "description": "The allowed values of a DROPDOWN field. Send an option's current key to keep it when renaming its label.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": {"label": {"type": "string", "minLength": 1}, "key": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "if": {"properties": {"type": {"const": "DROPDOWN"}}},
+    "then": {"required": ["options"]},
+    "else": {"not": {"required": ["options"]}}
+  },
+  examples: [
+    { title: "A text field", input: {"label": "Lead source", "type": "TEXT"} },
+    { title: "A dropdown field", input: {"label": "Plan", "type": "DROPDOWN", "options": [{"label": "Starter"}, {"label": "Enterprise"}]} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/crm/attributes",
+    pathParams: [],
+    query: {},
+    body: {"label": "label", "type": "type", "options": "options"},
+    headers: {},
+  },
+})
+
+export const updatePersonAttribute = defineFunction({
+  name: "allo.update_person_attribute",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Change a custom field of people: only the fields given change; its key and type never do. options replaces the whole list (DROPDOWN only). A field synced from a CRM integration cannot be edited.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["key"],
+    "minProperties": 2,
+    "properties": {
+      "key": {"type": "string", "minLength": 1, "description": "The field key, from the list of fields."},
+      "label": {"type": "string", "minLength": 1},
+      "description": {"type": "string", "description": "A blank value clears it."},
+      "options": {
+        "type": "array",
+        "minItems": 1,
+        "description": "The allowed values of a DROPDOWN field. Send an option's current key to keep it when renaming its label.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": {"label": {"type": "string", "minLength": 1}, "key": {"type": "string", "minLength": 1}}
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "Rename a field", input: {"key": "lead_source", "label": "Source"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/crm/attributes/{key}",
+    pathParams: ["key"],
+    query: {},
+    body: {"label": "label", "description": "description", "options": "options"},
+    headers: {},
+  },
+})
+
+export const deletePersonAttribute = defineFunction({
+  name: "allo.delete_person_attribute",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Remove a custom field of people: it leaves the list and the people, and writing it is refused. Its stored values are kept: creating a field with the same label and type restores it with them. Built-in fields and fields synced from a CRM integration cannot be deleted.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["key"],
+    "properties": {"key": {"type": "string", "minLength": 1, "description": "The field key, from the list of fields."}}
+  },
+  examples: [
+    { title: "Remove a field", input: {"key": "lead_source"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/crm/attributes/{key}",
+    pathParams: ["key"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Remove the people field {key} from Allo (its values are kept; creating it again restores them)." },
+})
+
+export const createCompanyAttribute = defineFunction({
+  name: "allo.create_company_attribute",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "A custom attribute of companies; its key is derived from the label. A DROPDOWN attribute needs options, any other type takes none. prompt tells Allo's AI how to fill it from calls, should_prompt_override whether it may overwrite a value already set. Idempotent: the same key and type again return the existing attribute with already_existed=true.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["label", "type"],
+    "properties": {
+      "label": {"type": "string", "minLength": 1},
+      "type": {"type": "string", "enum": ["TEXT", "NUMBER", "DATE", "BOOLEAN", "DROPDOWN"]},
+      "options": {
+        "type": "array",
+        "minItems": 1,
+        "description": "The allowed values of a DROPDOWN field. Send an option's current key to keep it when renaming its label.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": {"label": {"type": "string", "minLength": 1}, "key": {"type": "string", "minLength": 1}}
+        }
+      },
+      "prompt": {"type": "string", "description": "A blank value clears it."},
+      "should_prompt_override": {"type": "boolean"}
+    },
+    "if": {"properties": {"type": {"const": "DROPDOWN"}}},
+    "then": {"required": ["options"]},
+    "else": {"not": {"required": ["options"]}}
+  },
+  examples: [
+    { title: "A segment filled by the AI", input: {"label": "Segment", "type": "DROPDOWN", "options": [{"label": "SMB"}, {"label": "Enterprise"}], "prompt": "Pick the segment that matches the company size mentioned on the call."} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/crm/companies/attributes",
+    pathParams: [],
+    query: {},
+    body: {"label": "label", "type": "type", "options": "options", "prompt": "prompt", "should_prompt_override": "should_prompt_override"},
+    headers: {},
+  },
+})
+
+export const updateCompanyAttribute = defineFunction({
+  name: "allo.update_company_attribute",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Change a custom attribute of companies: only the fields given change; its key and type never do. options replaces the whole list (DROPDOWN only). An attribute synced from a CRM integration only takes prompt, should_prompt_override and is_visible.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["key"],
+    "minProperties": 2,
+    "properties": {
+      "key": {"type": "string", "minLength": 1, "description": "The field key, from the list of fields."},
+      "label": {"type": "string", "minLength": 1},
+      "options": {
+        "type": "array",
+        "minItems": 1,
+        "description": "The allowed values of a DROPDOWN field. Send an option's current key to keep it when renaming its label.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": {"label": {"type": "string", "minLength": 1}, "key": {"type": "string", "minLength": 1}}
+        }
+      },
+      "prompt": {"type": "string", "description": "A blank value clears it."},
+      "should_prompt_override": {"type": "boolean"},
+      "is_visible": {"type": "boolean", "description": "Show or hide it in the Allo apps."}
+    }
+  },
+  examples: [
+    { title: "Hide an attribute", input: {"key": "segment", "is_visible": false} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/crm/companies/attributes/{key}",
+    pathParams: ["key"],
+    query: {},
+    body: {"label": "label", "options": "options", "prompt": "prompt", "should_prompt_override": "should_prompt_override", "is_visible": "is_visible"},
+    headers: {},
+  },
+})
+
+export const deleteCompanyAttribute = defineFunction({
+  name: "allo.delete_company_attribute",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete a custom attribute of companies and clear its value on every company. Irreversible: unlike a field of people, nothing restores the values. An attribute synced from a CRM integration cannot be deleted.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["key"],
+    "properties": {"key": {"type": "string", "minLength": 1, "description": "The field key, from the list of fields."}}
+  },
+  examples: [
+    { title: "Delete an attribute", input: {"key": "segment"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/crm/companies/attributes/{key}",
+    pathParams: ["key"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete the company attribute {key} and its value on every company: irreversible." },
+})
+
 export const getDialingQueue = defineFunction({
   name: "allo.get_dialing_queue",
   connector: "allo",
@@ -1151,6 +1778,338 @@ export const removeQueueNumbers = defineFunction({
   },
 })
 
+export const deleteCurrentDialingQueue = defineFunction({
+  name: "allo.delete_current_dialing_queue",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete the current Power Dialer queue of the key owner, or of a teammate by user_id or email, with its numbers.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "user_id": {"type": "string", "minLength": 1, "description": "A teammate whose queue to use."},
+      "email": {
+        "type": "string",
+        "format": "email",
+        "personal": true,
+        "description": "A teammate's email, when no user_id."
+      }
+    }
+  },
+  examples: [
+    { title: "Delete my current queue", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/dialing-queues/current",
+    pathParams: [],
+    query: {"user_id": "user_id", "email": "email"},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete the current Power Dialer queue and its numbers." },
+})
+
+export const listDialingQueues = defineFunction({
+  name: "allo.list_dialing_queues",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The team's Power Dialer queues (pdl-*) the key may see, with their name, creator, assignee and settings.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
+      "size": {"type": "integer", "minimum": 1, "maximum": 100}
+    }
+  },
+  examples: [
+    { title: "The queues", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/dialing-queues",
+    pathParams: [],
+    query: {"page": "page", "size": "size"},
+    body: {},
+    headers: {},
+  },
+})
+
+export const createDialingQueue = defineFunction({
+  name: "allo.create_dialing_queue",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "A new, empty Power Dialer queue, assigned to the key owner or to a teammate (user_id or email); the key owner is its creator.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {"type": "string", "minLength": 1, "maxLength": 255},
+      "user_id": {"type": "string", "minLength": 1, "description": "A teammate whose queue to use."},
+      "email": {
+        "type": "string",
+        "format": "email",
+        "personal": true,
+        "description": "A teammate's email, when no user_id."
+      }
+    }
+  },
+  examples: [
+    { title: "A queue for a campaign", input: {"name": "October follow-ups"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/dialing-queues",
+    pathParams: [],
+    query: {},
+    body: {"name": "name", "user_id": "user_id", "email": "email"},
+    headers: {},
+  },
+})
+
+export const getDialingQueueById = defineFunction({
+  name: "allo.get_dialing_queue_by_id",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The numbers of one Power Dialer queue by position, with its name and settings.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["queue_id"],
+    "properties": {
+      "queue_id": {"type": "string", "minLength": 1, "description": "pdl-* id, from list_dialing_queues."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
+      "size": {"type": "integer", "minimum": 1, "maximum": 100}
+    }
+  },
+  examples: [
+    { title: "A queue", input: {"queue_id": "pdl-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/dialing-queues/{queue_id}",
+    pathParams: ["queue_id"],
+    query: {"page": "page", "size": "size"},
+    body: {},
+    headers: {},
+  },
+})
+
+export const updateDialingQueueById = defineFunction({
+  name: "allo.update_dialing_queue_by_id",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "The settings of one Power Dialer queue: name, voicemail handling (SKIP or NO_SKIP), do not disturb while dialing. Only the fields given change.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["queue_id"],
+    "properties": {
+      "queue_id": {"type": "string", "minLength": 1, "description": "pdl-* id, from list_dialing_queues."},
+      "name": {"type": "string", "minLength": 1, "maxLength": 255},
+      "voicemail_handling": {"type": "string", "enum": ["SKIP", "NO_SKIP"]},
+      "do_not_disturb": {"type": "string", "enum": ["ENABLED", "DISABLED"]}
+    }
+  },
+  examples: [
+    { title: "Skip voicemails", input: {"queue_id": "pdl-abc123", "voicemail_handling": "SKIP"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/dialing-queues/{queue_id}",
+    pathParams: ["queue_id"],
+    query: {},
+    body: {"name": "name", "voicemail_handling": "voicemail_handling", "do_not_disturb": "do_not_disturb"},
+    headers: {},
+  },
+})
+
+export const deleteDialingQueue = defineFunction({
+  name: "allo.delete_dialing_queue",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete one Power Dialer queue and its numbers.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["queue_id"],
+    "properties": {"queue_id": {"type": "string", "minLength": 1, "description": "pdl-* id, from list_dialing_queues."}}
+  },
+  examples: [
+    { title: "Delete a queue", input: {"queue_id": "pdl-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/dialing-queues/{queue_id}",
+    pathParams: ["queue_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete Power Dialer queue {queue_id} and its numbers." },
+})
+
+export const addNumbersToQueue = defineFunction({
+  name: "allo.add_numbers_to_queue",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Append numbers to one Power Dialer queue; each entry a number (E.164) and optionally the contact's details. The answer lists the entries added and skipped.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["queue_id", "numbers"],
+    "properties": {
+      "queue_id": {"type": "string", "minLength": 1, "description": "pdl-* id, from list_dialing_queues."},
+      "numbers": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["number"],
+          "properties": {
+            "number": {"type": "string", "minLength": 1, "personal": true},
+            "name": {"type": "string", "personal": true},
+            "last_name": {"type": "string", "personal": true},
+            "company": {"type": "string"},
+            "website": {"type": "string"},
+            "job_title": {"type": "string"},
+            "emails": {"type": "array", "items": {"type": "string", "personal": true}},
+            "addresses": {"type": "array", "items": {"type": "string", "personal": true}}
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "Two prospects to call", input: {"queue_id": "pdl-abc123", "numbers": [{"number": "+33199000001", "name": "Marie"}, {"number": "+33199000002"}]} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/dialing-queues/{queue_id}/numbers",
+    pathParams: ["queue_id"],
+    query: {},
+    body: {"numbers": "numbers"},
+    headers: {},
+  },
+})
+
+export const removeNumbersFromQueue = defineFunction({
+  name: "allo.remove_numbers_from_queue",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Remove entries from one Power Dialer queue: by number (every occurrence), by position (0-based), both (one occurrence), or unassigned=true (every entry not yet called).",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["queue_id"],
+    "properties": {
+      "queue_id": {"type": "string", "minLength": 1, "description": "pdl-* id, from list_dialing_queues."},
+      "number": {"type": "string", "minLength": 1, "personal": true},
+      "position": {"type": "integer", "minimum": 0},
+      "unassigned": {"type": "boolean"}
+    }
+  },
+  examples: [
+    { title: "Clear what was not called", input: {"queue_id": "pdl-abc123", "unassigned": true} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/dialing-queues/{queue_id}/numbers",
+    pathParams: ["queue_id"],
+    query: {"number": "number", "position": "position", "unassigned": "unassigned"},
+    body: {},
+    headers: {},
+  },
+})
+
+export const assignDialingQueue = defineFunction({
+  name: "allo.assign_dialing_queue",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Hand a Power Dialer queue, numbers and creator kept, to another member of the team, by user_id or email (user_id wins). Only the key of an admin or a manager who created the queue or runs it may.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["queue_id"],
+    "properties": {
+      "queue_id": {"type": "string", "minLength": 1, "description": "pdl-* id, from list_dialing_queues."},
+      "user_id": {"type": "string", "minLength": 1, "description": "The new assignee, from list_users."},
+      "email": {
+        "type": "string",
+        "format": "email",
+        "personal": true,
+        "description": "The new assignee's email, when no user_id."
+      }
+    },
+    "anyOf": [{"required": ["user_id"]}, {"required": ["email"]}]
+  },
+  examples: [
+    { title: "Give a queue to a teammate", input: {"queue_id": "pdl-abc123", "email": "rep@example.com"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/dialing-queues/{queue_id}/assignee",
+    pathParams: ["queue_id"],
+    query: {},
+    body: {"user_id": "user_id", "email": "email"},
+    headers: {},
+  },
+})
+
+export const getDialerSession = defineFunction({
+  name: "allo.get_dialer_session",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "One Power Dialer session, by id.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["session_id"],
+    "properties": {"session_id": {"type": "string", "minLength": 1}}
+  },
+  examples: [
+    { title: "A session", input: {"session_id": "pds-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/dialing-queues/sessions/{session_id}",
+    pathParams: ["session_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
 export const getTeamMetrics = defineFunction({
   name: "allo.get_team_metrics",
   connector: "allo",
@@ -1278,11 +2237,966 @@ export const sendSms = defineFunction({
   confirm: { summary: "Send a text to {to} now: it cannot be recalled." },
 })
 
+export const listSummaryTemplates = defineFunction({
+  name: "allo.list_summary_templates",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The team's call summary templates (tst-*), each with its sections.",
+  schema: {"type": "object", "additionalProperties": false, "properties": {}},
+  examples: [
+    { title: "The summary templates", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/summary_templates",
+    pathParams: [],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const getSummaryTemplate = defineFunction({
+  name: "allo.get_summary_template",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "One call summary template, with its context, icon and sections.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["template_id"],
+    "properties": {"template_id": {"type": "string", "minLength": 1, "description": "tst-* id."}}
+  },
+  examples: [
+    { title: "A template", input: {"template_id": "tst-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/summary_templates/{template_id}",
+    pathParams: ["template_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const createSummaryTemplate = defineFunction({
+  name: "allo.create_summary_template",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "A call summary template for the team: its name, the context that helps the AI summarize (4000 characters at most), an icon, and up to 10 ordered sections, each a title and instructions.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name"],
+    "properties": {
+      "name": {"type": "string", "minLength": 1},
+      "call_context": {"type": "string", "maxLength": 4000},
+      "icon": {"type": "string", "minLength": 1, "description": "An emoji, for instance."},
+      "sections": {
+        "type": "array",
+        "maxItems": 10,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {"type": "string", "minLength": 1},
+            "instructions": {"type": "string", "minLength": 1},
+            "order": {"type": "integer", "minimum": 0, "description": "0-based position of the section."}
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A sales call template", input: {"name": "Sales call", "call_context": "B2B software sales calls", "sections": [{"title": "Pain points", "instructions": "List the prospect's pain points", "order": 0}]} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/summary_templates",
+    pathParams: [],
+    query: {},
+    body: {"name": "name", "call_context": "call_context", "icon": "icon", "sections": "sections"},
+    headers: {},
+  },
+})
+
+export const updateSummaryTemplate = defineFunction({
+  name: "allo.update_summary_template",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Replace a call summary template whole: name, context, icon and sections; what is left out is cleared, so read it first and send it all back.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["template_id", "name"],
+    "properties": {
+      "template_id": {"type": "string", "minLength": 1, "description": "tst-* id."},
+      "name": {"type": "string", "minLength": 1},
+      "call_context": {"type": "string", "maxLength": 4000},
+      "icon": {"type": "string", "minLength": 1, "description": "An emoji, for instance."},
+      "sections": {
+        "type": "array",
+        "maxItems": 10,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {"type": "string", "minLength": 1},
+            "instructions": {"type": "string", "minLength": 1},
+            "order": {"type": "integer", "minimum": 0, "description": "0-based position of the section."}
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "Rename a template", input: {"template_id": "tst-abc123", "name": "Discovery call"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PUT",
+    path: "/v2/api/summary_templates/{template_id}",
+    pathParams: ["template_id"],
+    query: {},
+    body: {"name": "name", "call_context": "call_context", "icon": "icon", "sections": "sections"},
+    headers: {},
+  },
+})
+
+export const deleteSummaryTemplate = defineFunction({
+  name: "allo.delete_summary_template",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Deactivate a call summary template; it is no longer offered for summaries.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["template_id"],
+    "properties": {"template_id": {"type": "string", "minLength": 1, "description": "tst-* id."}}
+  },
+  examples: [
+    { title: "Delete a template", input: {"template_id": "tst-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/summary_templates/{template_id}",
+    pathParams: ["template_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete Allo summary template {template_id}." },
+})
+
+export const setDefaultSummaryTemplate = defineFunction({
+  name: "allo.set_default_summary_template",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "The summary template a line's call summaries use by default. Without summary_template_id, the line's default is cleared.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "summary_template_id": {"type": "string", "minLength": 1, "description": "tst-* id."}
+    }
+  },
+  examples: [
+    { title: "A default template for a line", input: {"number": "+33199000000", "summary_template_id": "tst-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PUT",
+    path: "/v2/api/numbers/{number}/default_summary_template",
+    pathParams: ["number"],
+    query: {},
+    body: {"summary_template_id": "summary_template_id"},
+    headers: {},
+  },
+})
+
+export const listWebhooks = defineFunction({
+  name: "allo.list_webhooks",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The webhook endpoints of the account (url, topics, label, enabled). The signing secret of an endpoint is never given: it is read in Allo.",
+  schema: {"type": "object", "additionalProperties": false, "properties": {}},
+  examples: [
+    { title: "The webhooks", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/webhooks",
+    pathParams: [],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  output: { strip: ["data.signing_secret"] },
+})
+
+export const getWebhook = defineFunction({
+  name: "allo.get_webhook",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "One webhook endpoint (url, topics, label, enabled). Its signing secret, which verifies the deliveries, is never given: it is read in Allo.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["webhook_id"],
+    "properties": {"webhook_id": {"type": "string", "minLength": 1}}
+  },
+  examples: [
+    { title: "A webhook", input: {"webhook_id": "ep_abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/webhooks/{webhook_id}",
+    pathParams: ["webhook_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  output: { strip: ["data.signing_secret"] },
+})
+
+export const createWebhook = defineFunction({
+  name: "allo.create_webhook",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "A webhook endpoint: Allo posts the events of topics to url (https). The signing secret that verifies the deliveries is never given: it is read in Allo.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["url", "topics"],
+    "properties": {
+      "url": {"type": "string", "pattern": "^https://", "description": "The https address that receives the events."},
+      "topics": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "enum": [
+            "call.received",
+            "call.triggered",
+            "call.answered",
+            "call.completed",
+            "tag.added",
+            "tag.removed",
+            "sms.received",
+            "sms.sent",
+            "contact.created",
+            "contact.updated",
+            "summary.updated"
+          ]
+        }
+      },
+      "description": {"type": "string", "description": "A label."}
+    }
+  },
+  examples: [
+    { title: "Completed calls to a receiver", input: {"url": "https://hooks.acme.example/allo", "topics": ["call.completed"], "description": "CRM sync"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/webhooks",
+    pathParams: [],
+    query: {},
+    body: {"url": "url", "topics": "topics", "description": "description"},
+    headers: {},
+  },
+  output: { strip: ["data.signing_secret"] },
+})
+
+export const updateWebhook = defineFunction({
+  name: "allo.update_webhook",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Change a webhook endpoint: only the fields given change; topics replaces the whole set; enabled=false stops the deliveries. Its signing secret is never given: it is read in Allo.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["webhook_id"],
+    "minProperties": 2,
+    "properties": {
+      "webhook_id": {"type": "string", "minLength": 1},
+      "url": {"type": "string", "pattern": "^https://", "description": "The https address that receives the events."},
+      "topics": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "enum": [
+            "call.received",
+            "call.triggered",
+            "call.answered",
+            "call.completed",
+            "tag.added",
+            "tag.removed",
+            "sms.received",
+            "sms.sent",
+            "contact.created",
+            "contact.updated",
+            "summary.updated"
+          ]
+        }
+      },
+      "description": {"type": "string", "description": "A label."},
+      "enabled": {"type": "boolean"}
+    }
+  },
+  examples: [
+    { title: "Pause a webhook", input: {"webhook_id": "ep_abc123", "enabled": false} },
+  ],
+  refusals: [],
+  request: {
+    method: "PUT",
+    path: "/v2/api/webhooks/{webhook_id}",
+    pathParams: ["webhook_id"],
+    query: {},
+    body: {"url": "url", "topics": "topics", "description": "description", "enabled": "enabled"},
+    headers: {},
+  },
+  output: { strip: ["data.signing_secret"] },
+})
+
+export const deleteWebhook = defineFunction({
+  name: "allo.delete_webhook",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete a webhook endpoint and its delivery history, for good.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["webhook_id"],
+    "properties": {"webhook_id": {"type": "string", "minLength": 1}}
+  },
+  examples: [
+    { title: "Delete a webhook", input: {"webhook_id": "ep_abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/webhooks/{webhook_id}",
+    pathParams: ["webhook_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete Allo webhook {webhook_id} and its delivery history." },
+})
+
+export const listWebhookEventTypes = defineFunction({
+  name: "allo.list_webhook_event_types",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The event topics a webhook may subscribe to, with what each sends.",
+  schema: {"type": "object", "additionalProperties": false, "properties": {}},
+  examples: [
+    { title: "The event topics", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/webhooks/event_types",
+    pathParams: [],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const getCallFlow = defineFunction({
+  name: "allo.get_call_flow",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The call flow of a line (the tree that routes its inbound calls): the published one by default, or status=draft for the working draft (the published one when there is no draft), with its lock_version.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "status": {"type": "string", "enum": ["draft", "published"]}
+    }
+  },
+  examples: [
+    { title: "The live call flow of a line", input: {"number": "+33199000000"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/numbers/{number}/call_flow",
+    pathParams: ["number"],
+    query: {"status": "status"},
+    body: {},
+    headers: {},
+  },
+})
+
+export const getCallFlowDraft = defineFunction({
+  name: "allo.get_call_flow_draft",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The working draft of a line's call flow only, with its lock_version to pass when saving or publishing; never the published flow.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number"],
+    "properties": {"number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."}}
+  },
+  examples: [
+    { title: "The draft of a line", input: {"number": "+33199000000"} },
+  ],
+  refusals: [
+    { code: "call_flow_draft_not_found", when: 404, message: "This line has no call flow draft.", body: {"path": "error.code", "equals": ["CALL_FLOW_DRAFT_NOT_FOUND"]} },
+  ],
+  request: {
+    method: "GET",
+    path: "/v2/api/numbers/{number}/call_flow/draft",
+    pathParams: ["number"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const saveCallFlowDraft = defineFunction({
+  name: "allo.save_call_flow_draft",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Create or replace the working draft of a line's call flow; nothing is live until publish_call_flow. definition is the flow tree (camelCase keys), schema_version the server's current one. lock_version (from the last read) and base_published_version detect a concurrent edit or publish (409). engine_subset FULL_FLOW runs the whole tree: send it for a flow built through the API.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number", "definition", "schema_version"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "definition": {"type": "object"},
+      "schema_version": {"type": "integer"},
+      "lock_version": {"type": "integer"},
+      "base_published_version": {"type": "integer"},
+      "engine_subset": {"type": "string", "enum": ["NESTED_IVR", "FULL_FLOW"]}
+    }
+  },
+  examples: [
+    { title: "Save a draft", input: {"number": "+33199000000", "definition": {"root": {"type": "menu"}}, "schema_version": 1, "lock_version": 3, "engine_subset": "FULL_FLOW"} },
+  ],
+  refusals: [
+    { code: "call_flow_changed", when: 409, message: "The call flow changed since it was read (edited or published): read it again." },
+  ],
+  request: {
+    method: "PUT",
+    path: "/v2/api/numbers/{number}/call_flow/draft",
+    pathParams: ["number"],
+    query: {},
+    body: {"definition": "definition", "schema_version": "schema_version", "lock_version": "lock_version", "base_published_version": "base_published_version", "engine_subset": "engine_subset"},
+    headers: {},
+  },
+})
+
+export const publishCallFlow = defineFunction({
+  name: "allo.publish_call_flow",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Publish the working draft of a line's call flow: it routes the line's live inbound calls at once. Validation is stricter than on save, and a failure publishes nothing; the draft is consumed.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number", "lock_version"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "lock_version": {"type": "integer", "description": "The lock_version of the draft, from its last read."}
+    }
+  },
+  examples: [
+    { title: "Publish a draft", input: {"number": "+33199000000", "lock_version": 4} },
+  ],
+  refusals: [
+    { code: "call_flow_changed", when: 409, message: "The call flow changed since it was read (edited or published): read it again." },
+  ],
+  request: {
+    method: "POST",
+    path: "/v2/api/numbers/{number}/call_flow/publish",
+    pathParams: ["number"],
+    query: {},
+    body: {"lock_version": "lock_version"},
+    headers: {},
+  },
+  confirm: { summary: "Publish the call flow draft of line {number}: its live calls are routed by it at once." },
+})
+
+export const getReceptionist = defineFunction({
+  name: "allo.get_receptionist",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The whole configuration of a line's AI receptionist: business details, voice and language, prompt, capabilities, business hours, transfer rules, calendars and knowledge sources, status. Read it before any write: collections are replaced whole.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number"],
+    "properties": {"number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."}}
+  },
+  examples: [
+    { title: "The receptionist of a line", input: {"number": "+33199000000"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/numbers/{number}/agent",
+    pathParams: ["number"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const updateReceptionist = defineFunction({
+  name: "allo.update_receptionist",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Change a line's AI receptionist, prompt and status aside: a single value given changes, one left out stays; capabilities, business_hours, transfer_rules and scheduling.calendars given replace the configured set whole (a capability left out is turned off), so read get_receptionist first. Does not put the receptionist on the line.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number"],
+    "minProperties": 2,
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "name": {"type": "string", "maxLength": 64},
+      "business_name": {"type": "string", "maxLength": 64},
+      "business_address": {"type": "string", "maxLength": 255},
+      "business_phone": {"type": "string", "maxLength": 64, "description": "E.164."},
+      "business_email": {"type": "string", "maxLength": 64},
+      "business_website": {"type": "string", "maxLength": 64},
+      "business_industry": {"type": "string", "maxLength": 64},
+      "language": {"type": "string", "enum": ["fr", "fr-CA", "en-US", "en-GB", "es", "de", "hr"]},
+      "voice_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "An id from list_voices, under the receptionist's language."
+      },
+      "greeting_message": {"type": "string", "maxLength": 1000},
+      "closing_message": {"type": "string", "maxLength": 1000},
+      "tone_of_voice": {"type": "string", "enum": ["FRIENDLY", "PROFESSIONAL", "NEUTRAL", "ENTHUSIASTIC"]},
+      "answer_type": {"type": "string", "enum": ["CONCISE", "STANDARD", "DETAILED"]},
+      "capabilities": {
+        "type": "object",
+        "additionalProperties": {"type": "boolean"},
+        "description": "Every toggle, e.g. SCHEDULING, CALL_TRANSFER."
+      },
+      "business_hours": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schedule"],
+        "properties": {
+          "timezone": {"type": "string", "description": "IANA time zone."},
+          "schedule": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["day", "schedule"],
+              "properties": {
+                "day": {"type": "string", "enum": ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]},
+                "schedule": {
+                  "type": "array",
+                  "description": "Open periods in seconds since midnight; an empty list closes the day.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["start_time", "end_time"],
+                    "properties": {
+                      "start_time": {"type": "integer", "minimum": 0, "maximum": 86399},
+                      "end_time": {"type": "integer", "minimum": 0, "maximum": 86399}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "transfer_rules": {
+        "type": "array",
+        "description": "Every rule; [] removes them all.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "description": {"type": "string", "description": "The caller's reason, as a caller would say it."},
+            "type": {"type": "string", "enum": ["EXTERNAL_NUMBER", "MEMBER", "INBOX"]},
+            "transfer_message": {"type": "string"},
+            "target_number": {"type": "string", "description": "For EXTERNAL_NUMBER, E.164."},
+            "target_member_id": {"type": "string", "description": "For MEMBER, a usr-* id."},
+            "target_line_number": {"type": "string", "description": "For INBOX, another Allo line, E.164."}
+          }
+        }
+      },
+      "scheduling": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "calendars": {
+            "type": "object",
+            "description": "Every calendar it may book on, keyed by an id from list_calendars, each to its event types as get_calendar gives them.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "slug", "title"],
+                "properties": {
+                  "id": {"type": "string"},
+                  "slug": {"type": "string"},
+                  "title": {"type": "string"},
+                  "length_in_minutes": {"type": "integer"},
+                  "description": {"type": "string", "description": "When to book this one, as the caller's reason."}
+                }
+              }
+            }
+          }
+        }
+      },
+      "knowledge": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {"type": "string", "maxLength": 25000, "description": "Deprecated by Allo: add websites instead."}
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "Business details and a warmer tone", input: {"number": "+33199000000", "business_name": "Acme Plumbing", "tone_of_voice": "FRIENDLY"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/numbers/{number}/agent",
+    pathParams: ["number"],
+    query: {},
+    body: {"name": "name", "business_name": "business_name", "business_address": "business_address", "business_phone": "business_phone", "business_email": "business_email", "business_website": "business_website", "business_industry": "business_industry", "language": "language", "voice_id": "voice_id", "greeting_message": "greeting_message", "closing_message": "closing_message", "tone_of_voice": "tone_of_voice", "answer_type": "answer_type", "capabilities": "capabilities", "business_hours": "business_hours", "transfer_rules": "transfer_rules", "scheduling": "scheduling", "knowledge": "knowledge"},
+    headers: {},
+  },
+})
+
+export const setReceptionistStatus = defineFunction({
+  name: "allo.set_receptionist_status",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Put a line's AI receptionist on the line (ACTIVE) or take it off (FORWARDING: calls go to the business phone). Changes how the live line routes real calls at once.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number", "status"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "status": {"type": "string", "enum": ["ACTIVE", "FORWARDING"]}
+    }
+  },
+  examples: [
+    { title: "Put the receptionist on", input: {"number": "+33199000000", "status": "ACTIVE"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PUT",
+    path: "/v2/api/numbers/{number}/agent/status",
+    pathParams: ["number"],
+    query: {},
+    body: {"status": "status"},
+    headers: {},
+  },
+  confirm: { summary: "Set the AI receptionist of line {number} to {status}: its live calls change at once." },
+})
+
+export const setReceptionistPrompt = defineFunction({
+  name: "allo.set_receptionist_prompt",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Replace the whole prompt of a line's AI receptionist: send every section, the unchanged ones too (read get_receptionist first). objective, personality and behaviors are required, each section once; a content holds 3000 characters at most; required_fields takes fields instead. Facts about the business belong in its knowledge, not here.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number", "sections"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "sections": {
+        "type": "array",
+        "minItems": 3,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["section"],
+          "properties": {
+            "section": {
+              "type": "string",
+              "enum": [
+                "objective",
+                "personality",
+                "behaviors",
+                "prohibited",
+                "required_fields",
+                "objective_completion"
+              ]
+            },
+            "content": {"type": "string", "maxLength": 3000},
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["label", "question", "complete_when"],
+                "properties": {
+                  "label": {"type": "string"},
+                  "question": {"type": "string"},
+                  "complete_when": {"type": "string"}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A booking receptionist", input: {"number": "+33199000000", "sections": [{"section": "objective", "content": "Book a visit for every caller with a leak."}, {"section": "personality", "content": "Calm and brief."}, {"section": "behaviors", "content": "Ask for the address first."}]} },
+  ],
+  refusals: [],
+  request: {
+    method: "PUT",
+    path: "/v2/api/numbers/{number}/agent/prompt",
+    pathParams: ["number"],
+    query: {},
+    body: {"sections": "sections"},
+    headers: {},
+  },
+})
+
+export const addReceptionistWebsite = defineFunction({
+  name: "allo.add_receptionist_website",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Add a public website to the knowledge of a line's AI receptionist. Allo crawls it in the background and answers at once; the receptionist uses it once indexed, and a failed crawl is not reported. A site another line already has is linked, not crawled again.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number", "url"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "url": {"type": "string", "minLength": 1, "description": "Without a scheme, https:// is assumed."}
+    }
+  },
+  examples: [
+    { title: "Learn from the company site", input: {"number": "+33199000000", "url": "https://acme.example"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/v2/api/numbers/{number}/agent/knowledge/websites",
+    pathParams: ["number"],
+    query: {},
+    body: {"url": "url"},
+    headers: {},
+  },
+})
+
+export const updateReceptionistWebsite = defineFunction({
+  name: "allo.update_receptionist_website",
+  connector: "allo",
+  class: "write",
+  act: true,
+  description: "Turn a website on (ACTIVE) or off (DISABLED) for this line, its crawled content kept; ACTIVE on a website of the team's library adds it to the line.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number", "website_id", "status"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "website_id": {"type": "string", "minLength": 1, "description": "From get_receptionist, under knowledge."},
+      "status": {"type": "string", "enum": ["ACTIVE", "DISABLED"]}
+    }
+  },
+  examples: [
+    { title: "Stop using a website on this line", input: {"number": "+33199000000", "website_id": "kws-abc123", "status": "DISABLED"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/v2/api/numbers/{number}/agent/knowledge/websites/{website_id}",
+    pathParams: ["number", "website_id"],
+    query: {},
+    body: {"status": "status"},
+    headers: {},
+  },
+})
+
+export const deleteReceptionistWebsite = defineFunction({
+  name: "allo.delete_receptionist_website",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete a website from the team's knowledge library, for every line of the team; to stop one line using it, turn it off instead.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number", "website_id"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "website_id": {"type": "string", "minLength": 1, "description": "From get_receptionist, under knowledge."}
+    }
+  },
+  examples: [
+    { title: "Delete a website", input: {"number": "+33199000000", "website_id": "kws-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/numbers/{number}/agent/knowledge/websites/{website_id}",
+    pathParams: ["number", "website_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete website {website_id} from the knowledge of every Allo line of the team." },
+})
+
+export const deleteReceptionistFile = defineFunction({
+  name: "allo.delete_receptionist_file",
+  connector: "allo",
+  class: "sensitive",
+  act: true,
+  description: "Delete an uploaded document from the team's knowledge library, for every line of the team. Documents are uploaded in the Allo app only.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["number", "file_id"],
+    "properties": {
+      "number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164, from list_numbers."},
+      "file_id": {"type": "string", "minLength": 1, "description": "From get_receptionist, under knowledge."}
+    }
+  },
+  examples: [
+    { title: "Delete a document", input: {"number": "+33199000000", "file_id": "kfl-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "DELETE",
+    path: "/v2/api/numbers/{number}/agent/knowledge/files/{file_id}",
+    pathParams: ["number", "file_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  confirm: { summary: "Delete document {file_id} from the knowledge of every Allo line of the team." },
+})
+
+export const listCalendars = defineFunction({
+  name: "allo.list_calendars",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The calendars connected to the workspace that the key's user can see (all of them for an admin), booked on by a receptionist or not. Connecting one is done in the Allo app.",
+  schema: {"type": "object", "additionalProperties": false, "properties": {}},
+  examples: [
+    { title: "The calendars", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/calendars",
+    pathParams: [],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const getCalendar = defineFunction({
+  name: "allo.get_calendar",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "One connected calendar with the event types its provider offers now, read live.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["calendar_id"],
+    "properties": {"calendar_id": {"type": "string", "minLength": 1}}
+  },
+  examples: [
+    { title: "A calendar", input: {"calendar_id": "cal-abc123"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/calendars/{calendar_id}",
+    pathParams: ["calendar_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const listVoices = defineFunction({
+  name: "allo.list_voices",
+  connector: "allo",
+  class: "read",
+  act: false,
+  description: "The voices an AI receptionist may speak with, by language; each id is a voice_id.",
+  schema: {"type": "object", "additionalProperties": false, "properties": {}},
+  examples: [
+    { title: "The voices", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/v2/api/voices",
+    pathParams: [],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  output: { strip: ["data.demo_url"] },
+})
+
 export const connector = defineConnector({
   name: "allo",
   label: "Allo",
   namespace: "allo",
-  version: "1.1.0",
+  version: "1.2.0",
   apiVersion: "v2 (SMS on v1)",
   baseUrl: "https://api.withallo.com",
   auth: {"kind": "api_key", "in": "header", "name": "Authorization", "prefix": "Api-Key ", "key": "api_key"},
@@ -1303,6 +3217,7 @@ export const connector = defineConnector({
   functions: [
     getMe,
     listUsers,
+    getUser,
     listNumbers,
     listConversations,
     searchConversationItems,
@@ -1313,12 +3228,25 @@ export const connector = defineConnector({
     updateConversation,
     listTags,
     createTag,
+    deleteTag,
     addItemTags,
     removeItemTag,
     listConversationNotes,
     createConversationNote,
+    getConversationNote,
+    updateConversationNote,
+    deleteConversationNote,
     listPersonNotes,
     createPersonNote,
+    updatePersonNote,
+    deletePersonNote,
+    findThread,
+    getThread,
+    createThread,
+    addThreadComment,
+    updateThreadComment,
+    resolveThread,
+    unresolveThread,
     searchPeople,
     getPerson,
     createPerson,
@@ -1331,13 +3259,56 @@ export const connector = defineConnector({
     getDeal,
     listPersonAttributes,
     listCompanyAttributes,
+    createPersonAttribute,
+    updatePersonAttribute,
+    deletePersonAttribute,
+    createCompanyAttribute,
+    updateCompanyAttribute,
+    deleteCompanyAttribute,
     getDialingQueue,
     resetDialingQueue,
     updateDialingQueue,
     addQueueNumbers,
     removeQueueNumbers,
+    deleteCurrentDialingQueue,
+    listDialingQueues,
+    createDialingQueue,
+    getDialingQueueById,
+    updateDialingQueueById,
+    deleteDialingQueue,
+    addNumbersToQueue,
+    removeNumbersFromQueue,
+    assignDialingQueue,
+    getDialerSession,
     getTeamMetrics,
     getOutboundMetrics,
     sendSms,
+    listSummaryTemplates,
+    getSummaryTemplate,
+    createSummaryTemplate,
+    updateSummaryTemplate,
+    deleteSummaryTemplate,
+    setDefaultSummaryTemplate,
+    listWebhooks,
+    getWebhook,
+    createWebhook,
+    updateWebhook,
+    deleteWebhook,
+    listWebhookEventTypes,
+    getCallFlow,
+    getCallFlowDraft,
+    saveCallFlowDraft,
+    publishCallFlow,
+    getReceptionist,
+    updateReceptionist,
+    setReceptionistStatus,
+    setReceptionistPrompt,
+    addReceptionistWebsite,
+    updateReceptionistWebsite,
+    deleteReceptionistWebsite,
+    deleteReceptionistFile,
+    listCalendars,
+    getCalendar,
+    listVoices,
   ],
 })
