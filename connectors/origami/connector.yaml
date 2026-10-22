@@ -1,0 +1,621 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Origami API v2 (https://docs.origami.chat, OpenAPI https://docs.origami.chat/openapi-v2.yaml, read on 2026-10-22).
+# The values come from the Python client, oto.tools.origami, which this description follows: one request per method
+# to origami.chat/api/v2, the API key (og_live_…) as a Bearer token, JSON bodies passed through as they are. The
+# function names, the argument names and the keys sent to Origami are the client's; the client is not changed
+# (tests/test_origami_description.py reads it to keep both equal).
+#
+# What Origami is: lead tables (rows keyed by the slugs of their input columns), and email + LinkedIn campaigns that an
+# Origami agent drafts from a brief and that send from a table, one sequence per enrolled person.
+#
+# Read and act. Reads stay on the read side. Every call that changes something is served on the act side: creating a
+# workspace and pausing a campaign (class write; pausing stops sends, it never starts one). Ask for a confirmation
+# (class sensitive): upserting rows (up to 100 rows in one call, enrichment that spends Origami credits), drafting a
+# campaign (an Origami agent run, on Origami's side, that spends credits and enrols the table's people, possibly into
+# a campaign that already exists), launching and resuming a campaign (emails and LinkedIn messages go to real
+# people), deleting a campaign.
+#
+# Values the client sets, kept as the client sends them:
+# - enrich of upsert_rows: the API's default is true (inserted rows are enriched, credits spent); the client sends
+#   false unless asked. Here enrich is required: the host sends only what the call gives, and an absent enrich would
+#   let Origami enrich.
+# - cells of list_rows: the client sends cells=flat when the call omits it; that is not declared as a default (the
+#   host sends nothing for an absent argument, and Origami then returns typed cells). The description tells the agent
+#   to pass it.
+# - the query flags dryRun and confirm go only when true, as the client sends them (const true).
+# - filters and sort of list_rows go as JSON in one query parameter (encode: json), as the client serializes them;
+#   an empty filters list or sort object is dropped by the client, refused by the schema (an empty filters list would
+#   replace the table's saved filters).
+# The schema is narrower than the client where the reference closes a vocabulary or bounds a value, which the client
+# passes through: include of get_table (stats), include of get_run (stats, transcript), the 80 characters of a
+# workspace name and the 10,000 characters of a campaign brief (oto 1 checks both). A blank workspace name or brief,
+# which the client refuses, is refused by the schema.
+#
+# create_campaign sends settings {blockPriorContacts, blockActiveDuplicates}, as the client does (verified live by the
+# client on 2026-08-16/17); the OpenAPI read on 2026-10-22 documents autoLeadRefillEnabled instead and no settings,
+# and the client does not send autoLeadRefillEnabled. oto 1 measured Origami ignoring those settings (2026-09-13):
+# the description says to read the campaign's settings back.
+#
+# Pagination: every list is the one envelope {object: list, items, nextCursor, url}; nextCursor null marks the last
+# page. Declared on the five lists that page (workspaces, tables, rows, campaign people, sequences): one page by
+# default, all_pages walks them. The columns and the campaigns of a table come in one page (nextCursor null).
+#
+# Rate: 100 requests per minute per organization (300 per minute per IP), Origami's reference, "Rate limits"; the
+# client does not pace. Every call costs one request: enrichment and agent runs spend Origami credits, which the
+# client does not price.
+#
+# Errors (envelope {error, code, details?}): the client names none (raise_for_upstream, every status above 400 the
+# same error, its code kept in the body). The reference documents the 401 as "Missing or invalid API key"; the host
+# always sends the key, so a 401 marks the account credential_rejected (as folk). A 402 whose code is
+# INSUFFICIENT_CREDITS (the wallet below the run floor: "top up to unblock", the reference; named by the client for
+# create_campaign) marks it quota_exhausted; the other 402 codes (a project budget, a plan without API access, a
+# billing block) mark nothing. A 403 marks nothing (oto 1 reads it as a refused key, the reference does not). Only
+# the 429 is retryable. A 5xx is not: a launch, an upsert or an agent run may have gone through.
+#
+# Not described here, left to the hand-written client:
+# - upload_documents: the bytes of a file go base64 inside a JSON body; the format takes a file only as a transit file
+#   of the caller, sent as a multipart part, never its bytes as an argument (oto 1 serves it as origami_upload_csv);
+# - project_id of the constructor: the x-origami-project header that scopes a request to a child organization; a
+#   setting of the account is cited only in an address, never in a header (oto 1 never passes it: the parent org).
+# get_run's guard of oto 1 (a finished run with an empty actions list is refused) is the tool's, not the client's:
+# the description only says it.
+connector:
+  name: origami
+  label: Origami
+  namespace: origami
+  version: 1.0.0
+  api_version: v2
+  base_url: https://origami.chat/api/v2
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  # Each organization brings its own key: credits and sends are those of the Origami account behind the key.
+  modes: [byo_user, byo_org]
+  # The client waits 120 s for an answer (10 s to connect): campaign creation can be slow.
+  timeout_s: 120
+  rate_limit: { requests: 100, seconds: 60 }
+  probe: { function: list_workspaces }
+  errors:
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Origami rejected the request: its code says why (UNKNOWN_FIELDS: a row key is not an input-column slug, read list_columns; NON_INPUT_COLUMNS, MISSING_MATCH_VALUE, DUPLICATE_MATCH_KEY, MISSING_SCOPE, VALIDATION_ERROR)." }
+    - { status: 401, code: key_refused, retryable: false, marks_account: credential_rejected,
+        message: "Origami refused the API key: invalid or revoked. A new og_live_ key is made in Origami, Settings, API keys." }
+    - { status: 402, body: { path: code, equals: [INSUFFICIENT_CREDITS] }, code: credits_exhausted, retryable: false,
+        marks_account: quota_exhausted,
+        message: "Origami credits are exhausted: the account is below what a run or an enrichment needs. Top up the Origami account." }
+    - { status: 402, code: payment_required, retryable: false,
+        message: "Origami refused for billing: a credit budget reached, a plan without API access, or a blocked account. It is settled in Origami's billing." }
+    - { status: 403, code: forbidden, retryable: false,
+        message: "Origami refused this call for this key." }
+    - { status: 404, code: not_found, retryable: false,
+        message: "Not found in Origami: wrong id, deleted, or not in this organization." }
+    - { status: 409, code: conflict, retryable: false,
+        message: "Origami refused for a conflict: an agent run already going on that table (AGENT_BUSY, poll it), several rows matching one key (AMBIGUOUS_MATCH), no sending account for a channel (NO_SENDING_ACCOUNT)." }
+    - { status: 429, code: rate_limited, retryable: true,
+        message: "Origami limit reached: 100 requests per minute per organization, or the plan's concurrent agent runs (CONCURRENT_LIMIT_EXCEEDED). Wait, then retry." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: false,
+        message: "Origami failed. A read can be retried; an upsert, an agent run or a launch may have gone through: read it back before acting again." }
+
+functions:
+  # --- Workspaces ------------------------------------------------------------------
+
+  - name: list_workspaces
+    class: read
+    description: >-
+      List the organization's workspaces, the containers of tables, documents
+      and campaigns: id, name, url, createdAt. search keeps the names that
+      contain it.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        cursor: &cursor { type: string, minLength: 1, description: "nextCursor of the previous page." }
+        limit: &limit { type: integer, minimum: 1, maximum: 100, description: "Page size, 50 by default, at most 100." }
+        search: { type: string, minLength: 1, description: "Case-insensitive substring of the name." }
+    examples:
+      - { title: Every workspace, input: {} }
+      - { title: Workspaces by name, input: { search: outreach, limit: 10 } }
+    call:
+      method: GET
+      path: /workspaces
+      query: { cursor: cursor, limit: limit, search: search }
+    pagination: &pages { kind: cursor, request_param: cursor, next: nextCursor, max_pages: 10 }
+    output: &list { items: items }
+    cost: &request { per: request }
+
+  - name: create_workspace
+    class: write
+    description: >-
+      Create a workspace (a session container) to put tables and documents in.
+      Answers the workspace, with its id.
+    input:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80, pattern: "\\S", description: "Workspace name, 80 characters at most." }
+    examples:
+      - { title: A workspace for a pilot, input: { name: Pilot Q4 } }
+    call:
+      method: POST
+      path: /workspaces
+      body: { name: name }
+    cost: *request
+
+  # --- Tables ----------------------------------------------------------------------
+
+  - name: list_tables
+    class: read
+    description: >-
+      List the organization's lead tables, or a workspace's: id, workspaceId,
+      name, leadCount, columns, credits used, url.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        workspace_id: &workspace_id { type: string, minLength: 1, description: "Workspace id." }
+        cursor: *cursor
+        limit: *limit
+    examples:
+      - { title: Every table, input: {} }
+      - { title: The tables of a workspace, input: { workspace_id: 00000000-0000-4000-8000-000000000001 } }
+    call:
+      method: GET
+      path: /tables
+      query: { workspaceId: workspace_id, cursor: cursor, limit: limit }
+    pagination: *pages
+    output: *list
+    cost: *request
+
+  - name: get_table
+    class: read
+    description: >-
+      Get one table: name, leadCount, columns, credits used (credits.lifetimeUsed,
+      final once its runs are over). include stats adds the economics:
+      creditsPerLead, qualification, funnel, lead sources.
+    input:
+      type: object
+      additionalProperties: false
+      required: [table_id]
+      properties:
+        table_id: &table_id { type: string, minLength: 1, description: "Table id." }
+        include: { type: string, enum: [stats], description: "stats: add the economics block." }
+    examples:
+      - { title: A table with its economics, input: { table_id: 00000000-0000-4000-8000-000000000002, include: stats } }
+    call:
+      method: GET
+      path: "/tables/{table_id}"
+      query: { include: include }
+    cost: *request
+
+  - name: list_columns
+    class: read
+    description: >-
+      List a table's columns: id, name, slug, kind, autoTrigger. Read it before
+      any upsert_rows: row keys and match columns are the slugs (with dashes,
+      first-name) of the columns whose kind is input, never the displayed names.
+    input:
+      type: object
+      additionalProperties: false
+      required: [table_id]
+      properties:
+        table_id: *table_id
+    examples:
+      - { title: The columns of a table, input: { table_id: 00000000-0000-4000-8000-000000000002 } }
+    call: { method: GET, path: "/tables/{table_id}/columns" }
+    output: *list
+    cost: *request
+
+  # --- Rows ------------------------------------------------------------------------
+
+  - name: list_rows
+    class: read
+    description: >-
+      List a table's rows. Pass cells flat to get each row as {slug: value};
+      without it, Origami returns typed cells. limit goes up to 200. filters
+      ({column, operator, value}, column a slug) replace the table's saved
+      filters; sort is {column, direction}. The total row count is in
+      get_table (leadCount).
+    input:
+      type: object
+      additionalProperties: false
+      required: [table_id]
+      properties:
+        table_id: *table_id
+        cursor: *cursor
+        cells: { type: string, enum: [flat], description: "flat: rows as {slug: value}. Omit for typed cells." }
+        limit: { type: integer, minimum: 1, maximum: 200, description: "Page size, 50 by default, at most 200." }
+        filters:
+          type: array
+          minItems: 1
+          description: "Filters, all applied: they replace the table's saved filters."
+          items:
+            type: object
+            additionalProperties: false
+            required: [column, operator]
+            properties:
+              column: { type: string, minLength: 1, description: "Input-column slug, or relevance_score, duplicates, excluded, disapproved, triage_state." }
+              operator:
+                type: string
+                enum: [contains, not_contains, equals, not_equals, is_empty, is_not_empty, greater_than,
+                       greater_than_or_equal, less_than, less_than_or_equal]
+              value: { personal: true, description: "The value compared; none for is_empty and is_not_empty." }
+        sort:
+          type: object
+          additionalProperties: false
+          required: [column, direction]
+          properties:
+            column: { type: string, minLength: 1, description: "Column slug." }
+            direction: { type: string, enum: [asc, desc] }
+    examples:
+      - { title: The first rows as slug and value, input: { table_id: 00000000-0000-4000-8000-000000000002, cells: flat } }
+      - title: The rows with an email, by company
+        input:
+          table_id: 00000000-0000-4000-8000-000000000002
+          cells: flat
+          limit: 200
+          filters: [{ column: email, operator: is_not_empty }]
+          sort: { column: company, direction: asc }
+    call:
+      method: GET
+      path: "/tables/{table_id}/rows"
+      query: { cursor: cursor, cells: cells, limit: limit, filters: filters, sort: sort }
+      encode: { filters: json, sort: json }
+    pagination: { kind: cursor, request_param: cursor, next: nextCursor, total: total, max_pages: 20 }
+    output: *list
+    cost: *request
+
+  - name: upsert_rows
+    class: sensitive
+    description: >-
+      Insert or update 1 to 100 rows of a table: a row whose match_columns
+      values all equal an existing row updates it, otherwise it is inserted.
+      Row keys and match_columns are slugs of input columns (list_columns),
+      each row giving a non-empty value for every match column. enrich true
+      enriches the inserted rows and spends Origami credits; reenrich_updated
+      also re-enriches the updated ones. batch_id makes a retry idempotent.
+      Answers an enrichment run {id, counts: inserted, updated, skipped}.
+    input:
+      type: object
+      additionalProperties: false
+      required: [table_id, rows, match_columns, enrich]
+      properties:
+        table_id: *table_id
+        rows:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: "The rows, each {input-column slug: value}."
+          items:
+            type: object
+            minProperties: 1
+            propertyNames: { minLength: 1 }
+            additionalProperties: { personal: true }
+        match_columns:
+          type: array
+          minItems: 1
+          description: "Input-column slugs that identify a row (email)."
+          items: { type: string, minLength: 1 }
+        enrich: { type: boolean, description: "Enrich the inserted rows: spends Origami credits." }
+        reenrich_updated: { type: boolean, description: "Also re-enrich the updated rows: spends again." }
+        batch_id:
+          type: string
+          pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          description: "A UUID of yours: Origami applies a batch id once."
+    examples:
+      - title: Two leads, matched on their email, not enriched
+        input:
+          table_id: 00000000-0000-4000-8000-000000000002
+          rows:
+            - { email: marie@example.test, first-name: Marie, company: Example }
+            - { email: paul@example.test, first-name: Paul, company: Example }
+          match_columns: [email]
+          enrich: false
+      - title: One lead, enriched, idempotent
+        input:
+          table_id: 00000000-0000-4000-8000-000000000002
+          rows: [{ email: marie@example.test }]
+          match_columns: [email]
+          enrich: true
+          reenrich_updated: false
+          batch_id: 00000000-0000-4000-8000-0000000000aa
+    confirm:
+      summary: "Upsert rows into Origami table {table_id}, matched on {match_columns}; enrich {enrich}: enrichment spends Origami credits."
+    call:
+      method: POST
+      path: "/tables/{table_id}/rows/upsert"
+      body: { rows: rows, matchColumns: match_columns, enrich: enrich, reenrichUpdated: reenrich_updated, batchId: batch_id }
+    cost: *request
+
+  # --- Campaigns -------------------------------------------------------------------
+
+  - name: list_campaigns
+    class: read
+    description: >-
+      List the campaigns that send from a table: id, slug, name, status,
+      peopleCount. There is no list of all campaigns: list_sequences on a
+      workspace sees every campaign through its sequences.
+    input:
+      type: object
+      additionalProperties: false
+      required: [table_id]
+      properties:
+        table_id: *table_id
+    examples:
+      - { title: The campaigns of a table, input: { table_id: 00000000-0000-4000-8000-000000000002 } }
+    call: { method: GET, path: "/tables/{table_id}/campaigns" }
+    output: *list
+    cost: *request
+
+  - name: get_campaign
+    class: read
+    description: >-
+      Get one campaign: name, status (draft, active, paused), workspaceId,
+      tableId, channels (email, linkedin), settings (blockPriorContacts,
+      blockActiveDuplicates…), brief. After a delete, a 404 here is the only
+      proof that the campaign is gone.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id]
+      properties:
+        campaign_id: &campaign_id { type: string, minLength: 1, description: "Campaign id." }
+    examples:
+      - { title: One campaign, input: { campaign_id: 00000000-0000-4000-8000-000000000003 } }
+    call: { method: GET, path: "/campaigns/{campaign_id}" }
+    cost: *request
+
+  - name: campaign_stats
+    class: read
+    description: >-
+      Get a campaign's figures: found, contacted, connectSent,
+      connectAccepted, connectionRate, replied, replyRate, hasEmail,
+      hasLinkedin. found rising while contacted does not means sequences
+      without a recipient.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id]
+      properties:
+        campaign_id: *campaign_id
+    examples:
+      - { title: The figures of a campaign, input: { campaign_id: 00000000-0000-4000-8000-000000000003 } }
+    call: { method: GET, path: "/campaigns/{campaign_id}/stats" }
+    cost: *request
+
+  - name: campaign_people
+    class: read
+    description: >-
+      List the people enrolled in a campaign, one sequence each: sequenceId,
+      rowId, recipient, sendStatus, stopReason, fitScore, fitExplanation,
+      profile, addedAt. status keeps some send statuses (comma-separated);
+      search matches the recipient or identity.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id]
+      properties:
+        campaign_id: *campaign_id
+        cursor: *cursor
+        limit: *limit
+        status: { type: string, minLength: 1, description: "Send statuses to keep, comma-separated (sent,replied)." }
+        search: { type: string, minLength: 1, personal: true, description: "Substring of the recipient or identity." }
+    examples:
+      - { title: The people of a campaign, input: { campaign_id: 00000000-0000-4000-8000-000000000003 } }
+      - { title: Who replied, input: { campaign_id: 00000000-0000-4000-8000-000000000003, status: replied, limit: 100 } }
+    call:
+      method: GET
+      path: "/campaigns/{campaign_id}/people"
+      query: { cursor: cursor, limit: limit, status: status, search: search }
+    pagination: { kind: cursor, request_param: cursor, next: nextCursor, total: total, max_pages: 10 }
+    output: *list
+    cost: *request
+
+  - name: create_campaign
+    class: sensitive
+    description: >-
+      Have Origami's agent draft a campaign on a table from instructions
+      (audience, channels, tone, offer, follow-ups): it creates the campaign
+      and its sequences, spends credits, and sends nothing until
+      launch_campaign. Answers 202 {agent: {id}, run: {id}, table}: poll
+      get_run until status is not running, then list_campaigns. If the brief
+      enrols people into an existing campaign, that campaign's settings apply.
+      settings are requested, not guaranteed: read them back with
+      get_campaign.
+    input:
+      type: object
+      additionalProperties: false
+      required: [table_id, instructions]
+      properties:
+        table_id: *table_id
+        instructions: { type: string, minLength: 1, maxLength: 10000, pattern: "\\S", description: "The brief for Origami's agent." }
+        settings:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            blockPriorContacts: { type: boolean, description: "Cancel anyone ever enrolled before, even in a deleted unsent draft." }
+            blockActiveDuplicates: { type: boolean, description: "Cancel anyone active in another campaign." }
+    examples:
+      - title: A two-step email campaign, prior contacts blocked
+        input:
+          table_id: 00000000-0000-4000-8000-000000000002
+          instructions: "Email the heads of sales of this table about a pilot, two follow-ups a week apart, in French."
+          settings: { blockPriorContacts: true, blockActiveDuplicates: true }
+    confirm:
+      summary: "Have Origami's agent draft a campaign on table {table_id}: it spends credits and enrols the table's people; nothing sends until launch."
+    call:
+      method: POST
+      path: "/tables/{table_id}/campaigns"
+      body: { instructions: instructions, settings: settings }
+    cost: *request
+
+  - name: get_run
+    class: read
+    description: >-
+      Read an agent run, after create_campaign: status (running until
+      terminal), steps, actions, response (tables touched). include adds stats
+      or transcript (stats,transcript). Poll until status is not running. A
+      finished run whose actions list is empty created nothing, whatever its
+      text says: check list_campaigns before reporting anything.
+    input:
+      type: object
+      additionalProperties: false
+      required: [agent_id, run_id]
+      properties:
+        agent_id: { type: string, minLength: 1, description: "agent.id of create_campaign's answer." }
+        run_id: { type: string, minLength: 1, description: "run.id of create_campaign's answer." }
+        include: { type: string, pattern: "^(stats|transcript)(,(stats|transcript))?$", description: "stats, transcript, or both comma-separated." }
+    examples:
+      - { title: Poll a run, input: { agent_id: 00000000-0000-4000-8000-000000000004, run_id: 00000000-0000-4000-8000-000000000005 } }
+      - { title: A run with its transcript, input: { agent_id: 00000000-0000-4000-8000-000000000004, run_id: 00000000-0000-4000-8000-000000000005, include: transcript } }
+    call:
+      method: GET
+      path: "/agents/{agent_id}/runs/{run_id}"
+      query: { include: include }
+    cost: *request
+
+  - name: launch_campaign
+    class: sensitive
+    description: >-
+      Launch a campaign: it becomes active and Origami schedules the sends,
+      emails and LinkedIn messages to every enrolled person. Idempotent on an
+      active campaign. dry_run true previews ({wouldLaunch}) and writes
+      nothing. A result with launch.blocked.missingChannels sent nothing: no
+      sending account for those channels.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id]
+      properties:
+        campaign_id: *campaign_id
+        dry_run: &dry_run { const: true, description: "true: a preview, nothing written. Omit otherwise." }
+    examples:
+      - { title: Preview a launch, input: { campaign_id: 00000000-0000-4000-8000-000000000003, dry_run: true } }
+      - { title: Launch, input: { campaign_id: 00000000-0000-4000-8000-000000000003 } }
+    confirm:
+      summary: "Launch Origami campaign {campaign_id}: emails and LinkedIn messages go to its enrolled people, unless dry_run is true (dry_run: {dry_run})."
+    call:
+      method: POST
+      path: "/campaigns/{campaign_id}/launch"
+      query: { dryRun: dry_run }
+    cost: *request
+
+  - name: pause_campaign
+    class: write
+    description: >-
+      Pause a campaign: no further sends (idempotent). Messages already handed
+      to a provider still go out (pause.inFlightSending). dry_run true
+      previews and writes nothing.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id]
+      properties:
+        campaign_id: *campaign_id
+        dry_run: *dry_run
+    examples:
+      - { title: Pause a campaign, input: { campaign_id: 00000000-0000-4000-8000-000000000003 } }
+    call:
+      method: POST
+      path: "/campaigns/{campaign_id}/pause"
+      query: { dryRun: dry_run }
+    cost: *request
+
+  - name: resume_campaign
+    class: sensitive
+    description: >-
+      Resume a paused campaign where its sequences stopped: it sends again
+      (idempotent). resume.missingChannels lists the channels without a
+      sending account, whose sequences did not resume. dry_run true previews
+      and writes nothing.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id]
+      properties:
+        campaign_id: *campaign_id
+        dry_run: *dry_run
+    examples:
+      - { title: Resume a campaign, input: { campaign_id: 00000000-0000-4000-8000-000000000003 } }
+    confirm:
+      summary: "Resume Origami campaign {campaign_id}: it sends again to its enrolled people, unless dry_run is true (dry_run: {dry_run})."
+    call:
+      method: POST
+      path: "/campaigns/{campaign_id}/resume"
+      query: { dryRun: dry_run }
+    cost: *request
+
+  - name: delete_campaign
+    class: sensitive
+    description: >-
+      Delete a campaign, in two steps. Without confirm (or with dry_run): the
+      impact preview {id, name, confirmationRequired, status}, nothing
+      removed. With confirm: soft-delete and cancellation of its pending
+      sequences, {deleted: true}. Origami may answer that without deleting:
+      only a 404 from get_campaign afterwards proves it is gone.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id]
+      properties:
+        campaign_id: *campaign_id
+        confirm: { const: true, description: "true: delete. Omit for the impact preview." }
+        dry_run: { const: true, description: "true: the preview, even with confirm. Omit otherwise." }
+    examples:
+      - { title: Preview a deletion, input: { campaign_id: 00000000-0000-4000-8000-000000000003 } }
+      - { title: Delete, input: { campaign_id: 00000000-0000-4000-8000-000000000003, confirm: true } }
+    confirm:
+      summary: "Delete Origami campaign {campaign_id} and cancel its pending sequences (confirm: {confirm}; without it, or with dry_run, a preview only)."
+    call:
+      method: DELETE
+      path: "/campaigns/{campaign_id}"
+      query: { confirm: confirm, dryRun: dry_run }
+    cost: *request
+
+  # --- Sequences -------------------------------------------------------------------
+
+  - name: list_sequences
+    class: read
+    description: >-
+      List every sequence of a workspace, one per enrolled person, each with
+      its campaignId, status, sendStatus, stopReason, tableId and rowId: the
+      only view of all the campaigns of a workspace. Filters: status, channel
+      (email or linkedin), recipient.
+    input:
+      type: object
+      additionalProperties: false
+      required: [workspace_id]
+      properties:
+        workspace_id: *workspace_id
+        cursor: *cursor
+        limit: *limit
+        status: { type: string, minLength: 1, description: "Sequence status to keep." }
+        channel: { type: string, minLength: 1, description: "email or linkedin." }
+        recipient: { type: string, minLength: 1, personal: true, description: "Recipient to keep." }
+    examples:
+      - { title: The sequences of a workspace, input: { workspace_id: 00000000-0000-4000-8000-000000000001 } }
+      - { title: The active email sequences, input: { workspace_id: 00000000-0000-4000-8000-000000000001, status: active, channel: email } }
+    call:
+      method: GET
+      path: /sequences
+      query: { workspaceId: workspace_id, cursor: cursor, limit: limit, status: status, channel: channel, recipient: recipient }
+    pagination: *pages
+    output: *list
+    cost: *request
+
+  - name: get_sequence
+    class: read
+    description: >-
+      Get one sequence with its steps inline (the message of each step);
+      provider internals are redacted.
+    input:
+      type: object
+      additionalProperties: false
+      required: [sequence_id]
+      properties:
+        sequence_id: { type: string, minLength: 1, description: "Sequence id." }
+    examples:
+      - { title: One sequence, input: { sequence_id: 00000000-0000-4000-8000-000000000006 } }
+    call: { method: GET, path: "/sequences/{sequence_id}" }
+    cost: *request

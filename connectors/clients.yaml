@@ -121,7 +121,6 @@ without_description:
   n8n: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   onet: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   openai: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  origami: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   payfit: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   phantombuster: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   pipedrive: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
