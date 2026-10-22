@@ -1,9 +1,10 @@
-"""La description `mistral` 1.0.0 : une méthode du client existant (`MistralClient.transcribe`), sans rien y changer.
+"""La description `mistral` 1.0.1 : une méthode du client existant (`MistralClient.transcribe`), sans rien y changer.
 
 Une fonction, `transcribe` : `POST /audio/transcriptions` en multipart, l'audio en partie `file`, et les parties texte
 que le client envoie avec `diarize=True`, en constantes (`model`, `timestamp_granularities`, `diarize`) ; `language` et
 `context_bias` quand ils sont donnés. Fonction longue (`background`), délai de 300 s, réponse brute de Mistral rendue
-en fichier JSON (`from: json`), coût en secondes d'audio réglé à `usage.prompt_audio_seconds`, clé de l'hôte.
+en fichier JSON (`from: json`), coût en secondes d'audio réglé à `usage.prompt_audio_seconds`, clé de l'hôte. Depuis
+la 1.0.1, le texte servi dit que l'audio est un fichier en transit ou un fichier joint à une page que lit l'appelant.
 
 Deux écarts nommés avec le client, gardés ici :
 1. le client normalise le vocabulaire (`context_bias_terms`) ; la description n'en prend que la forme normalisée,
@@ -182,9 +183,9 @@ def _at(value, path: str):
     return value
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_0_1_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.0.1"
     check(description, MISTRAL)
 
 

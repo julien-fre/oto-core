@@ -12,7 +12,10 @@ export const transcribeAudio = defineFunction({
     "additionalProperties": false,
     "required": ["file"],
     "properties": {
-      "file": {"type": "string", "description": "Id of a transit file of yours: the audio to transcribe."},
+      "file": {
+        "type": "string",
+        "description": "Id of an audio file: a transit file of yours, or a file on a page you can read (from its link /f/<id>)."
+      },
       "language": {"type": "string", "pattern": "^[a-z]{2}$"}
     }
   },

@@ -5,6 +5,9 @@
 # The function names, the argument names and the keys sent to lemlist are the client's; the client is not changed
 # (tests/test_lemlist_description.py reads it to keep both equal).
 #
+# 1.2.2: the audio of upload_lead_audio may also be a file on a page the caller reads (its link /f/<id>), never
+# consumed; the served text says both kinds of file. Needs oto-core from its commit 9e58c01.
+#
 # A CONTACT is not a LEAD: the lead is a person's copy inside a campaign (its sending state, its variables), the
 # contact is the person in the lemlist CRM, campaign-independent.
 #
@@ -92,7 +95,7 @@ connector:
   name: lemlist
   label: lemlist
   namespace: lemlist
-  version: 1.2.1
+  version: 1.2.2
   api_version: v1 and v2 routes
   base_url: https://api.lemlist.com/api
   auth:
@@ -1073,7 +1076,9 @@ functions:
     class: write
     description: >-
       Upload the audio of a LinkedIn voice note step for one lead: the step
-      sends it when it runs. audio is the id of a transit file of yours.
+      sends it when it runs. audio is the id of a transit file of yours or
+      of a file on a page you can read: a transit file is consumed once
+      lemlist accepts it, a page file stays.
     input:
       type: object
       additionalProperties: false
@@ -1081,7 +1086,7 @@ functions:
       properties:
         lead_id: *lead_id
         step_id: *step_id
-        audio: { type: string, format: uuid, description: "Id of a transit file of yours: the audio to upload." }
+        audio: { type: string, format: uuid, description: "Id of an audio file: a transit file of yours, or a file on a page you can read (from its link /f/<id>)." }
     examples:
       - title: A voice note for one lead
         input: { lead_id: lea_example1, step_id: stp_example1, audio: 00000000-0000-4000-8000-000000000000 }

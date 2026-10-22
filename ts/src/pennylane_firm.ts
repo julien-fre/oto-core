@@ -306,7 +306,7 @@ export const uploadDmsFile = defineFunction({
   connector: "pennylane_firm",
   class: "sensitive",
   act: true,
-  description: "Upload a file into a folder of one company's DMS. file is the id of a transit file of yours (sent to the platform beforehand, or produced by another connector): it is sent as is, under its own name and type, and consumed once Pennylane accepts it; after a refusal it stays yours until it expires. name is the name shown in the DMS, the file's own name without it. parent_folder_id is required: list the folders first. The DMS has no delete through the API: an upload cannot be undone. Returns the file with its id, name and full path. Scope dms_files:all.",
+  description: "Upload a file into a folder of one company's DMS. file is the id of a transit file of yours (sent to the platform beforehand, or produced by another connector) or of a file on a page you can read: it is sent as is, under its own name and type. A transit file is consumed once Pennylane accepts it, and after a refusal stays yours until it expires; a page file stays. name is the name shown in the DMS, the file's own name without it. parent_folder_id is required: list the folders first. The DMS has no delete through the API: an upload cannot be undone. Returns the file with its id, name and full path. Scope dms_files:all.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -325,7 +325,7 @@ export const uploadDmsFile = defineFunction({
       "file": {
         "type": "string",
         "format": "uuid",
-        "description": "Id of a transit file of yours: the file to upload."
+        "description": "Id of the file to upload: a transit file of yours, or a file on a page you can read (from its link /f/<id>)."
       },
       "name": {
         "type": "string",
@@ -354,7 +354,7 @@ export const uploadDmsFile = defineFunction({
   timeoutMs: 300000,
   output: { strip: ["url"] },
   cost: { per: "request" },
-  confirm: { summary: "Upload transit file {file} into folder {parent_folder_id} of the DMS of company {company_id}, named {name}: Pennylane has no delete, it cannot be undone." },
+  confirm: { summary: "Upload file {file} into folder {parent_folder_id} of the DMS of company {company_id}, named {name}: Pennylane has no delete, it cannot be undone." },
 })
 
 export const listDmsFileChanges = defineFunction({
@@ -404,7 +404,7 @@ export const connector = defineConnector({
   name: "pennylane_firm",
   label: "Pennylane (firm)",
   namespace: "pennylane_firm",
-  version: "1.1.0",
+  version: "1.1.1",
   apiVersion: "v1",
   baseUrl: "https://app.pennylane.com/api/external/firm/v1",
   auth: {"kind": "bearer", "token": "token"},

@@ -47,7 +47,7 @@ accepted:
         additionalProperties: false
         required: [file]
         properties:
-          file: { type: string, description: "Id of a transit file of yours: the audio to transcribe." }
+          file: { type: string, description: "Id of an audio file: a transit file of yours, or a file on a page you can read (from its link /f/<id>)." }
           language: { type: string, pattern: "^[a-z]{2}$" }
       examples: [{ title: One recording, input: { file: 0b6f5c1e-8d0a-4c4e-9f0e-2a1b3c4d5e6f } }]
       call:

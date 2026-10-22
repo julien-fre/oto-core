@@ -2,6 +2,9 @@
 # Youtrust (formerly Yousign) public API v3 reference: https://developers.youtrust.com/reference
 # OpenAPI: https://developers.youtrust.com/openapi/public-api-v3.json
 # Rate limits: https://developers.youtrust.com/reference/rate-limits
+# 1.1.1: the document of add_document may also be a file on a page the caller
+# reads (its link /f/<id>), never consumed; the served text says both kinds of
+# file. Needs oto-core from its commit 9e58c01.
 # One host per environment, chosen per account by the environment setting: a
 # sandbox key is unknown to production and the other way round.
 #
@@ -10,7 +13,8 @@
 # - from a template: the template carries the documents and their fields,
 #   the signers fill its placeholders;
 # - from scratch: create the request, add each document (multipart upload of a
-#   transit file of the caller, call.files), add the signers, then place the
+#   transit file of the caller or a file on a page the caller reads,
+#   call.files), add the signers, then place the
 #   fields on the documents. Smart anchors (parse_anchors) only ever create
 #   signature fields; every other field type is placed by page and
 #   coordinates (points, origin at the top left of the page).
@@ -30,7 +34,7 @@ connector:
   name: yousign
   label: Yousign
   namespace: yousign
-  version: 1.1.0
+  version: 1.1.1
   api_version: v3
   base_urls:
     setting: environment
@@ -340,7 +344,7 @@ functions:
       required: [signature_request_id, file, nature]
       properties:
         signature_request_id: *request_id
-        file: { type: string, format: uuid, description: "Id of a transit file of yours: the document to upload." }
+        file: { type: string, format: uuid, description: "Id of the document to upload: a transit file of yours, or a file on a page you can read (from its link /f/<id>)." }
         nature: { enum: [signable_document, attachment], description: "signable_document is signed; attachment is only shown (images are attachments only)." }
         name:
           type: string

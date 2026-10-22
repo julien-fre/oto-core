@@ -2,6 +2,8 @@
 # Mistral AI API v1, audio transcription (Voxtral): https://docs.mistral.ai/capabilities/audio_transcription
 # Errors: https://docs.mistral.ai/resources/error-glossary (relu le 2026-10-22).
 # 1.0.0: one method of the existing client (oto.tools.mistral, MistralClient.transcribe), the client unchanged.
+# 1.0.1: the audio may also be a file on a page the caller reads (its link /f/<id>), never consumed; the served text
+# says both kinds of file. Needs oto-core from its commit 9e58c01.
 #
 # The key is the host application's (holder: host), the same for every organization: no organization sets a key of
 # its own. A refused key or a billing block marks the account, and the host says to ask whoever runs the application.
@@ -35,7 +37,7 @@ connector:
   name: mistral
   label: Mistral AI
   namespace: mistral
-  version: 1.0.0
+  version: 1.0.1
   api_version: v1
   base_url: https://api.mistral.ai/v1
   auth: { kind: bearer, token: api_key }
@@ -66,8 +68,9 @@ functions:
     description: >-
       Transcribe an audio file of yours with Mistral Voxtral, speakers
       separated and timestamped per segment. file is the id of a transit file
-      of yours (a call recording from another function, an upload), sent as
-      is and consumed once Mistral accepts it. language (ISO 639-1, fr) is
+      of yours (a call recording from another function, an upload) or of a
+      file on a page you can read, sent as is: a transit file is consumed
+      once Mistral accepts it, a page file stays. language (ISO 639-1, fr) is
       optional: without it, Mistral detects the language. context_bias is the
       vocabulary to favor (names, jargon): terms of 3 characters or more,
       without spaces, joined by commas, 100 at most (Acme,Durand,Voxtral);
@@ -81,7 +84,7 @@ functions:
       additionalProperties: false
       required: [file]
       properties:
-        file: { type: string, format: uuid, description: "Id of a transit file of yours: the audio to transcribe." }
+        file: { type: string, format: uuid, description: "Id of an audio file: a transit file of yours, or a file on a page you can read (from its link /f/<id>)." }
         language:
           type: string
           minLength: 1

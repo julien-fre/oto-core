@@ -1469,7 +1469,7 @@ export const uploadLeadAudio = defineFunction({
   connector: "lemlist",
   class: "write",
   act: true,
-  description: "Upload the audio of a LinkedIn voice note step for one lead: the step sends it when it runs. audio is the id of a transit file of yours.",
+  description: "Upload the audio of a LinkedIn voice note step for one lead: the step sends it when it runs. audio is the id of a transit file of yours or of a file on a page you can read: a transit file is consumed once lemlist accepts it, a page file stays.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -1480,7 +1480,7 @@ export const uploadLeadAudio = defineFunction({
       "audio": {
         "type": "string",
         "format": "uuid",
-        "description": "Id of a transit file of yours: the audio to upload."
+        "description": "Id of an audio file: a transit file of yours, or a file on a page you can read (from its link /f/<id>)."
       }
     }
   },
@@ -4503,7 +4503,7 @@ export const connector = defineConnector({
   name: "lemlist",
   label: "lemlist",
   namespace: "lemlist",
-  version: "1.2.1",
+  version: "1.2.2",
   apiVersion: "v1 and v2 routes",
   baseUrl: "https://api.lemlist.com/api",
   auth: {"kind": "basic", "password": "api_key"},

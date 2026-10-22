@@ -1,6 +1,9 @@
 # yaml-language-server: $schema=../connector.schema.json
 # Pennylane Firm API v1 reference: https://firm-pennylane.readme.io/ (index:
 # https://firm-pennylane.readme.io/llms.txt).
+# 1.1.1: the file of upload_dms_file may also be a file on a page the caller
+# reads (its link /f/<id>), never consumed; the served text says both kinds
+# of file. Needs oto-core from its commit 9e58c01.
 #
 # One firm token reaches every company of the firm, within the scopes chosen
 # when the token was created: companies:readonly, fiscal_years:readonly or
@@ -14,8 +17,9 @@
 # The DMS has no single-item read, no update, no delete and no move.
 #
 # Uploading a file into the DMS (multipart POST /companies/{company_id}/dms/files,
-# upload_dms_file) takes the id of a transit file of the caller (call.files):
-# the host reads it under the caller's identity and sends it under its own
+# upload_dms_file) takes the id of a transit file of the caller, or of a file
+# on a page the caller reads (call.files): the host reads it under the
+# caller's identity and sends it under its own
 # name and type. Reference (2026-10-19): file required, name (255 characters at
 # most) and parent_folder_id optional, 201 with id, name, path, parent_folder,
 # url, created_at, updated_at. The Python client requires parent_folder_id
@@ -33,7 +37,7 @@ connector:
   name: pennylane_firm
   label: Pennylane (firm)
   namespace: pennylane_firm
-  version: 1.1.0
+  version: 1.1.1
   api_version: v1
   base_url: https://app.pennylane.com/api/external/firm/v1
   auth:
@@ -293,12 +297,14 @@ functions:
     description: >-
       Upload a file into a folder of one company's DMS. file is the id of a
       transit file of yours (sent to the platform beforehand, or produced by
-      another connector): it is sent as is, under its own name and type, and
-      consumed once Pennylane accepts it; after a refusal it stays yours until
-      it expires. name is the name shown in the DMS, the file's own name
-      without it. parent_folder_id is required: list the folders first. The
-      DMS has no delete through the API: an upload cannot be undone. Returns
-      the file with its id, name and full path. Scope dms_files:all.
+      another connector) or of a file on a page you can read: it is sent as
+      is, under its own name and type. A transit file is consumed once
+      Pennylane accepts it, and after a refusal stays yours until it
+      expires; a page file stays. name is the name shown in the DMS, the
+      file's own name without it. parent_folder_id is required: list the
+      folders first. The DMS has no delete through the API: an upload cannot
+      be undone. Returns the file with its id, name and full path. Scope
+      dms_files:all.
     input:
       type: object
       additionalProperties: false
@@ -306,7 +312,7 @@ functions:
       properties:
         company_id: *company_id
         parent_folder_id: { type: integer, minimum: 1, description: "Folder that receives the file: nothing is uploaded at the root." }
-        file: { type: string, format: uuid, description: "Id of a transit file of yours: the file to upload." }
+        file: { type: string, format: uuid, description: "Id of the file to upload: a transit file of yours, or a file on a page you can read (from its link /f/<id>)." }
         name: { type: string, minLength: 1, maxLength: 255, description: "Name shown in the DMS; the file's own name without it." }
     examples:
       - title: A file into an existing folder
@@ -324,7 +330,7 @@ functions:
     output: { strip: [url] }
     cost: { per: request }
     confirm:
-      summary: "Upload transit file {file} into folder {parent_folder_id} of the DMS of company {company_id}, named {name}: Pennylane has no delete, it cannot be undone."
+      summary: "Upload file {file} into folder {parent_folder_id} of the DMS of company {company_id}, named {name}: Pennylane has no delete, it cannot be undone."
 
   - name: list_dms_file_changes
     class: read

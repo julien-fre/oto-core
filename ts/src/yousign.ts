@@ -363,7 +363,7 @@ export const addDocument = defineFunction({
       "file": {
         "type": "string",
         "format": "uuid",
-        "description": "Id of a transit file of yours: the document to upload."
+        "description": "Id of the document to upload: a transit file of yours, or a file on a page you can read (from its link /f/<id>)."
       },
       "nature": {
         "enum": ["signable_document", "attachment"],
@@ -1376,7 +1376,7 @@ export const connector = defineConnector({
   name: "yousign",
   label: "Yousign",
   namespace: "yousign",
-  version: "1.1.0",
+  version: "1.1.1",
   apiVersion: "v3",
   baseUrls: {"setting": "environment", "values": {"production": "https://api.yousign.app/v3", "sandbox": "https://api-sandbox.yousign.app/v3"}},
   auth: {"kind": "bearer", "token": "api_key"},
