@@ -194,6 +194,97 @@ export const listEvents = defineFunction({
   cost: { per: "page", unit: "calls" },
 })
 
+export const getPlace = defineFunction({
+  name: "cases.get_place",
+  connector: "cases",
+  class: "read",
+  act: false,
+  description: "Get one place, billed 3 credits a request.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["id"],
+    "properties": {"id": {"type": "string"}}
+  },
+  examples: [
+    { title: "One place", input: {"id": "p-1"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/places/{id}",
+    pathParams: ["id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  cost: { per: "request", quantity: 3, unit: "credits" },
+})
+
+export const searchPlaces = defineFunction({
+  name: "cases.search_places",
+  connector: "cases",
+  class: "read",
+  act: false,
+  description: "Search the places around an anchor, billed 3 credits a request, the credits billed in each answer.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["q"],
+    "properties": {"q": {"type": "string"}}
+  },
+  examples: [
+    { title: "By text", input: {"q": "alpha"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/places",
+    pathParams: [],
+    query: {},
+    body: {"q": "q"},
+    headers: {},
+  },
+  cost: { per: "request", quantity: 3, unit: "credits", settle: { path: "credits" } },
+})
+
+export const listPlaces = defineFunction({
+  name: "cases.list_places",
+  connector: "cases",
+  class: "read",
+  act: false,
+  description: "List the places, one page at a time, each page billed 2 credits.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {"type": "string"},
+      "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 4)."},
+      "max_pages": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4,
+        "default": 4,
+        "description": "Pages read when all_pages is true."
+      }
+    }
+  },
+  examples: [
+    { title: "First page", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/places",
+    pathParams: [],
+    query: {"cursor": "cursor"},
+    body: {},
+    headers: {},
+  },
+  pagination: { kind: "cursor", requestParam: "cursor", next: "next_cursor", maxPages: 4 },
+  cost: { per: "page", quantity: 2, unit: "credits" },
+})
+
 export const lookupPeople = defineFunction({
   name: "cases.lookup_people",
   connector: "cases",
@@ -625,6 +716,9 @@ export const connector = defineConnector({
     searchRecords,
     listRecords,
     listEvents,
+    getPlace,
+    searchPlaces,
+    listPlaces,
     lookupPeople,
     scorePeople,
     enrichPeople,
@@ -775,6 +869,78 @@ export const costCases: readonly CostCase[] = [
     answers: [{"next_page": 2}, {"next_page": 3}, {"next_page": null}],
     worstCase: {"quantity": 3, "unit": "calls"},
     settled: {"quantity": 3, "unit": "calls", "from": "requests", "exceeded": false},
+    collection: null,
+  },
+  {
+    name: "quantity_request_without_settle",
+    function: getPlace,
+    args: {"id": "p-1"},
+    answers: [{"id": "p-1"}],
+    worstCase: {"quantity": 3, "unit": "credits"},
+    settled: {"quantity": 3, "unit": "credits", "from": "requests", "exceeded": false},
+    collection: null,
+  },
+  {
+    name: "quantity_settle_at_worst_case",
+    function: searchPlaces,
+    args: {"q": "alpha"},
+    answers: [{"credits": 3}],
+    worstCase: {"quantity": 3, "unit": "credits"},
+    settled: {"quantity": 3, "unit": "credits", "from": "response", "exceeded": false},
+    collection: null,
+  },
+  {
+    name: "quantity_settle_below_worst_case",
+    function: searchPlaces,
+    args: {"q": "alpha"},
+    answers: [{"credits": 1}],
+    worstCase: {"quantity": 3, "unit": "credits"},
+    settled: {"quantity": 1, "unit": "credits", "from": "response", "exceeded": false},
+    collection: null,
+  },
+  {
+    name: "quantity_settle_above_worst_case",
+    function: searchPlaces,
+    args: {"q": "alpha"},
+    answers: [{"credits": 4}],
+    worstCase: {"quantity": 3, "unit": "credits"},
+    settled: {"quantity": 4, "unit": "credits", "from": "response", "exceeded": true},
+    collection: null,
+  },
+  {
+    name: "quantity_settle_unreadable",
+    function: searchPlaces,
+    args: {"q": "alpha"},
+    answers: [{"credits": "3"}],
+    worstCase: {"quantity": 3, "unit": "credits"},
+    settled: {"quantity": 3, "unit": "credits", "from": "unreadable", "exceeded": false},
+    collection: null,
+  },
+  {
+    name: "quantity_page_one_page",
+    function: listPlaces,
+    args: {},
+    answers: [{"next_cursor": "c-2"}],
+    worstCase: {"quantity": 2, "unit": "credits"},
+    settled: {"quantity": 2, "unit": "credits", "from": "requests", "exceeded": false},
+    collection: null,
+  },
+  {
+    name: "quantity_page_all_pages",
+    function: listPlaces,
+    args: {"all_pages": true, "max_pages": 3},
+    answers: [{"next_cursor": "c-2"}, {"next_cursor": null}],
+    worstCase: {"quantity": 6, "unit": "credits"},
+    settled: {"quantity": 4, "unit": "credits", "from": "requests", "exceeded": false},
+    collection: null,
+  },
+  {
+    name: "quantity_page_settled_without_answer",
+    function: listPlaces,
+    args: {},
+    answers: [],
+    worstCase: {"quantity": 2, "unit": "credits"},
+    settled: "error",
     collection: null,
   },
   {

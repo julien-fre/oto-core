@@ -930,8 +930,79 @@ def test_create_watch_list_envoie_les_quatre_champs_faussement_optionnels(monkey
     assert "activate" in captured["json"]
 
 
+def test_create_watch_list_visiteurs_pousse_vers_une_campagne_avec_persona(monkeypatch):
+    """Une liste « visiteurs du site » rend surtout une ENTREPRISE, sans
+    contact : pour alimenter une campagne, lemlist veut le persona à chercher
+    (`personaId`) et la campagne (`campaignId`) dès la création."""
+    captured = _capture(monkeypatch, body={"data": {"_id": "wat_1"}})
+    c = lm.LemlistClient(api_key="k")
+    c.create_watch_list("Visiteurs", type="companyEmployeeVisitedMyWebsite",
+                        signal_processing_type="push_to_campaign",
+                        persona_id="pdp_1", campaign_id="cam_1")
+
+    assert captured["json"]["personaId"] == "pdp_1"
+    assert captured["json"]["campaignId"] == "cam_1"
+    assert captured["json"]["activate"] is False
+
+
+def test_create_watch_list_refuse_persona_ou_campagne_hors_push_to_campaign(monkeypatch):
+    _capture(monkeypatch, body={})
+    c = lm.LemlistClient(api_key="k")
+    for extra in ({"persona_id": "pdp_1"}, {"campaign_id": "cam_1"}):
+        with pytest.raises(ValueError, match="push_to_campaign"):
+            c.create_watch_list("Visiteurs", type="companyEmployeeVisitedMyWebsite",
+                                **extra)
+
+
 def test_list_tasks_envoie_toujours_filters(monkeypatch):
     captured = _capture(monkeypatch, body={"results": []})
     c = lm.LemlistClient(api_key="k")
     c.list_tasks()
     assert captured["params"] == {"filters": "[]"}
+
+
+# ----------------------------------------------------------------------
+# Booléens en query : ce que lit lemlist, c'est l'URL que `requests` prépare,
+# pas le dict passé à `_request`. D'où une doublure au niveau du TRANSPORT
+# (`HTTPAdapter.send`), qui voit la requête préparée telle qu'elle partirait.
+# ----------------------------------------------------------------------
+
+def _sent_query(call):
+    """Fait un appel du client avec un transport doublé ; rend la query envoyée."""
+    from unittest.mock import patch
+    from urllib.parse import parse_qsl, urlsplit
+
+    import requests
+
+    sent = []
+
+    def send(adapter, request, **kw):
+        sent.append(request)
+        r = requests.Response()
+        r.status_code, r._content, r.request, r.url = 200, b"{}", request, request.url
+        return r
+
+    with patch.object(requests.adapters.HTTPAdapter, "send", send):
+        call(lm.LemlistClient(api_key="k"))
+    assert len(sent) == 1
+    return parse_qsl(urlsplit(sent[0].url).query, keep_blank_values=True)
+
+
+@pytest.mark.parametrize("value, sent", [(True, "true"), (False, "false")])
+def test_activities_is_first_leaves_lowercase_in_the_url(value, sent):
+    """`True`/`False` (majuscule Python) ne sont pas des booléens pour lemlist :
+    un filtre qu'on croit poser, ou lever, ne serait ni l'un ni l'autre."""
+    query = _sent_query(lambda c: c.get_activities(is_first=value))
+    assert ("isFirst", sent) in query
+    assert not [v for _, v in query if v in ("True", "False")]
+
+
+def test_contacts_not_in_any_campaign_leaves_lowercase_in_the_url():
+    query = _sent_query(lambda c: c.list_contacts(not_in_any_campaign=True))
+    assert query == [("notInAnyCampaign", "true")]
+
+
+def test_add_webhook_is_first_leaves_lowercase_in_the_url():
+    query = _sent_query(lambda c: c.add_webhook(
+        "https://example.com/hook", campaign_id="cam_1", is_first=True))
+    assert query == [("campaignId", "cam_1"), ("isFirst", "true")]

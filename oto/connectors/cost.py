@@ -99,14 +99,15 @@ def _weighted(name: str, cost: dict, args: dict) -> int:
 
 
 def worst_case(connector: str, function: str, args: dict) -> dict | None:
-    """`{quantity, unit}` before the call: request and page, the requests it may send; item, the size of items times
+    """`{quantity, unit}` before the call: request and page, the requests it may send times the quantity of one (one
+    when not declared); item, the size of items times
     that of times (one without), or the sum of the weights of the values each item lists. `None` without a cost."""
     cost = _declared(connector, function).get("cost")
     if cost is None:
         return None
     name = _qualified(connector, function)
     if cost["per"] != "item":
-        return {"quantity": _page_count(_declared(connector, function), args), "unit": _unit(cost)}
+        return {"quantity": _page_count(_declared(connector, function), args) * cost.get("quantity", 1), "unit": _unit(cost)}
     if "weights" in cost:
         return {"quantity": _weighted(name, cost, args), "unit": _unit(cost)}
     times = len(_list(name, args, cost["times"])) if "times" in cost else 1
@@ -116,7 +117,8 @@ def worst_case(connector: str, function: str, args: dict) -> dict | None:
 def settled_quantity(connector: str, function: str, args: dict, answers: list) -> dict | None:
     """`{quantity, unit, from, exceeded}` after a successful call. With settle, the first finite number of zero or more
     (a finite double, as the host reads JSON) at its path in `answers` (`from: response`), else the worst case
-    (`from: unreadable`); without settle, the requests sent (`requests`) or, per item, the worst case (`worst_case`).
+    (`from: unreadable`); without settle, the requests sent times the quantity of one (`requests`) or, per item, the
+    worst case (`worst_case`).
     `exceeded`: a quantity read above the worst case, settled as is and to be reported. `None` without a cost."""
     worst = worst_case(connector, function, args)
     if worst is None:
@@ -132,7 +134,7 @@ def settled_quantity(connector: str, function: str, args: dict, answers: list) -
         return {**worst, "from": "worst_case", "exceeded": False}
     if not answers:
         raise CostError(f"{_qualified(connector, function)}: a settled call has at least one response.")
-    return {"quantity": len(answers), "unit": worst["unit"], "from": "requests", "exceeded": False}
+    return {"quantity": len(answers) * cost.get("quantity", 1), "unit": worst["unit"], "from": "requests", "exceeded": False}
 
 
 def collection_of(connector: str, function: str, answer: Any) -> dict | None:

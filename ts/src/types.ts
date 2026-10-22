@@ -141,7 +141,11 @@ export type Auth =
   | { readonly kind: "api_key"; readonly in: "header"; readonly name: string; readonly prefix?: string; readonly key: string }
   | { readonly kind: "api_key"; readonly in: "query"; readonly name: string; readonly prefix?: never; readonly key: string }
   | { readonly kind: "bearer"; readonly token: string }
-  | { readonly kind: "basic"; readonly username: string; readonly password: string }
+  /**
+   * `Authorization: Basic base64(username + ":" + password)`, le texte encodé en UTF-8. Sans `username`, l'identifiant est
+   * vide : `Basic base64(":" + password)`, une clé seule passée en mot de passe. Cas communs : `./auth-cases`.
+   */
+  | { readonly kind: "basic"; readonly username?: string; readonly password: string }
   | ({
       readonly kind: "oauth2_client_credentials"
       readonly tokenRequest: "json" | "form"
@@ -162,11 +166,17 @@ export type Auth =
 export type AccountMark = "credential_rejected" | "quota_exhausted"
 
 /**
- * Une condition sur le corps JSON de la réponse : la valeur au chemin pointé `path` (un indice de liste en chiffres) est
- * égale à l'une de `equals`. L'entrée ne vaut que si elle tient ; sinon l'hôte essaie l'entrée suivante du même statut.
- * Un statut 2xx n'est un refus que sous une condition (une erreur GraphQL sous un 200).
+ * Une condition sur le corps JSON de la réponse, sur la valeur au chemin pointé `path` (un indice de liste en chiffres),
+ * par un seul opérateur. `equals` : la valeur est l'une des valeurs listées, de même type, exacte (`190` n'est pas `"190"`,
+ * un texte garde sa casse). `contains` : la valeur est un texte qui contient l'un des textes listés, les deux mis en
+ * minuscules par `toLowerCase()` (la casse Unicode par défaut, sans locale) ; une valeur absente, nulle, un nombre, un
+ * booléen, une liste ou un objet ne contient rien, ni un corps qui n'est pas du JSON. L'entrée ne vaut que si la condition
+ * tient ; sinon l'hôte essaie l'entrée suivante du même statut. Un statut 2xx n'est un refus que sous une condition (une
+ * erreur GraphQL sous un 200). Cas communs : `./error-cases`.
  */
-export type BodyCondition = { readonly path: string; readonly equals: readonly (string | number | boolean)[] }
+export type BodyCondition =
+  | { readonly path: string; readonly equals: readonly (string | number | boolean)[]; readonly contains?: undefined }
+  | { readonly path: string; readonly contains: readonly string[]; readonly equals?: undefined }
 
 /**
  * Une ligne de la table d'erreurs du connecteur : un ou plusieurs statuts HTTP du tiers, une condition sur le corps
@@ -210,8 +220,13 @@ export type RequestSpec = {
   readonly pathParams: readonly string[]
   /** Les listes s'y encodent selon `Connector.queryArrays`. */
   readonly query: ArgumentMap
-  /** Corps JSON, quelle que soit la méthode : un `DELETE` peut en porter un ; avec `files`, les parties texte du corps multipart. */
-  readonly body: ArgumentMap
+  /**
+   * Corps JSON, quelle que soit la méthode : un `DELETE` peut en porter un ; avec `files`, les parties texte du corps
+   * multipart. Ou le nom d'un argument, un objet strict du schéma (`type: object`, `additionalProperties: false`, des
+   * propriétés déclarées), requis, qui forme le corps entier : l'hôte envoie l'objet validé tel quel, en JSON, sans
+   * constante de corps, sans fichier, sans pagination, jamais en `GET` (règle 20 de la fabrique).
+   */
+  readonly body: ArgumentMap | string
   readonly headers: ArgumentMap
   /**
    * Nom de partie → argument qui porte l'identifiant d'un fichier en transit de l'appelant (un texte). Présent, le corps
@@ -248,13 +263,62 @@ export type Pagination = {
   readonly maxPages: number
 }
 
+/**
+ * Un fichier rendu par la fonction, toute sa sortie : l'hôte le lit, le range en fichier en transit de l'appelant (24 h,
+ * la même durée pour tout fichier) et ne rend à l'agent que son identifiant, jamais les octets ni l'adresse du tiers.
+ *
+ * - `from` : où sont les octets. `body`, le corps de la réponse ; `url`, une adresse que porte la réponse JSON au chemin
+ *   pointé `path`, téléchargée aussitôt (`https`, hôte public, sans identifiants, aucune redirection suivie) ; `base64`
+ *   ou `base64url`, les octets encodés au chemin `path` de la réponse JSON, décodés strictement. La réponse JSON qui
+ *   porte l'adresse ou l'encodage ne sort jamais, ni au résultat ni au journal. `json`, la réponse JSON elle-même (4 Mo
+ *   au plus), ou sa branche au chemin pointé facultatif `path`, lu comme les autres chemins (un indice de liste en
+ *   nombre), écrite en JSON (`JSON.stringify` de ce que lit `JSON.parse`), de type `application/json`, sans `types`, ni
+ *   `auth`, nommée par son seul gabarit, qui finit par `.json` ; une branche absente, nulle, ou chaîne, liste ou objet
+ *   vides refuse (`file_missing`), jamais un fichier vide.
+ * - `auth` (`from: "url"` seulement, toujours dit) : `none`, l'adresse reçoit une requête sans authentification ;
+ *   `account`, celle du compte, seulement si l'adresse est à l'origine (schéma, hôte, port) de l'adresse de base
+ *   résolue, sinon `file_foreign_origin` sans rien télécharger.
+ * - `types` (absent avec `from: "json"`, toujours dit sinon) : extension → types MIME que le tiers peut annoncer, le premier étant celui du fichier rangé. Un type
+ *   annoncé (`content-type` sans paramètres) qui n'est ni l'un de ceux de l'extension retenue, ni
+ *   `application/octet-stream` ou `binary/octet-stream`, ni absent, refuse (`file_type_refused`).
+ * - `name` : essayé dans cet ordre, `header` (`Content-Disposition` selon la RFC 6266, `filename*` avant `filename` ;
+ *   celui du téléchargement pour `from: "url"`), `path` (un champ de la réponse JSON), puis `template` sur les arguments
+ *   requis ; le premier nom dont l'extension est déclarée l'emporte, réduit à son dernier segment, sans caractère de
+ *   contrôle, 255 caractères au plus.
+ * - `maxBytes` : la borne, de 1 octet à 52 428 800 (50 Mo), ou à 4 194 304 (4 Mo) avec `from: "json"`, toujours dite. Un `content-length` au-delà refuse avant toute
+ *   lecture, sinon la lecture s'arrête au premier octet de trop (`file_too_large`) ; un fichier vide refuse
+ *   (`file_missing`). Le délai de la fonction vaut de bout en bout, lecture du corps et téléchargement compris.
+ *
+ * Les refus communs aux deux côtés : `file_missing`, `file_download_refused`, `file_too_large`, `file_type_refused`,
+ * `file_unreadable`, `file_foreign_origin` (`@otomata_tech/connectors/file-cases`), et ceux de la déclaration (règle 17
+ * de la fabrique) : `file_output_not_alone`, `file_auth_not_url`, `file_json_types`, `file_json_name`,
+ * `file_json_max_bytes`.
+ */
+export type OutputFile = {
+  readonly from: "body" | "url" | "base64" | "base64url" | "json"
+  readonly path?: string
+  readonly auth?: "none" | "account"
+  readonly types?: { readonly [extension: string]: readonly string[] }
+  readonly name: { readonly header?: string; readonly path?: string; readonly template: string }
+  readonly maxBytes: number
+}
+
 export type Output = {
   /** Chemin pointé de la liste dans la réponse. */
   readonly items?: string
+  /**
+   * Clés retirées, chacune par son chemin (`call.recording`), avant `projection` : relatif à chaque élément de `items`
+   * quand il est déclaré, à la réponse entière sinon ; une liste rencontrée se traverse, le reste du chemin valant pour
+   * chacun de ses éléments ; une valeur absente, nulle ou scalaire n'a rien à retirer. Une clé qui contient un point ne
+   * se désigne pas. Cas communs : `./strip-cases`.
+   */
   readonly strip?: readonly string[]
+  /** Clés de premier niveau gardées, après `strip`. */
   readonly projection?: readonly string[]
   /** Forme d'un enregistrement, après `items`, `strip` et `projection`. */
   readonly schema?: JsonSchema
+  /** La sortie est un fichier (`OutputFile`), exclusif des quatre autres clés. */
+  readonly file?: OutputFile
 }
 
 /**
@@ -286,15 +350,18 @@ export type CostSettle = { readonly path: string }
 export type CostWeights = { readonly field: string; readonly values: Readonly<Record<string, number>> }
 
 /**
- * Ce que coûte un appel. Avant lui, son pire cas, calculé sur les arguments : `request` et `page`, une unité par requête
- * envoyée (une, ou chaque page d'une lecture paginée avec `all_pages`, jusqu'à `max_pages`) ; `item`, la taille de la
+ * Ce que coûte un appel. Avant lui, son pire cas, calculé sur les arguments : `request` et `page`, `quantity` unités (une
+ * sans elle) par requête envoyée (une, ou chaque page d'une lecture paginée avec `all_pages`, jusqu'à `max_pages`) ; `item`, la taille de la
  * liste `items` fois celle de la liste `times` (une si absente), deux arguments requis d'au moins un élément, ou la
  * somme, sur les éléments de `items`, des poids des valeurs que chacun liste (`weights`), jamais sur une fonction paginée. Après lui, `settle` : la quantité réelle, lue dans sa réponse ; absente ou illisible, on règle le
- * pire cas. Les deux comptent `unit`, telle que l'éditeur la nomme (`credits`), exigée par `item` et `settle` ; absente,
- * des requêtes (`request`) ou des pages (`page`).
+ * pire cas ; sans `settle`, `request` et `page` règlent les requêtes envoyées, fois `quantity`. Les deux comptent `unit`,
+ * telle que l'éditeur la nomme (`credits`), exigée par `item`, `settle` et `quantity` ; absente, des requêtes (`request`)
+ * ou des pages (`page`). `quantity`, un entier de deux ou plus, ne vaut qu'avec `request` et `page`. Cas communs :
+ * `./cost-cases`.
  */
 export type Cost =
-  | { readonly per: "request" | "page"; readonly unit?: string; readonly settle?: CostSettle }
+  | { readonly per: "request" | "page"; readonly quantity?: undefined; readonly unit?: string; readonly settle?: CostSettle }
+  | { readonly per: "request" | "page"; readonly quantity: number; readonly unit: string; readonly settle?: CostSettle }
   | { readonly per: "item"; readonly items: string; readonly times?: string; readonly unit: string; readonly settle?: CostSettle; readonly weights?: undefined }
   | { readonly per: "item"; readonly items: string; readonly weights: CostWeights; readonly unit: string; readonly settle?: CostSettle; readonly times?: undefined }
 
@@ -344,6 +411,15 @@ export type ConnectorFunction = {
    * (chaque page d'une lecture paginée), plus court ou plus long, jamais égal. Absent : celui du connecteur.
    */
   readonly timeoutMs?: number
+  /**
+   * Fonction longue : l'hôte l'exécute hors de la requête de l'assistant, en tâche de fond, et rend aussitôt un
+   * identifiant de travail, que relève sa fonction native `job.read` ; la réponse finale est celle qu'aurait rendue
+   * l'appel synchrone (données, fichier rendu, refus). La phrase sur l'identifiant de travail est de l'hôte, jamais de
+   * `description`. Toujours avec `timeoutMs`, le délai de l'appel lui-même, file non comprise ; jamais avec `async`, sur
+   * la relève d'un travail asynchrone ni avec `pagination` (règle 21 de la fabrique). `confirm` se juge avant la mise en
+   * file ; le coût se règle à la fin du travail, `cost.settle` lu sur la réponse finale. Absent : un appel synchrone.
+   */
+  readonly background?: true
   /** Présent pour une fonction qui soumet un travail relevé plus tard (`AsyncJob`). */
   readonly async?: AsyncJob
   readonly pagination?: Pagination

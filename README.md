@@ -28,6 +28,7 @@ New shared connectors are described once, in YAML: `connectors/<name>/connector.
 | Package | Role |
 |---|---|
 | **oto-core** (this) | the clients — single source of truth |
+| [`@otomata_tech/connectors`](ts/) (npm, this repository) | the shared connector definitions for TypeScript hosts, published with each tag at the library's version |
 | oto-backend | hosted platform ([mcp.oto.cx](https://oto.cx) — MCP + REST, credential vault, orgs); pins a git version of this library |
 | oto 2 npm package | upcoming consumer of the shared connectors, through the generator |
 | bridge-boilerplate (private) | skeleton of a *bridge*: an internal HTTP micro-service the platform calls through its generic `http` connector, when the logic must be deterministic or a credential must stay out of the platform. Not a client — it does not live here |

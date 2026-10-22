@@ -1,0 +1,485 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Slack Web API (https://docs.slack.dev/reference/methods). The values come from the Python client, oto.tools.slack,
+# which this description follows: one request per method to slack.com/api/<method>, the token as a bearer token
+# (Authorization: Bearer <token>), reads in the query of a GET, writes in a JSON body. The function names, the argument
+# names and the keys sent to Slack are the client's; the client is not changed (tests/test_slack_description.py reads
+# it to keep both equal).
+#
+# One token: the bot token. The client holds two tokens per workspace, a bot token (xoxb-, the app) and a user token
+# (xoxp-, the person who installed the app), and picks one per call: reads of a channel go on the bot token, reads of a
+# DM (a channel id D…, a listing of im/mpim only, open_dm) and search on the user token, writes on the token of the
+# author the caller chose (as_user), each falling through to the other token when only one is set. The format signs
+# every call of a connector with one credential field (auth names one token), and no function, argument or value
+# chooses another: only the bot half is described. Every function goes on the bot token, as the client does when the
+# workspace has no user token; nothing is posted in a person's name, and a person's own DMs are not read. Left to the
+# client: the user token, the author choice, the routing by channel id or listing type, and search_messages (search:read
+# is a user-token scope).
+#
+# Read and act. Reads stay on the read side; open_dm only opens (or finds) a conversation, Slack tells no one: a write
+# that stays on the read side (act: false). Joining a public channel and adding a reaction are served on the act side
+# (class write). Ask for a confirmation (class sensitive): posting, updating and deleting a message, and an ephemeral
+# message, all under the app's name, seen by people.
+#
+# post_message. The client preprocesses text (oto/tools/slack/text.py): it breaks every number between two colons
+# (20:51:, 12:30:00) that Slack would read as an emoji code and swallow, by a zero-width space, except the two real
+# numeric emoji :100: and :1234:; and it splits a text over 4,000 characters into several messages, the later ones
+# threaded under the first, returning every ts. Neither is a request the format can say: the description sends text as
+# given, refuses a text that holds such a number (pattern) and caps it at 4,000 characters (maxLength); the agent writes
+# the time otherwise and splits a long text itself. Under these bounds the client sends exactly what the host sends.
+# update_message and post_ephemeral do not preprocess, in the client as here.
+#
+# Pagination. conversations.history pages by cursor (response_metadata.next_cursor, has_more): declared. Not
+# conversations.replies: Slack repeats the thread's parent first on every page, so following the pages would return it
+# once per page; the agent passes cursor itself, as the client's caller does. conversations.list: the client reads the
+# first page only and takes no cursor; so does the description.
+#
+# Values the client sets when the call does not give them: types public_channel (list_channels; Slack's default is the
+# same), limit 50 (history, replies; Slack's default is 100 for history, 1000 for replies). They are not declared as
+# defaults: the host sends only what the call gives. The query flags (inclusive, include_users, include_disabled,
+# include_count) go only when true, as in the client: const true, written true by the host.
+#
+# Errors. Slack answers a refused call with HTTP 200 and {ok: false, error: <code>}: each code the client names
+# (_SLACK_ERROR_STATUS) has its entry under status 200, on the condition error equals the code, grouped as the client
+# groups them; any other ok: false is invalid_request, last. The five codes the client counts as authentication (401:
+# not_authed, invalid_auth, account_inactive, token_revoked, token_expired) mark the account credential_rejected; the
+# host always sends the token, so not_authed says it was refused too. ratelimited and HTTP 429 are retryable (Slack sets
+# Retry-After, which the host reads); a Slack incident (internal_error… or HTTP 5xx) is not: a post may have gone
+# through. On missing_scope, Slack names the missing scope in needed: the refusal message is fixed, and does not relay
+# it.
+#
+# Not described here, left to the hand-written client:
+# - search_messages: the user token only (search:read is a user-token scope);
+# - fetch_file and download_file: the file is read at file.url_private_download (or url_private) of files.info, on
+#   files.slack.com with the account's token; the format sends the account's token to the origin of base_url only
+#   (slack.com), a file can be of any type (output.file lists its extensions), and download_file writes to a local path;
+#   file_info, which reads the metadata, is described;
+# - create_usergroup, update_usergroup, set_usergroup_users, disable_usergroup, enable_usergroup: the client sends their
+#   body form-encoded (users and channels as comma-separated text), and the format sends a JSON body;
+# - the as_user argument of every method that takes it (one token: the bot token).
+# No rate is declared: Slack limits each method by its own tier (per minute, per workspace and app, chat.postMessage
+# about one message per second per channel), not one rate per token, and the client paces nothing.
+connector:
+  name: slack
+  label: Slack
+  namespace: slack
+  version: 1.0.0
+  api_version: Web API
+  base_url: https://slack.com/api
+  auth: { kind: bearer, token: bot_token }
+  credential:
+    - { name: bot_token, label: Bot token (xoxb-), secret: true }
+  # Each workspace installs its own app and brings its token.
+  modes: [byo_user, byo_org]
+  # The client waits 60 s for an answer (10 s to connect).
+  timeout_s: 60
+  # The client's own connection check reads the public channels (oto 1 too, after auth.test).
+  probe: { function: list_channels }
+  errors:
+    - { status: 200, body: { path: error, equals: [not_authed, invalid_auth, account_inactive, token_revoked, token_expired] },
+        code: token_refused, retryable: false, marks_account: credential_rejected,
+        message: "Slack refused the bot token: invalid, revoked or expired, or the app was uninstalled. Set a valid xoxb- token again." }
+    - { status: 200, body: { path: error, equals: [missing_scope] }, code: scope_missing, retryable: false,
+        message: "The bot token lacks a scope this method needs (Slack's reference names it): add it to the app, reinstall the app, then set the new token." }
+    - { status: 200, body: { path: error, equals: [not_allowed_token_type] }, code: token_type_refused, retryable: false,
+        message: "This Slack method does not take a bot token." }
+    - { status: 200, body: { path: error, equals: [not_in_channel] }, code: not_in_channel, retryable: false,
+        message: "The app is not a member of this channel: join it (public channels only), or have a member invite the app with /invite." }
+    - { status: 200, body: { path: error, equals: [is_archived] }, code: channel_archived, retryable: false,
+        message: "This channel is archived: it can be neither joined nor posted to." }
+    - { status: 200, body: { path: error, equals: [plan_upgrade_required, paid_teams_only] }, code: plan_required, retryable: false,
+        message: "This Slack feature needs a paid plan of the workspace." }
+    - { status: 200, body: { path: error, equals: [ekm_access_denied, restricted_action, cant_post_message, no_permission, permission_denied] },
+        code: forbidden, retryable: false,
+        message: "Slack refused this action for the app: a workspace setting or the channel's permissions forbid it." }
+    - { status: 200, body: { path: error, equals: [channel_not_found] }, code: channel_not_found, retryable: false,
+        message: "No such channel, or a private channel the app is not in: Slack answers the same for both." }
+    - { status: 200, body: { path: error, equals: [user_not_found, users_not_found] }, code: user_not_found, retryable: false,
+        message: "No such Slack user. A lookup by email needs the address the person signed up to Slack with." }
+    - { status: 200, body: { path: error, equals: [message_not_found, thread_not_found] }, code: message_not_found, retryable: false,
+        message: "No such message or thread in this channel: check its ts." }
+    - { status: 200, body: { path: error, equals: [file_not_found] }, code: file_not_found, retryable: false,
+        message: "No such file, or a file the app cannot see." }
+    - { status: 200, body: { path: error, equals: [no_such_subteam] }, code: usergroup_not_found, retryable: false,
+        message: "No such user group in this workspace." }
+    - { status: 200, body: { path: error, equals: [name_already_exists, handle_already_exists] }, code: name_taken, retryable: false,
+        message: "This name or handle is already taken in the workspace." }
+    - { status: 200, body: { path: error, equals: [ratelimited, rate_limited] }, code: rate_limited, retryable: true,
+        message: "Slack rate limit reached for this method: wait, then retry." }
+    - { status: 200, body: { path: error, equals: [internal_error, fatal_error, service_unavailable, request_timeout] },
+        code: upstream_unavailable, retryable: false,
+        message: "Slack failed. A read can be retried; a post may have gone through: read the channel back before posting again." }
+    - { status: 200, body: { path: ok, equals: [false] }, code: invalid_request, retryable: false,
+        message: "Slack refused the request: check the arguments against the method's reference." }
+    - { status: 429, code: rate_limited, retryable: true,
+        message: "Slack rate limit reached for this method: wait, then retry." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: false,
+        message: "Slack failed. A read can be retried; a post may have gone through: read the channel back before posting again." }
+
+functions:
+  # --- Channels ------------------------------------------------------------------
+
+  - name: list_channels
+    class: read
+    description: >-
+      List the channels of the workspace visible to the Slack app: id, name,
+      is_private, is_member, topic, purpose, member count. One page only (Slack's
+      default size). types filters the kinds, comma-separated: public_channel
+      (Slack's default), private_channel (those the app is in), mpim, im (the
+      app's own conversations, not a person's).
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        types:
+          type: string
+          pattern: "^(public_channel|private_channel|mpim|im)(,(public_channel|private_channel|mpim|im))*$"
+          description: "Comma-separated kinds among public_channel, private_channel, mpim, im. Absent: public_channel."
+    examples:
+      - { title: The public channels, input: {} }
+      - { title: Public and private channels, input: { types: "public_channel,private_channel" } }
+    call: { method: GET, path: /conversations.list, query: { types: types } }
+    output: { items: channels }
+    cost: &request { per: request }
+
+  - name: channel_info
+    class: read
+    description: >-
+      Get one channel's metadata: name, is_private, is_member (is the app in
+      it), is_archived, is_im, is_ext_shared (people of another company read it),
+      topic. Answers on a public channel the app is not in; on a private channel
+      the app is not in, Slack answers channel_not_found, as for a wrong id.
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel]
+      properties:
+        channel: &channel_id { type: string, minLength: 1, description: "Channel id (C…, G…, or D… for a DM)." }
+    examples:
+      - { title: One channel, input: { channel: C0000000001 } }
+    call: { method: GET, path: /conversations.info, query: { channel: channel } }
+    cost: *request
+
+  - name: join_channel
+    class: write
+    description: >-
+      Make the Slack app join a public channel, so that it can read and post
+      there (otherwise Slack answers not_in_channel). A private channel cannot
+      be joined through any API: a member must invite the app with /invite.
+      Check with channel_info first (is_private, is_member, is_archived).
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel]
+      properties:
+        channel: { type: string, minLength: 1, description: "Public channel id (C…)." }
+    examples:
+      - { title: Join a public channel, input: { channel: C0000000001 } }
+    call: { method: POST, path: /conversations.join, body: { channel: channel } }
+    cost: *request
+
+  # --- Messages ------------------------------------------------------------------
+
+  - name: history
+    class: read
+    description: >-
+      Read a channel's messages, newest first: TOP-LEVEL messages only. A thread
+      parent carries reply_count and latest_reply but never a reply's text: read
+      the replies with replies. oldest and latest are exclusive bounds (a
+      message ts), inclusive includes the messages sitting on them. A DM is
+      read only when the app is part of it. When more remain, pass the cursor
+      given back.
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel]
+      properties:
+        channel: *channel_id
+        limit: &limit { type: integer, minimum: 1, maximum: 1000, description: "Messages per page; Slack may return fewer." }
+        cursor: &cursor { type: string, minLength: 1, description: "response_metadata.next_cursor of the previous page." }
+        oldest: &oldest { type: string, pattern: "^[0-9]+(\\.[0-9]+)?$", description: "Only messages after this ts (exclusive)." }
+        latest: &latest { type: string, pattern: "^[0-9]+(\\.[0-9]+)?$", description: "Only messages before this ts (exclusive)." }
+        inclusive: &inclusive { const: true, description: "Also return the messages sitting exactly on oldest or latest. Omit otherwise." }
+    examples:
+      - { title: The last twenty messages of a channel, input: { channel: C0000000001, limit: 20 } }
+      - { title: A window of one day, input: { channel: C0000000001, oldest: "1767225600", latest: "1767312000", inclusive: true } }
+    call:
+      method: GET
+      path: /conversations.history
+      query: { channel: channel, limit: limit, cursor: cursor, oldest: oldest, latest: latest, inclusive: inclusive }
+    pagination: { kind: cursor, request_param: cursor, next: response_metadata.next_cursor, more: has_more, max_pages: 10 }
+    output: { items: messages }
+    cost: *request
+
+  - name: replies
+    class: read
+    description: >-
+      Read the replies of a thread. thread_ts is the ts of the PARENT message (a
+      reply's thread_ts). The parent comes first, as messages[0], on every page;
+      limit counts the replies only. Called with the ts of a reply, Slack returns
+      that one message alone (its thread_ts differs from its ts): call again with
+      its thread_ts. oldest and latest are exclusive bounds. When has_more, pass
+      response_metadata.next_cursor as cursor; pages go from newest to oldest.
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel, thread_ts]
+      properties:
+        channel: *channel_id
+        thread_ts: &message_ts { type: string, pattern: "^[0-9]+\\.[0-9]+$", description: "Message ts (1767225600.000100)." }
+        limit: *limit
+        cursor: *cursor
+        oldest: *oldest
+        latest: *latest
+        inclusive: *inclusive
+    examples:
+      - { title: The replies of a thread, input: { channel: C0000000001, thread_ts: "1767225600.000100" } }
+    call:
+      method: GET
+      path: /conversations.replies
+      query: { channel: channel, ts: thread_ts, limit: limit, cursor: cursor, oldest: oldest, latest: latest, inclusive: inclusive }
+    cost: *request
+
+  - name: post_message
+    class: sensitive
+    description: >-
+      Post a message to a channel or DM, under the Slack app's name, or reply in a
+      thread (thread_ts, the parent's ts). text is Slack mrkdwn, 4,000 characters
+      at most: split a longer text yourself, the later parts as replies under the
+      first. Slack reads a number between two colons (20:51:, 12:30:00) as an
+      emoji code and swallows it: such a text is refused, write the time without
+      seconds and with no colon right after it. blocks (Block Kit) go as given,
+      text then being their fallback. The answer gives ts, the anchor of a reply.
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel]
+      properties:
+        channel: { type: string, minLength: 1, description: "Channel id (C…, G…), DM id (D…, from open_dm), or channel name." }
+        text: &post_text
+          type: string
+          minLength: 1
+          maxLength: 4000
+          pattern: "^(?![\\s\\S]*:(?!(?:100|1234):)[0-9]+:)"
+          personal: true
+          description: "Message text (mrkdwn), at most 4,000 characters, no number between two colons."
+        blocks: &blocks
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { type: object }
+          personal: true
+          description: "Block Kit blocks, sent as given."
+        thread_ts: *message_ts
+    examples:
+      - { title: A message in a channel, input: { channel: C0000000001, text: "The weekly report is ready." } }
+      - { title: A reply in a thread, input: { channel: C0000000001, text: "Done, see the summary above.", thread_ts: "1767225600.000100" } }
+    call:
+      method: POST
+      path: /chat.postMessage
+      body: { channel: channel, text: text, blocks: blocks, thread_ts: thread_ts }
+    cost: *request
+    confirm: { summary: "Post a message to Slack channel {channel} under the app's name, seen by its members." }
+
+  - name: update_message
+    class: sensitive
+    description: >-
+      Replace the text or blocks of a message the Slack app posted (channel and
+      its ts). The text goes as given: a number between two colons (20:51:) is
+      read by Slack as an emoji code.
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel, ts]
+      properties:
+        channel: *channel_id
+        ts: *message_ts
+        text: &plain_text { type: string, minLength: 1, personal: true, description: "New message text (mrkdwn)." }
+        blocks: *blocks
+    examples:
+      - { title: Correct a message, input: { channel: C0000000001, ts: "1767225600.000100", text: "The weekly report is ready (corrected)." } }
+    call:
+      method: POST
+      path: /chat.update
+      body: { channel: channel, ts: ts, text: text, blocks: blocks }
+    cost: *request
+    confirm: { summary: "Rewrite message {ts} in Slack channel {channel}, under the app's name." }
+
+  - name: delete_message
+    class: sensitive
+    description: >-
+      Delete a message the Slack app posted (channel and its ts). It cannot be
+      restored.
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel, ts]
+      properties:
+        channel: *channel_id
+        ts: *message_ts
+    examples:
+      - { title: Delete a message, input: { channel: C0000000001, ts: "1767225600.000100" } }
+    call: { method: POST, path: /chat.delete, body: { channel: channel, ts: ts } }
+    cost: *request
+    confirm: { summary: "Delete message {ts} from Slack channel {channel}: it cannot be restored." }
+
+  - name: post_ephemeral
+    class: sensitive
+    description: >-
+      Show a message to one member of a channel only, under the Slack app's name
+      (an ephemeral message: not kept in the channel's history). user is the
+      member's id (U…). The text goes as given.
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel, user]
+      properties:
+        channel: *channel_id
+        user: &user_id { type: string, minLength: 1, personal: true, description: "Slack user id (U…)." }
+        text: *plain_text
+        blocks: *blocks
+    examples:
+      - { title: A note to one member, input: { channel: C0000000001, user: U0000000001, text: "Your export is ready." } }
+    call:
+      method: POST
+      path: /chat.postEphemeral
+      body: { channel: channel, user: user, text: text, blocks: blocks }
+    cost: *request
+    confirm: { summary: "Show a message to one member of Slack channel {channel}, under the app's name." }
+
+  - name: add_reaction
+    class: write
+    description: >-
+      Add an emoji reaction to a message (channel and its ts), under the Slack
+      app's name. name is the emoji's name without colons (white_check_mark).
+    input:
+      type: object
+      additionalProperties: false
+      required: [channel, ts, name]
+      properties:
+        channel: *channel_id
+        ts: *message_ts
+        name: { type: string, pattern: "^[^:\\s]+$", description: "Emoji name, without colons." }
+    examples:
+      - { title: Tick a message, input: { channel: C0000000001, ts: "1767225600.000100", name: white_check_mark } }
+    call:
+      method: POST
+      path: /reactions.add
+      body: { channel: channel, timestamp: ts, name: name }
+    cost: *request
+
+  # --- People and DMs ------------------------------------------------------------
+
+  - name: get_user_info
+    class: read
+    description: >-
+      Get one Slack user by id (U…): name, real name, title, time zone,
+      is_bot, deleted, and the email when the app has users:read.email.
+    input:
+      type: object
+      additionalProperties: false
+      required: [user_id]
+      properties:
+        user_id: *user_id
+    examples:
+      - { title: One user, input: { user_id: U0000000001 } }
+    call: { method: GET, path: /users.info, query: { user: user_id } }
+    cost: *request
+
+  - name: find_user_by_email
+    class: read
+    description: >-
+      Find a Slack user by email (needs users:read.email). Slack matches the
+      address the person signed up to Slack with, which may differ from their
+      work address: users_not_found then means that, not that they are absent.
+    input:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { type: string, minLength: 3, personal: true, description: "Email address." }
+    examples:
+      - { title: One person by email, input: { email: marie@example.test } }
+    call: { method: GET, path: /users.lookupByEmail, query: { email: email } }
+    cost: *request
+
+  - name: open_dm
+    class: write
+    act: false
+    description: >-
+      Open the Slack app's direct conversation with a user, or get it if it
+      exists: the answer's channel.id is the DM id to pass to post_message.
+      Nothing is sent and the person is not told.
+    input:
+      type: object
+      additionalProperties: false
+      required: [user]
+      properties:
+        user: *user_id
+    examples:
+      - { title: The app's DM with a user, input: { user: U0000000001 } }
+    call: { method: POST, path: /conversations.open, body: { users: user } }
+    cost: *request
+
+  # --- Files ---------------------------------------------------------------------
+
+  - name: file_info
+    class: read
+    description: >-
+      Get the metadata of a file shared in Slack, by its id (F…, from a
+      message's files[].id): name, title, mimetype, size, the channels it was
+      shared in. Its content is not returned.
+    input:
+      type: object
+      additionalProperties: false
+      required: [file_id]
+      properties:
+        file_id: { type: string, minLength: 1, description: "Slack file id (F…)." }
+    examples:
+      - { title: One file, input: { file_id: F0000000001 } }
+    call: { method: GET, path: /files.info, query: { file: file_id } }
+    cost: *request
+
+  # --- User groups ---------------------------------------------------------------
+
+  - name: list_usergroups
+    class: read
+    description: >-
+      List the user groups of the workspace (the @team handles): id, name,
+      handle, description, default channels (prefs.channels). A disabled group
+      has date_delete other than 0 and only comes with include_disabled. User
+      groups need a paid plan (plan_required otherwise).
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        include_users: { const: true, description: "Add each group's member ids (users). Omit otherwise." }
+        include_disabled: &include_disabled { const: true, description: "Also return disabled groups. Omit otherwise." }
+        include_count: { const: true, description: "Add each group's user_count. Omit otherwise." }
+    examples:
+      - { title: The user groups with their members, input: { include_users: true } }
+    call:
+      method: GET
+      path: /usergroups.list
+      query: { include_users: include_users, include_disabled: include_disabled, include_count: include_count }
+    output: { items: usergroups }
+    cost: *request
+
+  - name: usergroup_users
+    class: read
+    description: >-
+      List the member ids (U…) of one user group (S…).
+    input:
+      type: object
+      additionalProperties: false
+      required: [usergroup]
+      properties:
+        usergroup: { type: string, minLength: 1, description: "User group id (S…)." }
+        include_disabled: { const: true, description: "Allow reading a disabled group. Omit otherwise." }
+    examples:
+      - { title: The members of a group, input: { usergroup: S0000000001 } }
+    call:
+      method: GET
+      path: /usergroups.users.list
+      query: { usergroup: usergroup, include_disabled: include_disabled }
+    output: { items: users }
+    cost: *request

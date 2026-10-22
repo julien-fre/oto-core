@@ -296,6 +296,7 @@ class HubSpotClient:
         limit: int = 100,
         after: Optional[str] = None,
         sorts: Optional[List[Dict[str, str]]] = None,
+        filter_groups: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Search objects via the /search endpoint.
 
@@ -303,14 +304,30 @@ class HubSpotClient:
             query: full-text search.
             filters: list of `{propertyName, operator, value}` combined with AND
                 (HubSpot operators: EQ, NEQ, GT, GTE, LT, LTE, CONTAINS_TOKEN,
-                HAS_PROPERTY, IN…). For `IN`, pass `values` (list).
+                HAS_PROPERTY, IN…). For `IN`, pass `values` (list). Sent as ONE
+                group: `filterGroups: [{"filters": filters}]`.
+            filter_groups: HubSpot's native form, sent as is in `filterGroups`:
+                `[{"filters": [...]}, ...]`, the groups combined with OR, the
+                filters of a group with AND.
             sorts: e.g. `[{"propertyName": "createdate", "direction": "DESCENDING"}]`.
+
+        Raises:
+            ValueError: `filters` and `filter_groups` together. Both write
+                `filterGroups`; folding one into the other would pick a meaning
+                (one more OR group, or the AND spread over every group) that
+                the caller did not state. Refused before any call.
         """
+        if filters and filter_groups:
+            raise ValueError(
+                "search_objects takes filters or filter_groups, not both: "
+                "put the filters in one of the groups")
         body: Dict[str, Any] = {"limit": min(limit, 100)}
         if query:
             body["query"] = query
         if filters:
             body["filterGroups"] = [{"filters": filters}]
+        if filter_groups:
+            body["filterGroups"] = filter_groups
         if properties:
             body["properties"] = properties
         if sorts:

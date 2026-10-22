@@ -1,0 +1,377 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Serper: Google results as JSON (https://serper.dev). The values come from the Python client, oto.tools.serper,
+# which this description follows: one POST per endpoint of google.serper.dev, the key in the X-API-KEY header, a JSON
+# body. The function names, the argument names and the keys sent to Serper are the client's; the client is not
+# changed (tests/test_serper_description.py reads it to keep both equal).
+#
+# Cost: Serper bills in credits and says, in the credits field of each answer, what it billed for that call. The
+# worst case of a request is one credit, except a Maps page, billed 3 credits (measured by oto 1): search_maps declares
+# quantity 3, so that its worst case is never under the real cost. search_places has not been measured and declares
+# one. A call billed more than its worst case (a page of many results) is settled as read and reported, as the format
+# says.
+#
+# Errors, as the client and its consumers read them: an empty account is a 400 whose message is "Not enough
+# credits" (the client surfaces Serper's message, oto.tools.serper.client._post), a refused key a 403 whose message
+# is "Unauthorized", never a 401. Both conditions match the whole message.
+#
+# Not described here, left to the hand-written client:
+# - scrape_page: another host (scrape.serper.dev), which base_url does not say, a shorter delay of its own, and a
+#   local refusal of the hosts closed to extraction (login wall), which no declared check says;
+# - census_maps, reviews_all and batch_search: several calls fused into one (a grid of anchors with pages and
+#   deduplication by place id, the reviews cursor followed up to a cap, one search per query); a host composes them
+#   from search_maps, search_reviews and search;
+# - get_suggestions: autocomplete flattened to a list of strings;
+# - the site_filter argument of search, which the client writes into the query (site:<domain> <query>): the agent
+#   writes it there itself.
+# No probe: every function requires an argument, and the client calls no account endpoint.
+connector:
+  name: serper
+  label: Serper
+  namespace: serper
+  version: 1.1.0
+  api_version: v1
+  base_url: https://google.serper.dev
+  auth:
+    kind: api_key
+    in: header
+    name: X-API-KEY
+    key: api_key
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  modes: [platform, byo_user, byo_org]
+  timeout_s: 60
+  # The client spaces two requests of one key by half a second, across threads: the rate written here.
+  rate_limit: { requests: 2, seconds: 1 }
+  errors:
+    - { status: 400, body: { path: message, equals: ["Not enough credits"] }, code: credits_exhausted, retryable: false,
+        marks_account: quota_exhausted,
+        message: "The Serper account behind this key is out of credits. The call was correct: do not change it nor retry it." }
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Serper rejected the request as invalid: check the arguments." }
+    - { status: 402, code: payment_required, retryable: false, marks_account: quota_exhausted,
+        message: "Serper answered Payment Required: the account behind this key is out of credits." }
+    - { status: 403, body: { path: message, equals: [Unauthorized] }, code: key_refused, retryable: false,
+        marks_account: credential_rejected,
+        message: "Serper refused the API key: unknown or revoked." }
+    - { status: [401, 403], code: access_rejected, retryable: false,
+        message: "Serper refused the access with this key." }
+    - { status: 429, code: rate_limited, retryable: true,
+        message: "Serper rate limit reached: retry later." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
+        message: "Serper is temporarily unavailable: retry later." }
+
+functions:
+  - name: search
+    class: read
+    description: >-
+      Google web search: organic results (title, link, snippet, position,
+      sitelinks), with answerBox, knowledgeGraph, peopleAlsoAsk and
+      relatedSearches when Google shows them, and credits, what Serper billed
+      for the call. Google operators work in the query: restrict to a site or
+      a path with site: (site:example.test/jobs), an exact phrase with quotes.
+      country and language localize the results; location biases them toward
+      a place; tbs bounds their date. One page per call: page reads further.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query: &query { type: string, minLength: 1, description: "The query, as typed in Google; Google operators (site:, quotes, -word) work." }
+        num: &num { type: integer, minimum: 1, maximum: 100, default: 10, description: "Number of results, at most 100; a larger page can cost more than one credit." }
+        page: &page { type: integer, minimum: 1, default: 1, description: "Results page, from 1." }
+        location: &location { type: string, minLength: 1, description: "Place the results are biased toward, as Google names it: Paris, France." }
+        country: &country { type: string, pattern: "^[a-z]{2}$", description: "Country of the results (Google gl), two lower-case letters: fr, us, de." }
+        language: &language { type: string, pattern: "^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$", description: "Language of the results (Google hl): fr, en, pt-br." }
+        tbs: &tbs { type: string, minLength: 1, description: "Google date filter: qdr:h (past hour), qdr:d (day), qdr:w (week), qdr:m (month), qdr:y (year)." }
+        autocorrect: { type: boolean, description: "Google spelling correction of the query; Google decides when omitted." }
+    examples:
+      - title: Organic results of a local query, in French
+        input: { query: boulangerie bio Lyon, country: fr, language: fr }
+      - title: Job pages of one site, past week, 20 results
+        input: { query: "site:example.test/jobs data engineer", num: 20, tbs: "qdr:w" }
+    call:
+      method: POST
+      path: /search
+      body: { q: query, num: num, page: page, location: location, gl: country, hl: language, tbs: tbs, autocorrect: autocorrect }
+    cost: &cost { per: request, unit: credits, settle: { path: credits } }
+
+  - name: search_images
+    class: read
+    description: >-
+      Google Images: images, a list of {title, imageUrl, source, link}, for a
+      query. country and language localize the results; tbs bounds their date.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties: &media_properties
+        query: *query
+        num: *num
+        page: *page
+        location: *location
+        country: *country
+        language: *language
+        tbs: *tbs
+    examples:
+      - title: Images of a product, in France
+        input: { query: chaise en rotin, country: fr, language: fr }
+    call:
+      method: POST
+      path: /images
+      body: &media_body { q: query, num: num, page: page, location: location, gl: country, hl: language, tbs: tbs }
+    cost: *cost
+
+  - name: search_videos
+    class: read
+    description: >-
+      Google Videos: videos, a list of {title, link, source, duration}, for a
+      query. country and language localize the results; tbs bounds their date.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties: *media_properties
+    examples:
+      - title: Videos of the past month
+        input: { query: tutoriel tableur, tbs: "qdr:m", country: fr, language: fr }
+    call:
+      method: POST
+      path: /videos
+      body: *media_body
+    cost: *cost
+
+  - name: search_news
+    class: read
+    description: >-
+      Google News: news, a list of {title, link, snippet, date, source}, for a
+      query. Useful to watch a company's signals: press releases, hires,
+      fundraising. tbs bounds the date (qdr:w, the past week); country and
+      language localize the results.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties: *media_properties
+    examples:
+      - title: News of the past week about a fundraising
+        input: { query: levée de fonds logiciel, tbs: "qdr:w", country: fr, language: fr }
+    call:
+      method: POST
+      path: /news
+      body: *media_body
+    cost: *cost
+
+  - name: search_places
+    class: read
+    description: >-
+      Google Local: the businesses for a query, places, a list of {title,
+      address, phoneNumber, website, rating, ratingCount, category, cid}. The
+      cid of a place is what search_reviews takes. location biases the results
+      toward a place; country and language localize them.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query: *query
+        num: *num
+        page: *page
+        location: *location
+        country: *country
+        language: *language
+    examples:
+      - title: Accounting firms in one city
+        input: { query: expert-comptable, location: "Lyon, France", country: fr, language: fr }
+    call:
+      method: POST
+      path: /places
+      body: { q: query, num: num, page: page, location: location, gl: country, hl: language }
+    cost: *cost
+
+  - name: search_maps
+    class: read
+    description: >-
+      Google Maps: places around an anchor, rich records (title, address,
+      latitude, longitude, rating, ratingCount, type, website, phoneNumber,
+      openingHours, cid, fid, placeId). A sample, not an inventory: a call
+      returns about 20 places at most and leans toward its ll anchor, without
+      saying so; for a count over an area, call it on several anchors and
+      pages and deduplicate by cid. Look one place up by place_id or cid. A
+      Maps page costs 3 credits.
+    input:
+      type: object
+      additionalProperties: false
+      anyOf: [{ required: [query] }, { required: [place_id] }, { required: [cid] }]
+      properties:
+        query: *query
+        ll: { type: string, pattern: "^@-?[0-9]+(\\.[0-9]+)?,-?[0-9]+(\\.[0-9]+)?,[0-9]+(\\.[0-9]+)?z$", description: "Map anchor @latitude,longitude,zoomz: @45.7640,4.8357,14z." }
+        place_id: &place_id { type: string, minLength: 1, description: "Google place id of a place (placeId of a Maps result)." }
+        cid: &cid { type: string, minLength: 1, description: "Google customer id of a place (cid of a Places or Maps result)." }
+        num: *num
+        page: *page
+        country: *country
+        language: *language
+    examples:
+      - title: Laundromats around one anchor
+        input: { query: laverie automatique, ll: "@45.7640,4.8357,14z", country: fr, language: fr }
+      - title: One place by its customer id
+        input: { cid: "1234567890" }
+    call:
+      method: POST
+      path: /maps
+      body: { q: query, ll: ll, placeId: place_id, cid: cid, num: num, page: page, gl: country, hl: language }
+    cost: { per: request, quantity: 3, unit: credits, settle: { path: credits } }
+
+  - name: search_reviews
+    class: read
+    description: >-
+      Google reviews of one place: reviews, one page of about ten, and
+      nextPageToken when there are more; pass it back as next_page_token for
+      the next page. Identify the place by cid, fid or place_id (from
+      search_places or search_maps), or by a free-text query. One page
+      under-represents a place with many reviews: ratingCount on the place
+      says how many there are; read the pages you need before concluding.
+    input:
+      type: object
+      additionalProperties: false
+      anyOf: [{ required: [cid] }, { required: [fid] }, { required: [place_id] }, { required: [query] }]
+      properties:
+        cid: *cid
+        fid: { type: string, minLength: 1, description: "Google feature id of a place (fid of a Maps result)." }
+        place_id: *place_id
+        query: { type: string, minLength: 1, description: "Free-text lookup of the place, instead of an id." }
+        sort_by: { type: string, enum: [mostRelevant, newest, highestRating, lowestRating], description: "Order of the reviews; mostRelevant upstream when omitted." }
+        topic_id: { type: string, minLength: 1, description: "Only the reviews of this topic." }
+        next_page_token: { type: string, minLength: 1, description: "nextPageToken of the previous page." }
+        country: *country
+        language: *language
+    examples:
+      - title: Newest reviews of a place
+        input: { cid: "1234567890", sort_by: newest, language: fr }
+      - title: The next page
+        input: { cid: "1234567890", next_page_token: "page-2" }
+    call:
+      method: POST
+      path: /reviews
+      body: { cid: cid, fid: fid, placeId: place_id, q: query, sortBy: sort_by, topicId: topic_id,
+              nextPageToken: next_page_token, gl: country, hl: language }
+    cost: *cost
+
+  - name: search_shopping
+    class: read
+    description: >-
+      Google Shopping: shopping, a list of {title, price, source, rating,
+      delivery, link}, for a query. location biases the results toward a
+      place; country and language localize them.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query: *query
+        num: *num
+        page: *page
+        location: *location
+        country: *country
+        language: *language
+    examples:
+      - title: Offers for a product
+        input: { query: perceuse sans fil, country: fr, language: fr }
+    call:
+      method: POST
+      path: /shopping
+      body: { q: query, num: num, page: page, location: location, gl: country, hl: language }
+    cost: *cost
+
+  - name: search_scholar
+    class: read
+    description: >-
+      Google Scholar: academic publications, organic, a list of {title, link,
+      publicationInfo, year, citedBy, pdfUrl}, for a query.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties: &plain_properties
+        query: *query
+        num: *num
+        page: *page
+        country: *country
+        language: *language
+    examples:
+      - title: Papers on a subject
+        input: { query: retrieval augmented generation evaluation, num: 20 }
+    call:
+      method: POST
+      path: /scholar
+      body: &plain_body { q: query, num: num, page: page, gl: country, hl: language }
+    cost: *cost
+
+  - name: search_patents
+    class: read
+    description: >-
+      Google Patents: patents, organic, a list of {title, link, snippet,
+      inventor, assignee, publicationNumber, priorityDate, publicationDate},
+      for a query.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties: *plain_properties
+    examples:
+      - title: Patents on a technique
+        input: { query: lithium iron phosphate cathode coating }
+    call:
+      method: POST
+      path: /patents
+      body: *plain_body
+    cost: *cost
+
+  - name: search_lens
+    class: read
+    description: >-
+      Google Lens: reverse image search from the public address of an image;
+      organic, the visual matches (title, link, source, thumbnail). The image
+      must be reachable without a login.
+    input:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: { type: string, pattern: "^https?://\\S+$", description: "Public address of the image." }
+        country: *country
+        language: *language
+    examples:
+      - title: Where an image appears
+        input: { url: "https://images.example.test/storefront.jpg" }
+    call:
+      method: POST
+      path: /lens
+      body: { url: url, gl: country, hl: language }
+    cost: *cost
+
+  - name: autocomplete
+    class: read
+    description: >-
+      Google autocomplete for a query: suggestions, a list of {value}. Widens
+      a lexical field or finds keyword ideas.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query: *query
+        country: *country
+        language: *language
+    examples:
+      - title: Suggestions for a query
+        input: { query: logiciel de paie, country: fr, language: fr }
+    call:
+      method: POST
+      path: /autocomplete
+      body: { q: query, gl: country, hl: language }
+    cost: *cost
+
+exposure:
+  mode: per_connector
+  tool: serper

@@ -1,0 +1,310 @@
+# Common cases of output.strip: the keys an answer loses before it reaches the agent, with the semantics of
+# docs/conception/format-de-description.md, « Le bloc functions », « Retirer de la sortie ».
+#
+# Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the functions the
+# cases carry into one description, checked with the schema and the rules of every description (rule 18 included), then
+# converts it as it converts a description: ts/src/strip-cases.ts for the host package
+# (`@otomata_tech/connectors/strip-cases`), whose engine shapes each answer. tests/test_strip_cases.py plays the cases
+# against a reference written in the test: the Python lib applies no output of a description. A function shared by
+# several cases is written once, with a YAML anchor; the same name is always the same function.
+#
+# A case:
+# - answer: the JSON answer of the call (one page);
+# - shaped: what the agent receives: the answer with `strip`, then `projection`, applied; with `items`, the list at that
+#   path, each element shaped.
+#
+# A function that strips a dotted path carries `output.sample`, a made-up raw answer the fabrique judges each path against
+# (rule 19); the generated TypeScript does not carry it.
+#
+# A refused output (`refused`): an `output` block the fabrique refuses on any function, the path it names (null when the
+# refusal is on the sample itself) and the refusal. Rule 18, the same on both sides (ts/src/strip-cases.ts):
+# strip_path_malformed, strip_path_twice, strip_path_overlaps. Rule 19, the fabrique's guard only (the host never sees a
+# sample, and these are not exported): strip_path_absent, strip_path_unsampled, strip_sample_unused,
+# strip_sample_foreign_address.
+connector:
+  name: strip_cases
+  label: Strip cases
+  namespace: strip_cases
+  version: 1.0.0
+  api_version: v1
+  base_url: https://api.example.test/v1
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  modes: [byo_org]
+  errors:
+    - { status: 429, code: rate_limited, retryable: true, message: "Rate limit reached: retry later." }
+
+cases:
+  # --- A key of the first level ------------------------------------------------------------------------------------
+  - name: top_level_key
+    function: &get_webhook
+      name: get_webhook
+      class: read
+      description: Get one webhook, without its signing secret.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One webhook, input: { id: w-1 } }]
+      call: { method: GET, path: "/webhooks/{id}" }
+      output: { strip: [secret] }
+    answer: { id: w-1, url: "https://hooks.example.test/in", secret: s-1 }
+    shaped: { id: w-1, url: "https://hooks.example.test/in" }
+
+  - name: top_level_key_absent
+    function: *get_webhook
+    answer: { id: w-1, url: "https://hooks.example.test/in" }
+    shaped: { id: w-1, url: "https://hooks.example.test/in" }
+
+  - name: top_level_key_null_is_removed
+    function: *get_webhook
+    answer: { id: w-1, secret: null }
+    shaped: { id: w-1 }
+
+  - name: answer_not_an_object
+    function: *get_webhook
+    answer: done
+    shaped: done
+
+  # --- A path in a wrapped answer ----------------------------------------------------------------------------------
+  - name: nested_paths
+    function: &get_call
+      name: get_call
+      class: read
+      description: Get one call, without the signed addresses of its recording and voicemail.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One call, input: { id: c-1 } }]
+      call: { method: GET, path: "/calls/{id}" }
+      output:
+        strip: [call.recording, call.voicemail]
+        sample: { call: { id: c-0, recording: "https://files.example.test/r.mp3", voicemail: "https://files.example.test/v.mp3" } }
+    answer:
+      call:
+        id: c-1
+        duration: 42
+        recording: "https://files.example.test/recordings/c-1.mp3"
+        voicemail: "https://files.example.test/voicemails/c-1.mp3"
+    shaped: { call: { id: c-1, duration: 42 } }
+
+  - name: nested_one_path_absent
+    function: *get_call
+    answer: { call: { id: c-1, recording: "https://files.example.test/recordings/c-1.mp3" } }
+    shaped: { call: { id: c-1 } }
+
+  - name: nested_parent_null
+    function: *get_call
+    answer: { call: null, id: c-1 }
+    shaped: { call: null, id: c-1 }
+
+  - name: nested_parent_scalar
+    function: *get_call
+    answer: { call: c-1 }
+    shaped: { call: c-1 }
+
+  - name: nested_parent_absent
+    function: *get_call
+    answer: { id: c-1 }
+    shaped: { id: c-1 }
+
+  - name: literal_dot_key_not_designated
+    function: *get_call
+    answer: { "call.recording": kept, call: { recording: "https://files.example.test/recordings/c-1.mp3" } }
+    shaped: { "call.recording": kept, call: {} }
+
+  # --- Relative to each element of `items` -------------------------------------------------------------------------
+  - name: relative_to_items
+    function: &list_calls
+      name: list_calls
+      class: read
+      description: List calls, without the signed addresses of their recordings and voicemails.
+      input: { type: object, additionalProperties: false, properties: {} }
+      examples: [{ title: All calls, input: {} }]
+      call: { method: GET, path: "/calls" }
+      output: { items: calls, strip: [recording, voicemail] }
+    answer:
+      calls:
+        - { id: c-1, recording: "https://files.example.test/recordings/c-1.mp3", voicemail: "https://files.example.test/voicemails/c-1.mp3" }
+        - { id: c-2, recording: null }
+        - { id: c-3 }
+      recording: not an element
+    shaped: [{ id: c-1 }, { id: c-2 }, { id: c-3 }]
+
+  - name: items_at_a_dotted_path
+    function:
+      name: list_rooms
+      class: read
+      description: List rooms, without the recording of their host.
+      input: { type: object, additionalProperties: false, properties: {} }
+      examples: [{ title: All rooms, input: {} }]
+      call: { method: GET, path: "/rooms" }
+      output:
+        items: data.rooms
+        strip: [host.recording]
+        sample: { data: { rooms: [{ id: r-0, host: null }, { id: r-9, host: { recording: "https://files.example.test/r.mp3" } }] } }
+    answer:
+      data:
+        rooms:
+          - { id: r-1, host: { name: Ada, recording: "https://files.example.test/rooms/r-1.mp3" } }
+          - { id: r-2, host: null }
+          - { id: r-3 }
+    shaped: [{ id: r-1, host: { name: Ada } }, { id: r-2, host: null }, { id: r-3 }]
+
+  # --- Through a list ----------------------------------------------------------------------------------------------
+  - name: through_a_list
+    function: &get_conference
+      name: get_conference
+      class: read
+      description: Get one conference, without the recording of each participant.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One conference, input: { id: f-1 } }]
+      call: { method: GET, path: "/conferences/{id}" }
+      output:
+        strip: [participants.recording]
+        sample: { participants: [{ name: Someone, recording: "https://files.example.test/p.mp3" }] }
+    answer:
+      id: f-1
+      participants:
+        - { name: Ada, recording: "https://files.example.test/conferences/f-1/ada.mp3" }
+        - { name: Grace }
+        - null
+        - guest
+    shaped: { id: f-1, participants: [{ name: Ada }, { name: Grace }, null, guest] }
+
+  - name: through_nested_lists
+    function: *get_conference
+    answer:
+      participants:
+        - [{ name: Ada, recording: "https://files.example.test/conferences/f-1/ada.mp3" }]
+        - [{ name: Grace }]
+        - []
+    shaped: { participants: [[{ name: Ada }], [{ name: Grace }], []] }
+
+  - name: through_an_empty_list
+    function: *get_conference
+    answer: { id: f-1, participants: [] }
+    shaped: { id: f-1, participants: [] }
+
+  - name: answer_is_a_list
+    function:
+      name: list_exports
+      class: read
+      description: List exports, without their download addresses.
+      input: { type: object, additionalProperties: false, properties: {} }
+      examples: [{ title: All exports, input: {} }]
+      call: { method: GET, path: "/exports" }
+      output: { strip: [download_url] }
+    answer: [{ id: e-1, download_url: "https://files.example.test/exports/e-1.csv" }, { id: e-2 }]
+    shaped: [{ id: e-1 }, { id: e-2 }]
+
+  # --- Several paths, and projection after strip -------------------------------------------------------------------
+  - name: prefix_of_a_key_is_not_an_overlap
+    function:
+      name: get_link
+      class: read
+      description: Get one link, without its address nor that of its preview.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One link, input: { id: l-1 } }]
+      call: { method: GET, path: "/links/{id}" }
+      output:
+        strip: [link, link_preview.url]
+        sample: { link: "https://files.example.test/l", link_preview: { url: "https://files.example.test/l.png" } }
+    answer: { id: l-1, link: "https://files.example.test/l-1", link_preview: { url: "https://files.example.test/l-1.png", title: Preview } }
+    shaped: { id: l-1, link_preview: { title: Preview } }
+
+  - name: projection_after_strip
+    function:
+      name: get_call_summary
+      class: read
+      description: Get one call, its id and call only, without the signed address of its recording.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One call, input: { id: c-1 } }]
+      call: { method: GET, path: "/calls/{id}/summary" }
+      output:
+        strip: [call.recording]
+        projection: [id, call]
+        sample: { id: c-0, call: { recording: "https://files.example.test/r.mp3" } }
+    answer: { id: c-1, call: { duration: 42, recording: "https://files.example.test/recordings/c-1.mp3" }, extra: dropped }
+    shaped: { id: c-1, call: { duration: 42 } }
+
+refused:
+  - name: empty_segment
+    output: { strip: [call..recording] }
+    path: call..recording
+    refusal: strip_path_malformed
+
+  - name: leading_dot
+    output: { strip: [.call] }
+    path: .call
+    refusal: strip_path_malformed
+
+  - name: trailing_dot
+    output: { strip: [call.] }
+    path: call.
+    refusal: strip_path_malformed
+
+  - name: empty_path
+    output: { strip: [""] }
+    path: ""
+    refusal: strip_path_malformed
+
+  - name: path_twice
+    output: { strip: [call.recording, id, call.recording] }
+    path: call.recording
+    refusal: strip_path_twice
+
+  - name: path_under_another
+    output: { strip: [call.recording, call] }
+    path: call.recording
+    refusal: strip_path_overlaps
+
+  - name: path_under_another_relative_to_items
+    output: { items: calls, strip: [participants, participants.recording] }
+    path: participants.recording
+    refusal: strip_path_overlaps
+
+  # --- Rule 19: the sample, a guard of the fabrique only -------------------------------------------------------------
+  - name: path_absent_from_sample
+    output: { strip: [call.recording, call.transcript], sample: { call: { id: c-0, recording: "https://files.example.test/r.mp3" } } }
+    path: call.transcript
+    refusal: strip_path_absent
+
+  - name: typo_on_the_last_key
+    output: { strip: [call.recordin], sample: { call: { id: c-0, recording: "https://files.example.test/r.mp3" } } }
+    path: call.recordin
+    refusal: strip_path_absent
+
+  - name: parent_absent_from_sample
+    output: { strip: [cal.recording], sample: { call: { id: c-0, recording: "https://files.example.test/r.mp3" } } }
+    path: cal.recording
+    refusal: strip_path_absent
+
+  - name: absent_relative_to_items
+    output:
+      items: calls
+      strip: [recording, host.voicemail]
+      sample: { calls: [{ id: c-0, recording: "https://files.example.test/r.mp3", host: { name: Someone } }] }
+    path: host.voicemail
+    refusal: strip_path_absent
+
+  - name: items_not_a_list_in_sample
+    output: { items: calls, strip: [host.recording], sample: { data: [] } }
+    path: host.recording
+    refusal: strip_path_absent
+
+  - name: dotted_path_without_sample
+    output: { strip: [secret, call.recording] }
+    path: call.recording
+    refusal: strip_path_unsampled
+
+  - name: sample_without_dotted_path
+    output: { strip: [secret], sample: { id: w-0, secret: s-0 } }
+    path: null
+    refusal: strip_sample_unused
+
+  - name: sample_with_a_foreign_address
+    output: { strip: [call.recording], sample: { call: { recording: "https://files.not-reserved.zz/r.mp3" } } }
+    path: null
+    refusal: strip_sample_foreign_address
+
+  - name: sample_with_a_foreign_mail
+    output: { strip: [call.recording], sample: { call: { recording: "https://files.example.test/r.mp3", owner: "someone@not-reserved.zz" } } }
+    path: null
+    refusal: strip_sample_foreign_address

@@ -38,6 +38,8 @@ function requestOf(connector: Connector, fn: ConnectorFunction, args: Record<str
   const pick = (map: Record<string, string>) =>
     Object.fromEntries(Object.entries(map).flatMap(([apiName, argument]) => (args[argument] === undefined ? [] : [[apiName, args[argument]]])))
   const query = new URLSearchParams(pick(fn.request.query) as Record<string, string>).toString()
+  // Le témoin envoie un corps en table ; un corps en texte (l'argument qui forme le corps entier, règle 20) n'est pas le sien.
+  if (typeof fn.request.body === "string") throw new Error(`${fn.name}: the witness sends a table body`)
   const body = pick(fn.request.body)
   return {
     url: `${connector.baseUrl}${path}${query ? `?${query}` : ""}`,

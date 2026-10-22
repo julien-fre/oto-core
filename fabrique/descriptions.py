@@ -7,10 +7,11 @@ pas dire :
 1. chaque argument d'entrée va à un seul endroit de `call` (chemin, query, corps,
    en-tête ou partie fichier), chaque `{param}` du chemin et chaque valeur de `query`,
    `body`, `headers` et `files` nomme un argument déclaré, un argument du chemin est requis, aucun
-   argument n'est sans place, et le `request_param` d'une pagination est un
-   argument ;
+   argument n'est sans place (l'argument qui forme le corps entier, règle 20, a la sienne), et le
+   `request_param` d'une pagination est un argument ;
 2. chaque référence de `auth` (`key`, `token`, `username`, `password`, `client_id`,
-   `client_secret`) nomme un champ de `credential` ;
+   `client_secret`) nomme un champ de `credential` ; en `basic`, `username` est facultatif
+   (absent, l'identifiant est vide), et nomme un champ quand il est déclaré ;
 3. un nom côté API reçoit une seule valeur : une constante de `call.constants` ne
    reprend pas un nom de la même place, un en-tête constant (du connecteur ou de la
    fonction) ni celui de l'authentification ni un autre en-tête, à la casse près, et
@@ -88,7 +89,50 @@ pas dire :
    élément aux valeurs uniques, dont les valeurs admises (`enum`) sont exactement les
    clés de la table de poids : une valeur sans poids est refusée par le schéma
    d'entrée, avant l'appel, jamais comptée pour rien, et un poids ne vaut que pour une
-   valeur admise.
+   valeur admise ;
+17. le fichier rendu (`output.file`) : il exclut `items`, `strip`, `projection` et
+   `schema` (`file_output_not_alone` : un fichier est toute la sortie), une pagination, `async` et le rôle de
+   relève d'un travail asynchrone ; `path` est exigé avec `url`, `base64` et `base64url`, refusé avec
+   `body`, `name.path` aussi (un corps binaire n'a pas de JSON) ; `auth` ne vaut qu'avec
+   `from: url` (`file_auth_not_url`), `name.header` qu'avec `body` ou `url` ; le gabarit du nom ne cite que des
+   arguments requis de l'entrée et finit par une extension déclarée ; aucun type
+   déclaré n'est un type qu'un navigateur rend en page ou exécute (HTML, SVG, XML,
+   JavaScript) ; `expect` est refusé avec `from: body`. `from: json` (la réponse JSON, ou sa branche au chemin
+   facultatif `path`, écrite en JSON) a son type, `application/json` : `types` est refusé (`file_json_types`) ; son
+   nom est le gabarit seul, qui finit par `.json` (`file_json_name`) ; `max_bytes` va jusqu'à 4 Mo, 4 194 304
+   octets, le défaut (`file_json_max_bytes`). Les codes sont ceux des cas communs (`connectors/_cases/file.yaml`),
+   jugés avant les autres refus de la règle, dans cet ordre. La forme (extensions, types MIME sans paramètre,
+   `max_bytes` de 1 octet à 50 Mo, `types` exigé hors `from: json`) est celle du schéma. Une fonction longue
+   (`background`, règle 21) rend un fichier comme un appel synchrone : le fichier vient du même appel ;
+18. retirer de la sortie (`output.strip`) : chaque entrée est un chemin, des clés non vides séparées par des points
+   (`strip_path_malformed`), déclaré une fois (`strip_path_twice`), jamais sous un autre chemin de la liste, qui le
+   retire déjà en entier (`strip_path_overlaps`). Le schéma dit déjà la forme et le doublon ; la règle les redit
+   avec leur code, le même que celui des cas communs (`connectors/_cases/strip.yaml`) ;
+19. l'exemple de réponse (`output.sample`), une garde de la fabrique seulement : exigé dès qu'un chemin de `strip`
+   porte un point (`strip_path_unsampled`), refusé sinon (`strip_sample_unused`) ; il ne contient que des valeurs
+   inventées, aucune adresse (`scheme://hôte`, courriel) hors des domaines réservés aux tests — `.test`,
+   `.example`, `.invalid`, `localhost`, `example.com`, `.net`, `.org` — ni identifiants dans une adresse
+   (`strip_sample_foreign_address`, le message dit où, jamais la valeur) ; chaque chemin de `strip` y désigne une
+   clé, dans au moins un élément, relatif à `items` et à travers les listes comme à l'exécution
+   (`strip_path_absent`). L'exemple ne sort ni en TypeScript ni en Python : ni contrat de réponse, ni validation à
+   l'exécution, ni documentation, ni source de types ;
+20. le corps entier (`call.body` qui nomme un argument au lieu d'une table) : l'argument est déclaré
+   (`body_argument_unknown`) ; c'est un objet strict, `type: object`, `additionalProperties: false` ou, à sa racine
+   seulement, des clés libres en texte toutes donnée personnelle, exactement `{type: string, personal: true}`, des
+   `properties` déclarées, au moins une, sans `patternProperties` (`body_argument_not_strict`) : jamais un sac libre ;
+   il est requis (`body_argument_optional`) ; la méthode envoie un corps, jamais `GET` (`body_argument_method`) ;
+   il ne va nulle part ailleurs, ni chemin, ni query, ni en-tête, ni partie fichier (`body_argument_elsewhere`) ;
+   `encode` ne le nomme pas (`body_argument_encoded`) ; rien d'autre n'entre au corps, ni constante de corps ni
+   partie fichier (`body_argument_not_alone`) ; la fonction n'est pas paginée (`body_argument_paginated`). Ce que
+   l'hôte envoie est l'objet validé, tel quel, en JSON. Les codes sont ceux des cas communs
+   (`connectors/_cases/body.yaml`) ;
+21. la fonction longue (`background: true`, que l'hôte exécute en tâche de fond et dont il rend aussitôt un identifiant
+   de travail) : elle déclare son propre délai, `timeout_s`, celui de l'appel lui-même, file non comprise
+   (`background_no_timeout` ; la règle 11 vaut telle quelle) ; elle n'est pas asynchrone (`background_async` : un
+   travail que tient le tiers a sa relève) ; elle n'est la relève d'aucun travail asynchrone (`background_collect`) ;
+   elle n'est pas paginée (`background_paginated`). Les codes sont ceux des cas communs
+   (`connectors/_cases/background.yaml`), jugés dans cet ordre ; `class`, `act`, `confirm`, `cost` et `output.file` ne
+   changent pas.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -112,6 +156,8 @@ PATH_PARAM = re.compile(r"\{([^{}]*)\}")
 DEFAULT_TIMEOUT_S = 30
 AUTH_REFERENCES = ("key", "token", "username", "password", "client_id", "client_secret")
 PLACES = ("query", "body", "headers", "files")
+# Les méthodes qui n'envoient pas de corps : l'argument qui forme le corps entier n'y a pas de place (règle 20).
+NO_BODY_METHODS = ("GET",)
 # Les méthodes qui envoient un corps multipart.
 FILE_METHODS = ("POST", "PUT", "PATCH")
 # Ce qui précède l'identité d'un compte dans une adresse : le schéma et l'hôte (ou une adresse libre en tête), puis `/`.
@@ -120,6 +166,106 @@ AFTER_HOST = re.compile(r"^(https://[^/{}]+|\{[a-z][a-z0-9_]*\})/")
 
 class DescriptionError(ValueError):
     """Une description refusée : le message dit le fichier, la fonction et la règle."""
+
+
+def body_argument(call: dict) -> str | None:
+    """L'argument qui forme le corps entier (`call.body` en texte, règle 20), ou `None` pour un corps en table."""
+    body = call.get("body")
+    return body if isinstance(body, str) else None
+
+
+def argument_table(call: dict, kind: str) -> dict:
+    """La table d'une place de `call` (`query`, `body`, `headers`, `files`) : nom côté API → argument ; vide quand la place
+    est absente, ou quand le corps est un argument entier (`body_argument`), qui n'a pas de nom côté API."""
+    table = call.get(kind)
+    return table if isinstance(table, dict) else {}
+
+
+# Les refus de la règle 20, les mêmes des deux côtés (cas communs `connectors/_cases/body.yaml`), dans l'ordre où ils
+# se jugent.
+BODY_REFUSALS = ("body_argument_unknown", "body_argument_not_strict", "body_argument_optional", "body_argument_method",
+                 "body_argument_elsewhere", "body_argument_encoded", "body_argument_not_alone", "body_argument_paginated")
+
+
+# Les clés libres de l'argument du corps entier (décidé par Alexis le 2026-10-22), à sa racine seulement : au lieu de
+# `additionalProperties: false`, chaque clé que `properties` ne déclare pas est un texte, marqué donnée personnelle
+# (règle 15 : l'hôte ne journalise pas sa valeur). Les clés déclarées gardent leur schéma. La forme exacte, rien
+# d'autre : ni `true`, ni un autre type, ni un schéma sans `personal`, ni un mot de plus.
+FREE_TEXT_KEYS = {"type": "string", "personal": True}
+
+
+def free_text_keys(additional: object) -> bool:
+    """`additionalProperties` qui admet des clés libres en texte, toutes donnée personnelle : exactement
+    `{type: string, personal: true}`, `personal` le booléen `true` (jamais `1`, que `==` confondrait)."""
+    return (isinstance(additional, dict) and additional.keys() == FREE_TEXT_KEYS.keys()
+            and additional["type"] == "string" and additional["personal"] is True)
+
+
+def strict_object(schema: object) -> bool:
+    """Un objet strict : `type: object`, `additionalProperties: false` ou des clés libres en texte toutes donnée
+    personnelle (`free_text_keys`), au moins une propriété déclarée, aucune clé admise par motif (`patternProperties`
+    rouvrirait l'objet)."""
+    if not isinstance(schema, dict):
+        return False
+    additional = schema.get("additionalProperties")
+    return (schema.get("type") == "object" and (additional is False or free_text_keys(additional))
+            and isinstance(schema.get("properties"), dict) and len(schema["properties"]) >= 1
+            and "patternProperties" not in schema)
+
+
+def body_argument_refusal(function: dict) -> tuple[str, str] | None:
+    """Le premier défaut d'un corps formé par un argument entier, `(code, raison)`, ou `None` : la règle 20, hors de
+    toute description, que les cas communs rejouent."""
+    call = function["call"]
+    argument = body_argument(call)
+    if argument is None:
+        return None
+    properties = function["input"]["properties"]
+    if argument not in properties:
+        return ("body_argument_unknown", "is not an input argument")
+    if not strict_object(properties[argument]):
+        return ("body_argument_not_strict",
+                "must be a strict object (type: object, additionalProperties: false or free text keys "
+                "{type: string, personal: true}, at least one declared property, no patternProperties): the body is what "
+                "the agent may send, never a free bag")
+    if argument not in function["input"].get("required", []):
+        return ("body_argument_optional", "must be required: the whole body is never absent")
+    if call["method"] in NO_BODY_METHODS:
+        return ("body_argument_method", f"needs a method that sends a body, not {call['method']}")
+    elsewhere = PATH_PARAM.findall(call["path"])
+    for kind in ("query", "headers", "files"):
+        elsewhere += argument_table(call, kind).values()
+    if argument in elsewhere:
+        return ("body_argument_elsewhere", "is the whole body, so it goes nowhere else (path, query, headers, files)")
+    if argument in (call.get("encode") or {}):
+        return ("body_argument_encoded", "is sent as the JSON object it is, never encoded")
+    if "body" in (call.get("constants") or {}) or "files" in call:
+        return ("body_argument_not_alone", "is the whole body: no body constant nor file part joins it")
+    if "pagination" in function:
+        return ("body_argument_paginated", "a function whose body is one argument is not paginated")
+    return None
+
+
+# Les refus de la règle 21, les mêmes des deux côtés (cas communs `connectors/_cases/background.yaml`), dans l'ordre où
+# ils se jugent.
+BACKGROUND_REFUSALS = ("background_no_timeout", "background_async", "background_collect", "background_paginated")
+
+
+def background_refusal(function: dict, functions: list[dict]) -> tuple[str, str] | None:
+    """Le premier défaut d'une fonction longue (`background: true`), `(code, raison)`, ou `None` : la règle 21, parmi les
+    fonctions de son connecteur (une relève se lit sur la fonction qui soumet), que les cas communs rejouent."""
+    if function.get("background") is not True:
+        return None
+    if "timeout_s" not in function:
+        return ("background_no_timeout", "declares its own timeout_s, the delay of the call itself, queue not included")
+    if "async" in function:
+        return ("background_async", "is not asynchronous: a job the vendor holds has its collect, the host holds none")
+    submitter = next((f["name"] for f in functions if (f.get("async") or {}).get("collect") == function["name"]), None)
+    if submitter is not None:
+        return ("background_collect", f"collects the asynchronous job of {submitter!r}, which the vendor holds")
+    if "pagination" in function:
+        return ("background_paginated", "is not paginated: one call, one answer")
+    return None
 
 
 @dataclass(frozen=True)
@@ -180,12 +326,19 @@ def check_arguments(function: dict, where: str) -> None:
             )
         placed[argument] = at
 
+    whole = body_argument(call)
+    refusal = body_argument_refusal(function)
+    if refusal is not None:
+        code, reason = refusal
+        raise DescriptionError(f"{where}: function {name}: call.body {whole!r}: {code}: {reason}")
+    if whole is not None:
+        place(whole, "the whole body")
     for argument in PATH_PARAM.findall(call["path"]):
         place(argument, "the path")
         if argument not in required:
             raise DescriptionError(f"{where}: function {name}: path argument {argument!r} must be required")
     for kind in PLACES:
-        for api_name, argument in (call.get(kind) or {}).items():
+        for api_name, argument in argument_table(call, kind).items():
             place(argument, f"{kind} {api_name!r}")
     pagination = function.get("pagination")
     unplaced = declared - set(placed)
@@ -238,7 +391,7 @@ def check_constants(connector: dict, function: dict, where: str) -> None:
     constants = call.get("constants") or {}
     for kind in ("query", "body"):
         for api_name in constants.get(kind) or {}:
-            if api_name in (call.get(kind) or {}):
+            if api_name in argument_table(call, kind):
                 raise DescriptionError(
                     f"{where}: function {name}: {kind} {api_name!r} is both a constant and an argument"
                 )
@@ -286,6 +439,14 @@ def check_timeout(connector: dict, function: dict, where: str) -> None:
         raise DescriptionError(
             f"{where}: function {function['name']}: timeout_s {own} is the connector's timeout: declare none"
         )
+
+
+def check_background(data: dict, function: dict, where: str) -> None:
+    """Règle 21 : une fonction longue a son propre délai, et n'est ni asynchrone, ni une relève, ni paginée."""
+    refusal = background_refusal(function, data["functions"])
+    if refusal is not None:
+        code, reason = refusal
+        raise DescriptionError(f"{where}: function {function['name']}: background: {code}: {reason}")
 
 
 def _check_cost_list(function: dict, key: str, where: str) -> None:
@@ -393,7 +554,7 @@ def check_files(function: dict, where: str) -> None:
         raise DescriptionError(f"{where}: function {name}: call.files needs a method that sends a body ({', '.join(FILE_METHODS)})")
     if "pagination" in function:
         raise DescriptionError(f"{where}: function {name}: a function that sends files is not paginated: a file is sent once")
-    texts = set(call.get("body") or {}) | set((call.get("constants") or {}).get("body") or {})
+    texts = set(argument_table(call, "body")) | set((call.get("constants") or {}).get("body") or {})
     for part, argument in files.items():
         if part in texts:
             raise DescriptionError(f"{where}: function {name}: multipart part {part!r} is both a file and a body value")
@@ -401,6 +562,249 @@ def check_files(function: dict, where: str) -> None:
             raise DescriptionError(
                 f"{where}: function {name}: file argument {argument!r} must be type: string, the id of a transit file"
             )
+
+
+# Les types qu'un navigateur rend en page ou exécute : jamais le type d'un fichier rendu, que l'hôte sert à une personne.
+PAGE_OR_SCRIPT_TYPES = frozenset({
+    "text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml", "text/xsl",
+    "text/javascript", "application/javascript", "application/x-javascript", "text/ecmascript",
+    "application/ecmascript", "text/jscript", "text/livescript", "text/vbscript", "application/wasm",
+})
+# Les sorties qu'un fichier exclut : il est toute la sortie de la fonction.
+NOT_WITH_FILE = ("items", "strip", "projection", "schema")
+EXTENSION_AT_END = re.compile(r"\.([a-z0-9]{1,16})$")
+
+
+# Le plafond d'un fichier rendu, et son défaut : 50 Mo, celui d'un fichier chez l'hôte d'oto 2 (le `default` du schéma).
+DEFAULT_MAX_BYTES = 52_428_800
+# Le plafond d'un fichier `from: json`, et son défaut : 4 Mo, celui d'une réponse JSON chez l'hôte d'oto 2.
+JSON_MAX_BYTES = 4_194_304
+# Les refus de la règle 17 qui portent un code, les mêmes des deux côtés (cas communs `connectors/_cases/file.yaml`), dans
+# l'ordre où ils se jugent.
+FILE_DECLARATION_REFUSALS = ("file_output_not_alone", "file_auth_not_url", "file_json_types", "file_json_name",
+                             "file_json_max_bytes")
+
+
+def output_file(function: dict) -> dict | None:
+    """Le fichier rendu d'une fonction, ses défauts résolus (`auth: none` d'une adresse, `max_bytes` de 50 Mo), ses clés
+    dans l'ordre du format : la forme que portent les deux sorties, pour que l'hôte et la lib n'aient aucun défaut à
+    connaître."""
+    file = (function.get("output") or {}).get("file")
+    if file is None:
+        return None
+    resolved: dict = {"from": file["from"]}
+    if "path" in file:
+        resolved["path"] = file["path"]
+    if file["from"] == "url" or "auth" in file:
+        resolved["auth"] = file.get("auth", "none")
+    if "types" in file:
+        resolved["types"] = file["types"]
+    resolved["name"] = {key: file["name"][key] for key in ("header", "path", "template") if key in file["name"]}
+    resolved["max_bytes"] = file.get("max_bytes", JSON_MAX_BYTES if file["from"] == "json" else DEFAULT_MAX_BYTES)
+    return resolved
+
+
+def page_or_script(mime: str) -> bool:
+    """Un type qu'un navigateur rend en page ou exécute : HTML, SVG, tout XML, JavaScript."""
+    return mime in PAGE_OR_SCRIPT_TYPES or mime.endswith("+xml") or mime.endswith("/xml")
+
+
+def output_file_refusal(function: dict) -> tuple[str, str] | None:
+    """Le premier refus à code d'un fichier rendu, `(code, raison)`, ou `None` : la part de la règle 17 que les cas
+    communs rejouent, hors de toute description."""
+    output = function.get("output") or {}
+    file = output.get("file")
+    if file is None:
+        return None
+    if any(key in output for key in NOT_WITH_FILE):
+        return ("file_output_not_alone", "excludes items, strip, projection and schema: the file is the whole output")
+    source = file["from"]
+    if "auth" in file and source != "url":
+        return ("file_auth_not_url", "auth is only for from: url: nothing else is downloaded")
+    if source != "json":
+        return None
+    if "types" in file:
+        return ("file_json_types", "types is refused with from: json, whose type is application/json")
+    naming = file["name"]
+    if set(naming) != {"template"} or not naming["template"].endswith(".json"):
+        return ("file_json_name", "the name of a JSON file is its template alone, which ends with .json")
+    if file.get("max_bytes", JSON_MAX_BYTES) > JSON_MAX_BYTES:
+        return ("file_json_max_bytes", f"max_bytes is {JSON_MAX_BYTES} at most with from: json, that of a JSON answer")
+    return None
+
+
+def check_output_file(data: dict, function: dict, where: str) -> None:
+    """Règle 17 : un fichier rendu est toute la sortie d'un seul appel ; ses octets, son nom et ses types se lisent là
+    où la réponse les porte, et son nom se fabrique toujours des arguments requis."""
+    file = (function.get("output") or {}).get("file")
+    if file is None:
+        return
+    name = function["name"]
+    at = f"{where}: function {name}: output.file"
+    refusal = output_file_refusal(function)
+    if refusal is not None:
+        code, reason = refusal
+        raise DescriptionError(f"{at}: {code}: {reason}")
+    if "pagination" in function:
+        raise DescriptionError(f"{where}: function {name}: a function that renders a file is not paginated: one call, one file")
+    if "async" in function:
+        raise DescriptionError(f"{where}: function {name}: a function that renders a file is not asynchronous")
+    submitter = next((f["name"] for f in data["functions"] if (f.get("async") or {}).get("collect") == name), None)
+    if submitter is not None:
+        raise DescriptionError(
+            f"{where}: function {name}: renders a file and collects the asynchronous job of {submitter!r}: a collect answers JSON"
+        )
+    source = file["from"]
+    if source not in ("body", "json") and "path" not in file:
+        raise DescriptionError(f"{at}.path is required unless from: body or json: it points at the address or the encoded bytes")
+    if source == "body" and "path" in file:
+        raise DescriptionError(f"{at}.path is refused with from: body, whose bytes are the whole answer")
+    naming = file["name"]
+    if "header" in naming and source not in ("body", "url"):
+        raise DescriptionError(f"{at}.name.header is only for from: body or url: a base64 field has no headers of its own")
+    if "path" in naming and source == "body":
+        raise DescriptionError(f"{at}.name.path is refused with from: body, which has no JSON")
+    template = naming["template"]
+    required = set(function["input"].get("required", []))
+    for argument in PATH_PARAM.findall(template):
+        if argument not in required:
+            raise DescriptionError(f"{at}.name.template cites {argument!r}, which is not a required input argument")
+    if source == "json":
+        return
+    end = EXTENSION_AT_END.search(template)
+    if end is None or end.group(1) not in file["types"]:
+        declared = ", ".join(f".{extension}" for extension in file["types"])
+        raise DescriptionError(f"{at}.name.template must end with a declared extension ({declared})")
+    for mimes in file["types"].values():
+        for mime in mimes:
+            if page_or_script(mime):
+                raise DescriptionError(f"{at}.types: {mime!r} is a type a browser renders as a page or runs")
+    if source == "body" and "expect" in function:
+        raise DescriptionError(f"{where}: function {name}: expect is refused with output.file from: body, which has no JSON")
+
+
+# Les refus de la règle 18, les mêmes des deux côtés (cas communs `connectors/_cases/strip.yaml`).
+STRIP_REFUSALS = ("strip_path_malformed", "strip_path_overlaps", "strip_path_twice")
+
+
+def strip_refusal(paths: list[str]) -> tuple[str, str, str] | None:
+    """Le premier défaut d'une liste `strip`, `(code, chemin, raison)`, ou `None` : la règle 18 hors de toute description,
+    que les cas communs rejouent."""
+    seen: set[str] = set()
+    for path in paths:
+        if any(key == "" for key in path.split(".")):
+            return ("strip_path_malformed", path,
+                    "a path is keys separated by dots, each non-empty (no leading, trailing or doubled dot)")
+        if path in seen:
+            return ("strip_path_twice", path, "declared twice")
+        seen.add(path)
+    for path in paths:
+        above = next((other for other in paths if path.startswith(other + ".")), None)
+        if above is not None:
+            return ("strip_path_overlaps", path, f"lies under {above!r}, which is already removed whole")
+    return None
+
+
+# Les refus de la règle 19 : l'exemple de réponse, une garde de la fabrique seulement (l'hôte ne le voit jamais).
+SAMPLE_REFUSALS = ("strip_path_absent", "strip_path_unsampled", "strip_sample_foreign_address", "strip_sample_unused")
+# Une adresse dans un texte : `scheme://autorité`, ou un courriel ; seuls les domaines réservés aux tests y sont admis.
+ADDRESS = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://([^\s/?#]*)")
+MAIL = re.compile(r"[^\s@/:]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
+RESERVED_TLDS = ("test", "example", "invalid", "localhost")
+RESERVED_DOMAINS = ("example.com", "example.net", "example.org")
+
+
+def _reserved(host: str) -> bool:
+    host = host.lower().strip("[]").rstrip(".")
+    return (host == "localhost" or host.rsplit(".", 1)[-1] in RESERVED_TLDS
+            or any(host == domain or host.endswith("." + domain) for domain in RESERVED_DOMAINS))
+
+
+def _foreign(text: str) -> bool:
+    """Un texte qui nomme une adresse hors des domaines réservés, ou des identifiants dans une adresse."""
+    for authority in ADDRESS.findall(text):
+        if "@" in authority or not _reserved(authority.rsplit(":", 1)[0] if authority.count(":") == 1 else authority):
+            return True
+    return any(not _reserved(domain) for domain in MAIL.findall(text))
+
+
+def _texts(value: object, at: str):
+    """Chaque texte d'un JSON (clé ou valeur), avec sa place (`call.recording`, `calls.0`)."""
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            place = f"{at}.{key}" if at else str(key)
+            yield place, str(key)
+            yield from _texts(inner, place)
+    elif isinstance(value, list):
+        for index, inner in enumerate(value):
+            yield from _texts(inner, f"{at}.{index}" if at else str(index))
+    elif isinstance(value, str):
+        yield at or "(root)", value
+
+
+def _value_at(value: object, path: str) -> object:
+    """La valeur au chemin pointé de `items`, un index de liste en nombre (la lecture de l'exécution)."""
+    for key in path.split("."):
+        if isinstance(value, list) and key.isdigit():
+            value = value[int(key)] if int(key) < len(value) else None
+        elif isinstance(value, dict):
+            value = value.get(key)
+        else:
+            return None
+    return value
+
+
+def _designates(value: object, keys: list[str]) -> bool:
+    """Le chemin atteint sa clé dans au moins un élément : une liste se traverse, comme à l'exécution."""
+    if isinstance(value, list):
+        return any(_designates(element, keys) for element in value)
+    if not isinstance(value, dict) or keys[0] not in value:
+        return False
+    return len(keys) == 1 or _designates(value[keys[0]], keys[1:])
+
+
+def sample_refusal(output: dict) -> tuple[str, str | None, str] | None:
+    """Le premier défaut de l'exemple de réponse, `(code, chemin ou None, raison)`, ou `None` : la règle 19."""
+    strip = output.get("strip") or []
+    dotted = [path for path in strip if "." in path]
+    if "sample" not in output:
+        if dotted:
+            return ("strip_path_unsampled", dotted[0],
+                    "a dotted path needs output.sample, a made-up raw answer it is judged against")
+        return None
+    if not dotted:
+        return ("strip_sample_unused", None, "a sample serves only to judge the dotted paths of strip, and none is declared")
+    sample = output["sample"]
+    for place, text in _texts(sample, ""):
+        if _foreign(text):
+            return ("strip_sample_foreign_address", None,
+                    f"the text at {place!r} names an address outside the domains reserved for tests (.test, .example, "
+                    ".invalid, localhost, example.com) or credentials in an address: a sample holds made-up values only")
+    root = sample
+    if "items" in output:
+        root = _value_at(sample, output["items"])
+        if not isinstance(root, list):
+            return ("strip_path_absent", strip[0], f"output.items {output['items']!r} is not a list in output.sample")
+    for path in strip:
+        if not _designates(root, path.split(".")):
+            where = "each element of items" if "items" in output else "output.sample"
+            return ("strip_path_absent", path, f"designates nothing in {where}")
+    return None
+
+
+def output_refusal(output: dict) -> tuple[str, str | None, str] | None:
+    """Le premier défaut de `strip` et de son exemple : la règle 18, puis la 19."""
+    return (strip_refusal(output["strip"]) if output.get("strip") else None) or sample_refusal(output)
+
+
+def check_strip(function: dict, where: str) -> None:
+    """Règles 18 et 19 : chaque chemin de `strip` est bien formé, déclaré une fois, sous aucun autre, et un chemin à
+    points désigne une clé de l'exemple de réponse, qui n'est là que pour lui."""
+    refusal = output_refusal(function.get("output") or {})
+    if refusal is not None:
+        code, path, reason = refusal
+        at = "output.sample" if path is None else f"output.strip {path!r}"
+        raise DescriptionError(f"{where}: function {function['name']}: {at}: {code}: {reason}")
 
 
 # Les mots d'un JSON Schema dont la valeur est un schéma, une liste de schémas, ou des schémas par nom : la donnée
@@ -662,7 +1066,7 @@ def check_account_identity(data: dict, where: str) -> None:
         if identity in PATH_PARAM.findall(call["path"]):
             raise DescriptionError(f"{where}: function {name}: the path cites the account identity {{{identity}}}")
         for kind in PLACES:
-            mapping = call.get(kind) or {}
+            mapping = argument_table(call, kind)
             api_names = {n.lower() for n in mapping} if kind == "headers" else set(mapping)
             if identity in api_names or identity in mapping.values():
                 raise DescriptionError(
@@ -756,9 +1160,12 @@ def check_rules(data: dict, where: str) -> None:
         check_checks(function, where)
         check_act(function, where)
         check_timeout(data["connector"], function, where)
+        check_background(data, function, where)
         check_cost(function, where)
         check_async(data, function, where)
         check_files(function, where)
+        check_output_file(data, function, where)
+        check_strip(function, where)
         check_personal(function, where)
     names = [function["name"] for function in data["functions"]]
     twice = sorted({n for n in names if names.count(n) > 1})

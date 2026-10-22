@@ -187,6 +187,14 @@ def _api_key_query_with_prefix(d):
     d["connector"]["auth"] = {"kind": "api_key", "in": "query", "name": "key", "prefix": "Key ", "key": "client_id"}
 
 
+def _basic_without_password(d):
+    d["connector"]["auth"] = {"kind": "basic", "username": "client_id"}
+
+
+def _basic_with_empty_username(d):
+    d["connector"]["auth"] = {"kind": "basic", "username": "", "password": "client_secret"}
+
+
 def _api_key_without_place(d):
     d["connector"]["auth"] = {"kind": "api_key", "name": "X-Key", "key": "client_id"}
 
@@ -231,6 +239,17 @@ def _unknown_pkce(d):
     _oauth2_user(d, pkce="plain")
 
 
+@pytest.mark.parametrize("auth", [
+    {"kind": "basic", "username": "client_id", "password": "client_secret"},
+    {"kind": "basic", "password": "client_secret"},
+], ids=["basic", "basic_without_username"])
+def test_basic_auth_is_valid(auth):
+    """`username` est facultatif : absent, l'identifiant est vide (une clé seule, en mot de passe)."""
+    description = _sellsy()
+    description["connector"]["auth"] = auth
+    _validate(description)
+
+
 def test_oauth2_user_mutation_base_is_valid():
     """Les variantes `oauth2_user` ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
     description = _sellsy()
@@ -248,7 +267,7 @@ def test_oauth2_user_mutation_base_is_valid():
     _expectation_without_path, _probe_extra_key, _empty_stop_flag,
     _client_auth_missing, _token_url_and_token_urls, _base_url_and_base_urls, _single_choice, _text_without_pattern,
     _text_pattern_not_anchored, _url_setting_with_choices, _template_trailing_slash, _api_key_query_with_prefix,
-    _api_key_without_place, _oauth2_user_with_token_credential, _oauth2_user_with_client_id,
+    _api_key_without_place, _basic_without_password, _basic_with_empty_username, _oauth2_user_with_token_credential, _oauth2_user_with_client_id,
     _oauth2_user_without_identity, _rotates_without_refresh_token, _exchange_without_its_grant,
     _authorize_param_set_by_the_host, _unknown_pkce,
 ], ids=lambda f: f.__name__.lstrip("_"))
@@ -527,6 +546,8 @@ def test_account_signal_base_is_valid():
     """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
     description = _sellsy()
     _signal(description)
+    _signal(description, code="credits_spent", marks_account="quota_exhausted",
+            body={"path": "message", "contains": ["insufficient credits", "ran out of"]})
     description["functions"][0].setdefault("refusals", []).append(
         {"code": "credits_spent", "when": 402, "message": "Credits spent.", "marks_account": "quota_exhausted"})
     _validate(description)
@@ -537,9 +558,17 @@ def test_account_signal_base_is_valid():
     lambda d: _signal(d, body={"path": "error.code"}),
     lambda d: _signal(d, body={"path": "error.code", "equals": []}),
     lambda d: _signal(d, body={"path": "error.code", "equals": [{"code": 1}]}),
-    lambda d: _signal(d, body={"path": "error.code", "equals": ["a"], "contains": "b"}),
+    lambda d: _signal(d, body={"path": "error.code", "equals": ["a"], "matches": "b"}),
     lambda d: _signal(d, body={"path": "", "equals": ["a"]}),
-], ids=["unknown_mark", "body_without_equals", "equals_empty", "equals_not_a_scalar", "body_unknown_key", "empty_path"])
+    lambda d: _signal(d, body={"path": "message", "equals": ["a"], "contains": ["b"]}),
+    lambda d: _signal(d, body={"path": "message", "contains": []}),
+    lambda d: _signal(d, body={"path": "message", "contains": [""]}),
+    lambda d: _signal(d, body={"path": "message", "contains": [42]}),
+    lambda d: _signal(d, body={"path": "message", "contains": "insufficient credits"}),
+    lambda d: _signal(d, body={"path": "message", "contains": ["a", "a"]}),
+], ids=["unknown_mark", "body_without_equals", "equals_empty", "equals_not_a_scalar", "body_unknown_key", "empty_path",
+        "equals_and_contains", "contains_empty", "contains_empty_text", "contains_not_a_text", "contains_not_a_list",
+        "contains_twice"])
 def test_invalid_account_signal_is_rejected(mutate):
     description = _sellsy()
     mutate(description)
@@ -608,6 +637,21 @@ def test_invalid_function_timeout_is_rejected(value):
         _validate(description)
 
 
+def test_background_base_is_valid():
+    """`background` ne vaut que `true` ; son délai propre et ses exclusions sont la règle 21 de la fabrique."""
+    description = _sellsy()
+    description["functions"][1]["background"] = True
+    _validate(description)
+
+
+@pytest.mark.parametrize("value", [False, "true", 1, None], ids=["false", "text", "number", "null"])
+def test_invalid_background_is_rejected(value):
+    description = _sellsy()
+    description["functions"][1]["background"] = value
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
 def test_connector_timeout_has_the_same_bounds():
     description = _sellsy()
     description["connector"]["timeout_s"] = 300
@@ -633,7 +677,10 @@ def _cost(d, **cost):
     {"per": "item", "items": "embed", "unit": "credits"},
     {"per": "item", "items": "embed", "times": "fields", "unit": "fields", "settle": {"path": "data.0.found"}},
     {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1, "b": 10}}, "unit": "credits", "settle": {"path": "cost.credits"}},
-], ids=["request", "page", "request_unit", "request_settle", "item", "item_times_settle", "item_weights_settle"])
+    {"per": "request", "quantity": 3, "unit": "credits"},
+    {"per": "page", "quantity": 2, "unit": "credits", "settle": {"path": "credits_used"}},
+], ids=["request", "page", "request_unit", "request_settle", "item", "item_times_settle", "item_weights_settle",
+        "request_quantity", "page_quantity_settle"])
 def test_cost_base_is_valid(cost):
     """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
     description = _sellsy()
@@ -669,12 +716,21 @@ def test_cost_base_is_valid(cost):
     {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"": 1}}, "unit": "credits"},
     {"per": "item", "items": "embed", "weights": {"field": "Fields", "values": {"a": 1}}, "unit": "credits"},
     {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1}, "default": 1}, "unit": "credits"},
+    {"per": "item", "items": "embed", "quantity": 3, "unit": "credits"},
+    {"per": "request", "quantity": 3},
+    {"per": "request", "quantity": 1, "unit": "credits"},
+    {"per": "request", "quantity": 0, "unit": "credits"},
+    {"per": "request", "quantity": -3, "unit": "credits"},
+    {"per": "request", "quantity": 2.5, "unit": "credits"},
+    {"per": "request", "quantity": "3", "unit": "credits"},
 ], ids=["unknown_per", "item_without_items", "item_without_unit", "items_per_request", "times_per_request",
         "times_without_items", "settle_without_unit", "settle_without_path", "settle_leading_dot", "settle_space",
         "settle_unknown_key", "empty_unit", "items_not_an_identifier", "unknown_key",
         "weights_per_request", "weights_with_times", "weights_without_unit", "weights_without_values",
         "weights_without_field", "weights_empty_table", "weight_zero", "weight_negative", "weight_not_an_integer",
-        "weight_text", "weight_empty_value", "weights_field_not_an_identifier", "weights_unknown_key"])
+        "weight_text", "weight_empty_value", "weights_field_not_an_identifier", "weights_unknown_key",
+        "quantity_per_item", "quantity_without_unit", "quantity_one", "quantity_zero", "quantity_negative",
+        "quantity_not_an_integer", "quantity_text"])
 def test_invalid_cost_is_rejected(cost):
     description = _sellsy()
     _cost(description, **cost)
@@ -747,5 +803,110 @@ def test_files_base_is_valid():
 def test_invalid_files_are_rejected(files):
     description = _sellsy()
     _files(description, files)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Un fichier rendu (output.file) ------------------------------------------------------
+# Le schéma dit la forme ; ce qui croise d'autres clés (pagination, `path` selon `from`, gabarit, types exécutables,
+# `expect`) est la règle 17 de la fabrique (`tests/test_fabrique.py`).
+
+FILE = {"from": "url", "path": "pdf_link", "types": {"pdf": ["application/pdf"]}, "name": {"template": "estimate-{id}.pdf"}}
+
+
+def _file(d, **changes):
+    """`get_estimate` rend un fichier : `output.file` à la place de son schéma de sortie."""
+    file = {**copy.deepcopy(FILE), **changes}
+    d["functions"][1]["output"] = {"file": {key: value for key, value in file.items() if value is not None}}
+
+
+@pytest.mark.parametrize("changes", [
+    {},
+    {"from": "body", "path": None, "name": {"header": "Content-Disposition", "template": "estimate-{id}.pdf"}},
+    {"auth": "account", "max_bytes": 1},
+    {"auth": "none", "max_bytes": 52428800},
+    {"from": "base64url", "name": {"path": "file.name", "template": "estimate-{id}.pdf"}},
+    {"types": {"mp3": ["audio/mpeg", "audio/mp3"], "m4a": ["audio/mp4", "audio/x-m4a"], "wav": ["audio/wav"]},
+     "name": {"template": "call-{id}.mp3"}},
+], ids=["url", "body_header", "account_one_byte", "none_ceiling", "base64url_field", "audio"])
+def test_file_output_base_is_valid(changes):
+    description = _sellsy()
+    _file(description, **changes)
+    _validate(description)
+
+
+@pytest.mark.parametrize("changes", [
+    {"from": "stream"},
+    {"from": None},
+    {"types": None},
+    {"types": {}},
+    {"types": {"pdf": []}},
+    {"types": {"PDF": ["application/pdf"]}},
+    {"types": {"averyveryverylongx": ["application/pdf"]}},
+    {"types": {"p.f": ["application/pdf"]}},
+    {"types": {"pdf": ["application/pdf; charset=binary"]}},
+    {"types": {"pdf": ["pdf"]}},
+    {"types": {"pdf": ["Application/PDF"]}},
+    {"types": {"pdf": ["application/pdf", "application/pdf"]}},
+    {"name": None},
+    {"name": {}},
+    {"name": {"header": "Content-Disposition"}},
+    {"name": {"template": ""}},
+    {"name": {"template": "estimate-{id}.pdf", "other": "x"}},
+    {"name": {"header": "Content Disposition", "template": "estimate-{id}.pdf"}},
+    {"auth": "secret"},
+    {"max_bytes": 0},
+    {"max_bytes": 52428801},
+    {"max_bytes": 1.5},
+    {"max_bytes": "1"},
+    {"path": ".pdf_link"},
+    {"transit_hours": 48},
+], ids=["from_unknown", "from_missing", "types_missing", "types_empty", "type_without_mime", "extension_upper",
+        "extension_too_long", "extension_dot", "mime_with_parameters", "mime_malformed", "mime_upper", "mime_twice",
+        "name_missing", "name_empty", "template_missing", "template_empty", "name_unknown_key", "header_malformed",
+        "auth_unknown", "max_bytes_zero", "max_bytes_beyond_50_mb", "max_bytes_not_integer", "max_bytes_text",
+        "path_malformed", "duration_declared"])
+def test_invalid_file_output_is_rejected(changes):
+    description = _sellsy()
+    _file(description, **changes)
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
+# --- Retirer de la sortie (output.strip) ---------------------------------------------------------
+# Le schéma dit la forme d'un chemin et refuse un doublon ; le chemin sous un autre est la règle 18 de la fabrique
+# (`tests/test_fabrique.py`), qui nomme aussi chaque refus par son code (`tests/test_strip_cases.py`).
+
+
+def _strip(d, strip):
+    """`get_estimate` retire des clés de sa sortie, à côté de son schéma de sortie."""
+    d["functions"][1]["output"]["strip"] = strip
+
+
+@pytest.mark.parametrize("strip", [["pdf_link"], ["company.pdf_link", "rows.pdf_link"], ["related.0"], ["a key"]],
+                         ids=["top_level", "paths", "numeric_segment_is_a_key", "space_in_a_key"])
+def test_strip_base_is_valid(strip):
+    description = _sellsy()
+    _strip(description, strip)
+    _validate(description)
+
+
+@pytest.mark.parametrize("sample", [{"company": {"pdf_link": "https://files.example.test/e.pdf"}}, [], None, "x"],
+                         ids=["object", "list", "null", "text"])
+def test_sample_is_any_json(sample):
+    """`output.sample` : n'importe quel JSON pour le schéma ; ce qu'il doit porter est la règle 19 de la fabrique."""
+    description = _sellsy()
+    _strip(description, ["company.pdf_link"])
+    description["functions"][1]["output"]["sample"] = sample
+    _validate(description)
+
+
+@pytest.mark.parametrize("strip", [[], [""], [".company"], ["company."], ["company..pdf_link"], ["."],
+                                   ["pdf_link", "pdf_link"], "pdf_link"],
+                         ids=["empty", "empty_path", "leading_dot", "trailing_dot", "empty_segment", "only_a_dot",
+                              "twice", "not_a_list"])
+def test_invalid_strip_is_rejected(strip):
+    description = _sellsy()
+    _strip(description, strip)
     with pytest.raises(ValidationError):
         _validate(description)

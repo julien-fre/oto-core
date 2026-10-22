@@ -13,6 +13,7 @@ import re
 import pytest
 import yaml
 
+from fabrique import body_cases, python
 from fabrique.build import generate, stale
 from fabrique.descriptions import CONNECTORS, DescriptionError, check, served
 from fabrique.typescript import NotGenerated, connector_module, function_source, js_block
@@ -66,6 +67,57 @@ def test_argument_rule_refuses(mutate, message):
         check(description, SELLSY)
 
 
+# --- Règle 20 : le corps entier, un argument objet strict -------------------------
+
+BODY_CASES = CONNECTORS / "body_cases" / "connector.yaml"
+
+
+def _create_lead() -> dict:
+    """La fonction des cas communs dont le corps entier est l'argument `lead` (`connectors/_cases/body.yaml`)."""
+    loaded = body_cases.load()
+    return copy.deepcopy(next(f for f in loaded.description.data["functions"] if f["name"] == "create_lead"))
+
+
+def _whole_body() -> dict:
+    return body_cases.alone(body_cases.load(), _create_lead())
+
+
+def test_whole_body_is_the_place_of_its_argument():
+    """L'argument du corps entier a sa place (règle 1) : la description passe, sans « go nowhere »."""
+    check(_whole_body(), BODY_CASES)
+
+
+def test_whole_body_leaves_the_other_arguments_to_place():
+    description = _whole_body()
+    description["functions"][0]["input"]["properties"]["note"] = {"type": "string"}
+    with pytest.raises(DescriptionError, match=r"argument\(s\) note go nowhere in call"):
+        check(description, BODY_CASES)
+
+
+@pytest.mark.parametrize("body", ["Lead", 3, ["lead"], ""], ids=["not_an_identifier", "number", "list", "empty"])
+def test_whole_body_is_named_by_an_identifier(body):
+    description = _whole_body()
+    description["functions"][0]["call"]["body"] = body
+    with pytest.raises(DescriptionError, match="does not match the description schema at functions/0/call/body"):
+        check(description, BODY_CASES)
+
+
+def test_whole_body_beside_an_account_identity():
+    """La règle 8 lit le corps entier sans nom côté API : une fonction qui en porte un passe sous un compte rattaché."""
+    description = _load(LINKEDIN)
+    description["functions"].append(_create_lead())
+    check(description, LINKEDIN)
+    description["functions"][-1]["call"]["body"] = "account_id"
+    with pytest.raises(DescriptionError, match="call.body 'account_id': body_argument_unknown"):
+        check(description, LINKEDIN)
+
+
+def test_whole_body_is_generated_as_the_argument_name():
+    source = function_source("body_cases", _create_lead())
+    assert '    body: "lead",\n' in source
+    assert '"additionalProperties": false' in source
+
+
 # --- Règle 2 : une référence de auth nomme un champ de credential -----------------
 
 
@@ -75,6 +127,24 @@ def test_auth_reference_must_name_a_credential_field(path, reference):
     description["connector"]["auth"][reference] = "missing_field"
     with pytest.raises(DescriptionError, match=rf"auth\.{reference} names 'missing_field', which is not a credential field"):
         check(description, path)
+
+
+def test_basic_username_must_name_a_credential_field():
+    """`username` est facultatif ; déclaré, il nomme un champ de `credential` (règle 2)."""
+    description = _load(AIRCALL)
+    description["connector"]["auth"]["username"] = "missing_field"
+    with pytest.raises(DescriptionError, match=r"auth\.username names 'missing_field', which is not a credential field"):
+        check(description, AIRCALL)
+
+
+def test_basic_without_username_passes_and_is_carried_without_it():
+    """Sans `username`, l'identifiant est vide : la définition générée n'a pas de `username`."""
+    description = _load(AIRCALL)
+    del description["connector"]["auth"]["username"]
+    description["connector"]["credential"] = [f for f in description["connector"]["credential"] if f["name"] == "api_token"]
+    source = connector_module(check(description, AIRCALL)).source
+    assert '"kind": "basic"' in source and '"password": "api_token"' in source
+    assert "username" not in source
 
 
 def test_schema_violation_is_refused_before_the_rules():
@@ -87,6 +157,64 @@ def test_schema_violation_is_refused_before_the_rules():
 def test_valid_descriptions_pass():
     for path in sorted(CONNECTORS.glob("*/connector.yaml")):
         check(_load(path), path)
+
+
+# --- Retirer de la sortie (règle 18) ---------------------------------------------------------
+
+
+TYPEFORM_STRIP = CONNECTORS / "typeform" / "connector.yaml"
+AIRCALL = CONNECTORS / "aircall" / "connector.yaml"
+
+
+@pytest.mark.parametrize("path, function, output", [
+    (AIRCALL, "get_call", {"strip": ["call.recording", "call.voicemail"],
+                           "sample": {"call": {"id": 1, "recording": "https://files.example.test/r.mp3",
+                                               "voicemail": "https://files.example.test/v.mp3"}}}),
+    (AIRCALL, "list_calls", {"items": "calls", "strip": ["recording", "voicemail"]}),
+    (TYPEFORM_STRIP, "get_webhook", {"strip": ["secret", "secret_hint", "config.secret"],
+                                     "sample": {"secret": "s-0", "secret_hint": "s", "config": {"secret": "s-0"}}}),
+], ids=["wrapped_answer", "relative_to_items", "prefix_of_a_key"])
+def test_strip_paths_pass_and_are_carried_as_is(path, function, output):
+    description = _load(path)
+    _fn(description, function)["output"] = output
+    module = connector_module(check(description, path))
+    strip = ", ".join(f'"{key}"' for key in output["strip"])
+    assert f"strip: [{strip}]" in module.source
+    assert "sample" not in module.source and "files.example.test" not in module.source
+
+
+def test_sample_reaches_neither_output():
+    description = _load(AIRCALL)
+    _fn(description, "get_call")["output"] = {
+        "strip": ["call.recording"], "sample": {"call": {"recording": "https://files.example.test/r.mp3"}}}
+    checked = check(description, AIRCALL)
+    assert "files.example.test" not in connector_module(checked).source
+    assert "files.example.test" not in python.python_source([checked])
+
+
+@pytest.mark.parametrize("output, at, code", [
+    ({"strip": ["call.recording"]}, "output.strip 'call.recording'", "strip_path_unsampled"),
+    ({"strip": ["call.recording"], "sample": {"call": {"id": 1}}}, "output.strip 'call.recording'", "strip_path_absent"),
+    ({"strip": ["recording"], "sample": {"recording": "x"}}, "output.sample", "strip_sample_unused"),
+], ids=["unsampled", "absent", "unused"])
+def test_sample_rule_refuses(output, at, code):
+    description = _load(AIRCALL)
+    _fn(description, "get_call")["output"] = output
+    with pytest.raises(DescriptionError, match=re.escape(f"function get_call: {at}: {code}")):
+        check(description, AIRCALL)
+
+
+@pytest.mark.parametrize("strip, refused, code", [
+    (["config", "config.secret"], "config.secret", "strip_path_overlaps"),
+    (["config.secret", "config"], "config.secret", "strip_path_overlaps"),
+    (["a.b", "a.b.c"], "a.b.c", "strip_path_overlaps"),
+], ids=["under_another", "under_a_later_one", "deeper"])
+def test_strip_rule_refuses(strip, refused, code):
+    description = _load(TYPEFORM_STRIP)
+    _fn(description, "get_webhook")["output"]["strip"] = strip
+    message = f"function get_webhook: output.strip {refused!r}: {code}"
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, TYPEFORM_STRIP)
 
 
 # --- Génération : refus nommés, pagination -----------------------------------------
@@ -817,6 +945,24 @@ def test_cost_per_item_passes_and_is_carried():
     assert '  cost: { per: "item", items: "embed", times: "fields", unit: "fields", settle: { path: "meta.found" } },\n' in source
 
 
+def test_cost_quantity_is_carried():
+    description = _load(SELLSY)
+    _get_estimate(description)["cost"] = {"per": "request", "quantity": 3, "unit": "credits", "settle": {"path": "credits_used"}}
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert '  cost: { per: "request", quantity: 3, unit: "credits", settle: { path: "credits_used" } },\n' in source
+    table = python.declared([check(description, SELLSY)])["sellsy"]
+    assert table["get_estimate"]["cost"]["quantity"] == 3
+
+
+def test_body_condition_contains_is_carried_as_is():
+    description = _load(SELLSY)
+    description["connector"]["errors"].insert(0, {
+        "status": 422, "body": {"path": "message", "contains": ["insufficient credits"]}, "code": "credits_spent",
+        "message": "Out of credits.", "retryable": False, "marks_account": "quota_exhausted"})
+    source = connector_module(check(description, SELLSY)).source
+    assert 'body: {"path": "message", "contains": ["insufficient credits"]}, marksAccount: "quota_exhausted" }' in source
+
+
 def test_cost_without_new_keys_is_carried_as_before():
     source = function_source("sellsy", _get_estimate(_load(SELLSY)))
     assert '  cost: { per: "request" },\n' in source
@@ -990,3 +1136,348 @@ def test_files_rule_refuses(mutate, message):
     mutate(description)
     with pytest.raises(DescriptionError, match=re.escape(message)):
         check(description, PENNYLANE_FIRM)
+
+
+# --- Règle 17 : le fichier rendu (output.file) -------------------------------------------------
+
+FILE = {"from": "url", "path": "pdf_link", "types": {"pdf": ["application/pdf"]}, "name": {"template": "estimate-{id}.pdf"}}
+
+
+def _rendered(d, **changes):
+    """`get_estimate` rend un fichier : `output.file` à la place de sa sortie."""
+    file = {**copy.deepcopy(FILE), **changes}
+    _get_estimate(d)["output"] = {"file": {key: value for key, value in file.items() if value is not None}}
+    return _get_estimate(d)
+
+
+def test_file_output_is_carried_with_its_defaults_resolved():
+    description = _load(SELLSY)
+    _rendered(description)
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert ('  output: { file: { from: "url", path: "pdf_link", auth: "none", types: {"pdf": ["application/pdf"]}, '
+            'name: { template: "estimate-{id}.pdf" }, maxBytes: 52428800 } },\n') in source
+
+
+def test_file_output_from_body_carries_neither_path_nor_auth():
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "body", "path": None, "max_bytes": 1000,
+                              "types": {"pdf": ["application/pdf"], "zip": ["application/zip"]},
+                              "name": {"header": "Content-Disposition", "template": "estimate-{id}.pdf"}})
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert ('  output: { file: { from: "body", types: {"pdf": ["application/pdf"], "zip": ["application/zip"]}, '
+            'name: { header: "Content-Disposition", template: "estimate-{id}.pdf" }, maxBytes: 1000 } },\n') in source
+
+
+def test_file_output_from_base64_carries_its_name_field_and_account_auth_only_for_url():
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "base64", "path": "file.data", "name": {"path": "file.name", "template": "e-{id}.pdf"}})
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert ('  output: { file: { from: "base64", path: "file.data", types: {"pdf": ["application/pdf"]}, '
+            'name: { path: "file.name", template: "e-{id}.pdf" }, maxBytes: 52428800 } },\n') in source
+    description = _load(SELLSY)
+    _rendered(description, auth="account")
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert 'from: "url", path: "pdf_link", auth: "account", ' in source
+
+
+def test_file_output_goes_to_the_python_table_with_the_function_timeout():
+    from fabrique import python
+
+    description = _load(SELLSY)
+    _rendered(description, auth="account", max_bytes=2048)
+    _get_estimate(description)["timeout_s"] = 120
+    table = python.declared([check(description, SELLSY)])
+    assert table["sellsy"]["get_estimate"] == {
+        "cost": {"per": "request"},
+        "file": {"from": "url", "path": "pdf_link", "auth": "account", "types": {"pdf": ["application/pdf"]},
+                 "name": {"template": "estimate-{id}.pdf"}, "max_bytes": 2048},
+        "timeout_s": 120,
+    }
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "body", "path": None})
+    _get_estimate(description).pop("cost")
+    entry = python.declared([check(description, SELLSY)])["sellsy"]["get_estimate"]
+    assert entry == {"file": {"from": "body", "types": {"pdf": ["application/pdf"]}, "name": {"template": "estimate-{id}.pdf"},
+                              "max_bytes": 52428800}, "timeout_s": 30}
+
+
+def test_only_the_declared_files_are_carried():
+    carried = {}
+    for path in CONNECTORS.glob("*/connector.yaml"):
+        checked = check(_load(path), path)
+        for function in checked.data["functions"]:
+            if "file" in function.get("output", {}):
+                carried[f"{checked.data['connector']['name']}.{function['name']}"] = function["output"]["file"]["from"]
+    assert carried == {"aircall.get_call_recording": "url", "aircall.get_call_voicemail": "url",
+                       "allo.get_call_recording": "url", "mistral.transcribe": "json",
+                       "threecx.download_recording": "body"}
+
+
+def _paginated_file(d):
+    d["functions"][0]["output"] = {"file": copy.deepcopy(FILE) | {"name": {"template": "estimates.pdf"}}}
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: _rendered(d)["output"].update(schema={"type": "object", "additionalProperties": False, "properties": {"id": {"type": "integer"}}}),
+     "output.file: file_output_not_alone: excludes items, strip, projection and schema"),
+    (lambda d: _rendered(d)["output"].update(items="data"), "output.file: file_output_not_alone: excludes items"),
+    (lambda d: _rendered(d)["output"].update(strip=["a"]), "output.file: file_output_not_alone: excludes items"),
+    (lambda d: _rendered(d)["output"].update(projection=["a"]), "output.file: file_output_not_alone: excludes items"),
+    (_paginated_file, "a function that renders a file is not paginated"),
+    (lambda d: _rendered(d, path=None), "output.file.path is required unless from: body"),
+    (lambda d: _rendered(d, **{"from": "base64", "path": None}), "output.file.path is required unless from: body"),
+    (lambda d: _rendered(d, **{"from": "body"}), "output.file.path is refused with from: body"),
+    (lambda d: _rendered(d, **{"from": "body", "path": None, "auth": "none"}),
+     "output.file: file_auth_not_url: auth is only for from: url"),
+    (lambda d: _rendered(d, **{"from": "base64", "auth": "account"}), "output.file: file_auth_not_url: auth is only for from: url"),
+    (lambda d: _rendered(d, **{"from": "base64", "name": {"header": "Content-Disposition", "template": "e-{id}.pdf"}}),
+     "output.file.name.header is only for from: body or url"),
+    (lambda d: _rendered(d, **{"from": "base64url", "name": {"header": "X-Name", "template": "e-{id}.pdf"}}),
+     "output.file.name.header is only for from: body or url"),
+    (lambda d: _rendered(d, **{"from": "body", "path": None, "name": {"path": "name", "template": "e-{id}.pdf"}}),
+     "output.file.name.path is refused with from: body"),
+    (lambda d: _rendered(d, name={"template": "estimate-{fields}.pdf"}),
+     "output.file.name.template cites 'fields', which is not a required input argument"),
+    (lambda d: _rendered(d, name={"template": "estimate-{nope}.pdf"}),
+     "output.file.name.template cites 'nope', which is not a required input argument"),
+    (lambda d: _rendered(d, name={"template": "estimate-{id}.doc"}),
+     "output.file.name.template must end with a declared extension (.pdf)"),
+    (lambda d: _rendered(d, name={"template": "estimate-{id}"}), "must end with a declared extension"),
+    (lambda d: _rendered(d, name={"template": "estimate.{id}"}), "must end with a declared extension"),
+    (lambda d: _rendered(d, types={"pdf": ["application/pdf"], "html": ["text/html"]}),
+     "output.file.types: 'text/html' is a type a browser renders as a page or runs"),
+    (lambda d: _rendered(d, types={"pdf": ["application/pdf"], "svg": ["image/svg+xml"]}), "'image/svg+xml' is a type a browser"),
+    (lambda d: _rendered(d, types={"pdf": ["application/pdf"], "xml": ["application/xml"]}), "'application/xml' is a type a browser"),
+    (lambda d: _rendered(d, types={"pdf": ["application/pdf"], "xml": ["text/xml"]}), "'text/xml' is a type a browser"),
+    (lambda d: _rendered(d, types={"pdf": ["application/pdf"], "xhtml": ["application/xhtml+xml"]}), "is a type a browser"),
+    (lambda d: _rendered(d, types={"pdf": ["application/pdf"], "js": ["text/javascript"]}), "'text/javascript' is a type a browser"),
+    (lambda d: _rendered(d, types={"pdf": ["application/pdf"], "mjs": ["application/javascript"]}), "is a type a browser"),
+    (lambda d: _rendered(d, types={"pdf": ["application/pdf", "application/ecmascript"]}), "is a type a browser"),
+    (lambda d: _rendered(d, max_bytes=0), "does not match the description schema"),
+    (lambda d: _rendered(d, max_bytes=52428801), "does not match the description schema"),
+    (lambda d: _rendered(d, **{"from": "body", "path": None}).update(
+        expect=[{"kind": "non_empty", "refusal": "estimate_not_found", "path": "id"}]),
+     "expect is refused with output.file from: body, which has no JSON"),
+    (lambda d: _rendered(d, **{"from": "json", "path": None, "types": None, "auth": "none",
+                               "name": {"template": "estimate-{id}.json"}}),
+     "output.file: file_auth_not_url: auth is only for from: url"),
+    (lambda d: _rendered(d, **{"from": "json", "name": {"template": "estimate-{id}.json"}}),
+     "output.file: file_json_types: types is refused with from: json, whose type is application/json"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{id}.pdf"}}),
+     "output.file: file_json_name: the name of a JSON file is its template alone, which ends with .json"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{id}.JSON"}}),
+     "output.file: file_json_name"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None,
+                               "name": {"header": "Content-Disposition", "template": "estimate-{id}.json"}}),
+     "output.file: file_json_name"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"path": "name", "template": "estimate-{id}.json"}}),
+     "output.file: file_json_name"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{id}.json"},
+                               "max_bytes": 4194305}),
+     "output.file: file_json_max_bytes: max_bytes is 4194304 at most with from: json"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{nope}.json"}}),
+     "output.file.name.template cites 'nope', which is not a required input argument"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{id}.json"}})["output"].update(
+        strip=["a"]),
+     "output.file: file_output_not_alone"),
+    (lambda d: _rendered(d, **{"from": "json", "path": None, "name": {"template": "estimate-{id}.json"}}),
+     "output.file: file_json_types"),
+], ids=["with_schema", "with_items", "with_strip", "with_projection", "paginated", "url_without_path",
+        "base64_without_path", "body_with_path", "auth_with_body", "auth_with_base64", "json_with_auth", "json_with_types",
+        "json_template_pdf", "json_template_upper_case", "json_named_by_header", "json_named_by_field",
+        "json_max_bytes_beyond_4_mb", "json_template_unknown_argument", "json_with_strip", "json_types_without_path",
+        "header_with_base64",
+        "header_with_base64url", "name_path_with_body", "template_optional_argument", "template_unknown_argument",
+        "template_undeclared_extension", "template_without_extension", "template_extension_from_argument",
+        "type_html", "type_svg", "type_xml", "type_text_xml", "type_xhtml", "type_javascript", "type_application_javascript",
+        "type_ecmascript", "max_bytes_zero", "max_bytes_beyond", "expect_with_body"])
+def test_file_output_rule_refuses(mutate, message):
+    description = _load(SELLSY)
+    mutate(description)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, SELLSY)
+
+
+@pytest.mark.parametrize("role, message", [
+    ("request_cohort_download", "a function that renders a file is not asynchronous"),
+    ("get_cohort_download_status", "collects the asynchronous job of 'request_cohort_download'"),
+], ids=["asynchronous", "collect"])
+def test_file_output_is_neither_asynchronous_nor_a_collect(role, message):
+    description = _load(AMPLITUDE)
+    function = _fn(description, role)
+    argument = function["input"]["required"][0] if function["input"].get("required") else None
+    template = f"cohort-{{{argument}}}.csv" if argument else "cohort.csv"
+    function["output"] = {"file": {"from": "body", "types": {"csv": ["text/csv"]}, "name": {"template": template}}}
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, AMPLITUDE)
+
+
+@pytest.mark.parametrize("role, message", [
+    ("request_cohort_download", "a function that renders a file is not asynchronous"),
+    ("get_cohort_download_status", "collects the asynchronous job of 'request_cohort_download'"),
+], ids=["asynchronous", "collect"])
+def test_a_json_file_is_neither_asynchronous_nor_a_collect(role, message):
+    description = _load(AMPLITUDE)
+    function = _fn(description, role)
+    argument = function["input"]["required"][0] if function["input"].get("required") else None
+    template = f"cohort-{{{argument}}}.json" if argument else "cohort.json"
+    function["output"] = {"file": {"from": "json", "name": {"template": template}}}
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, AMPLITUDE)
+
+
+@pytest.mark.parametrize("changes", [{}, {"from": "json", "path": None, "types": None,
+                                          "name": {"template": "estimate-{id}.json"}}], ids=["url", "json"])
+def test_a_background_function_renders_a_file(changes):
+    """Règle 17 : une fonction longue (règle 21) rend un fichier, qui vient du même appel ; ni la table Python ni le
+    fichier rendu n'en disent rien de plus."""
+    description = _load(SELLSY)
+    function = _rendered(description, **changes)
+    function.update(background=True, timeout_s=120)
+    checked = check(description, SELLSY)
+    source = function_source("sellsy", _get_estimate(checked.data))
+    assert "  timeoutMs: 120000,\n  background: true,\n" in source
+    assert "  output: { file: { from: " in source
+    entry = python.declared([checked])["sellsy"]["get_estimate"]
+    assert "background" not in entry and entry["timeout_s"] == 120 and "file" in entry
+
+
+@pytest.mark.parametrize("role, message", [
+    ("request_cohort_download", "function request_cohort_download: background: background_async"),
+    ("get_cohort_download_status", "function get_cohort_download_status: background: background_collect"),
+], ids=["asynchronous", "collect"])
+def test_a_background_file_is_still_neither_asynchronous_nor_a_collect(role, message):
+    """Règle 17 : `background` n'ouvre pas le fichier rendu à une fonction asynchrone ni à sa relève, que la règle 21
+    refuse d'abord."""
+    description = _load(AMPLITUDE)
+    function = _fn(description, role)
+    argument = function["input"]["required"][0] if function["input"].get("required") else None
+    template = f"cohort-{{{argument}}}.json" if argument else "cohort.json"
+    function["output"] = {"file": {"from": "json", "name": {"template": template}}}
+    function.update(background=True, timeout_s=120)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, AMPLITUDE)
+
+
+def test_a_function_without_background_carries_none():
+    source = function_source("sellsy", _get_estimate(_load(SELLSY)))
+    assert "background" not in source
+
+
+def test_a_paginated_function_renders_no_json_file():
+    description = _load(SELLSY)
+    description["functions"][0]["output"] = {"file": {"from": "json", "name": {"template": "estimates.json"}}}
+    with pytest.raises(DescriptionError, match="a function that renders a file is not paginated"):
+        check(description, SELLSY)
+
+
+def test_a_json_file_is_carried_without_types_with_its_4_mb_default():
+    from fabrique import python
+
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "json", "path": None, "types": None, "name": {"template": "estimate-{id}.json"}})
+    checked = check(description, SELLSY)
+    source = function_source("sellsy", _get_estimate(checked.data))
+    assert '  output: { file: { from: "json", name: { template: "estimate-{id}.json" }, maxBytes: 4194304 } },\n' in source
+    assert python.declared([checked])["sellsy"]["get_estimate"]["file"] == {
+        "from": "json", "name": {"template": "estimate-{id}.json"}, "max_bytes": 4194304}
+
+
+def test_a_json_file_carries_its_path_its_bound_and_admits_expect():
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "json", "path": "data.result", "types": None, "max_bytes": 4194304,
+                              "name": {"template": "estimate-{id}.json"}})
+    _get_estimate(description)["expect"] = [{"kind": "non_empty", "refusal": "estimate_not_found", "path": "id"}]
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert ('  output: { file: { from: "json", path: "data.result", name: { template: "estimate-{id}.json" }, '
+            'maxBytes: 4194304 } },\n') in source
+
+
+def test_a_json_file_needs_no_types_but_every_other_file_does():
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "body", "path": None, "types": None})
+    with pytest.raises(DescriptionError, match="does not match the description schema"):
+        check(description, SELLSY)
+
+
+# --- Les cas communs du fichier rendu ----------------------------------------------------------
+
+FILE_REFUSALS = {"file_missing", "file_download_refused", "file_too_large", "file_type_refused", "file_unreadable",
+                 "file_foreign_origin"}
+
+
+def test_file_cases_cover_the_format():
+    from fabrique import file_cases
+
+    loaded = file_cases.load()
+    functions = [case["function"] for case in loaded.cases]
+    files = [f["output"]["file"] for f in functions]
+    assert {f["from"] for f in files} == {"body", "url", "base64", "base64url", "json"}
+    assert {f.get("auth", "none") for f in files if f["from"] == "url"} == {"none", "account"}
+    assert {case["refusal"] for case in loaded.cases if "refusal" in case} == FILE_REFUSALS
+    assert file_cases.REFUSALS == tuple(sorted(FILE_REFUSALS))
+    assert {r["refusal"] for r in loaded.refused} == set(file_cases.DECLARATION_REFUSALS)
+    assert file_cases.DECLARATION_REFUSALS == ("file_output_not_alone", "file_auth_not_url", "file_json_types",
+                                               "file_json_name", "file_json_max_bytes")
+    names = {case["name"] for case in loaded.cases}
+    for expected in ("name_by_filename_star", "name_by_filename", "name_by_field", "name_by_template",
+                     "undeclared_extension_falls_to_template", "content_length_beyond", "body_beyond_without_content_length",
+                     "html_under_200_refused", "octet_stream_admitted", "url_absent", "url_empty", "url_http",
+                     "url_foreign_origin_under_account", "download_403", "base64_unreadable", "json_whole_answer",
+                     "json_branch_at_path", "json_path_absent", "json_path_empty_text", "json_beyond_the_bound",
+                     "json_numbers_as_the_host_writes_them"):
+        assert expected in names, expected
+
+
+def _file_cases_write(tmp_path, mutate):
+    from fabrique import file_cases
+
+    data = yaml.safe_load(file_cases.CASES.read_text(encoding="utf-8"))
+    mutate(data)
+    path = tmp_path / "file.yaml"
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def _file_case(data, name):
+    return next(case for case in data["cases"] if case["name"] == name)
+
+
+def _refused_file(data, name):
+    return next(r for r in data["refused"] if r["name"] == name)["function"]["output"]["file"]
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: _file_case(d, "name_by_template")["function"]["output"]["file"].update(path="x"),
+     "output.file.path is refused with from: body"),
+    (lambda d: _file_case(d, "name_by_template").update(refusal="file_lost"), "does not match the file cases form"),
+    (lambda d: _file_case(d, "name_by_template").pop("file"), "does not match the file cases form"),
+    (lambda d: _file_case(d, "url_empty").pop("answer"), "does not match the file cases form"),
+    (lambda d: _file_case(d, "name_by_template").update(download={"status": 200, "headers": {}, "text": "x"}),
+     "only a function with from: url downloads"),
+    (lambda d: _file_case(d, "name_by_template")["function"].pop("output"), "a case function renders a file"),
+    (lambda d: _file_case(d, "json_whole_answer")["file"].pop("text"), "the file of a function with from: json says its bytes"),
+    (lambda d: _file_case(d, "json_whole_answer")["file"].update(size=3), "file.size is not the size of file.text"),
+    (lambda d: next(r for r in d["refused"] if r["name"] == "json_with_types").update(refusal="file_json_name"),
+     "refused function json_with_types: the fabrique answers file_json_types, the file says file_json_name"),
+    (lambda d: next(r for r in d["refused"] if r["name"] == "json_with_types")["function"]["output"]["file"].pop("types"),
+     "refused function json_with_types is accepted by the fabrique"),
+    (lambda d: next(r for r in d["refused"] if r["name"] == "json_with_types")["function"].update(name="Bad Name"),
+     "refused function json_with_types must match the description schema"),
+    (lambda d: _refused_file(d, "json_with_types").update(name={"template": "report-{nope}.json"}) or
+     _refused_file(d, "json_with_types").pop("types"),
+     "refused function json_with_types is refused by another rule than the coded ones of 17"),
+    (lambda d: next(r for r in d["refused"] if r["name"] == "json_with_types")["function"].update(
+        call={"method": "GET", "path": "/reports/{id}/{nope}"}),
+     "refused function json_with_types is refused by another rule than the coded ones of 17"),
+    (lambda d: d.update(refused=[r for r in d["refused"] if r["refusal"] != "file_json_max_bytes"]),
+     "no refused function for file_json_max_bytes"),
+], ids=["rule_17", "unknown_refusal", "no_outcome", "no_answer", "download_without_url", "no_file", "json_without_text",
+        "json_size_not_text", "refused_other_code", "refused_accepted", "refused_off_schema", "refused_by_another_rule",
+        "refused_first_by_another_rule",
+        "refused_code_missing"])
+def test_a_file_case_is_checked_like_a_description(tmp_path, mutate, message):
+    from fabrique import file_cases
+
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        file_cases.load(_file_cases_write(tmp_path, mutate))

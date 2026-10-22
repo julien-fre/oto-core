@@ -58,13 +58,15 @@ def client():
     return YousignClient(api_key="ys-test")
 
 
-#: Le patron de la maison couvre le cycle de vie d'une demande de signature —
-#: pas la surface identité/templates/branding, hors scope de ce lot.
+#: Le patron de la maison couvre le cycle de vie d'une demande de signature,
+#: ses champs et la lecture des modèles — pas la surface identité/branding.
 METHODS = {
     "create_signature_request", "get_signature_request", "list_signature_requests",
     "activate_signature_request", "cancel_signature_request", "delete_signature_request",
     "add_document", "download_document", "download_audit_trail",
     "add_signer", "get_signer_documents",
+    "list_fields", "add_field", "update_field", "delete_field",
+    "list_templates", "get_template",
 }
 
 
@@ -112,6 +114,16 @@ def test_create_signature_request_defaults_to_email_delivery(calls, client):
      "/signature_requests/sr1/audit_trails/download"),
     (lambda c: c.get_signer_documents("sr1", "sg1"), "GET",
      "/signature_requests/sr1/signers/sg1/documents"),
+    (lambda c: c.list_fields("sr1", "d1"), "GET",
+     "/signature_requests/sr1/documents/d1/fields"),
+    (lambda c: c.add_field("sr1", "d1", "signature", 1, signer_id="sg1", x=0, y=0), "POST",
+     "/signature_requests/sr1/documents/d1/fields"),
+    (lambda c: c.update_field("sr1", "d1", "f1", x=10), "PATCH",
+     "/signature_requests/sr1/documents/d1/fields/f1"),
+    (lambda c: c.delete_field("sr1", "d1", "f1"), "DELETE",
+     "/signature_requests/sr1/documents/d1/fields/f1"),
+    (lambda c: c.list_templates(), "GET", "/templates"),
+    (lambda c: c.get_template("t1"), "GET", "/templates/t1"),
 ])
 def test_each_operation_hits_its_endpoint(calls, client, call, method, path):
     call(client)
@@ -154,6 +166,36 @@ def test_add_signer_defaults_to_electronic_signature_level(calls, client):
             "email": "bob.martin@example.com", "locale": "en"}
     client.add_signer("sr1", info)
     assert calls[0]["json"]["signature_level"] == "electronic_signature"
+
+
+def test_add_field_body_carries_type_page_and_placement(calls, client):
+    client.add_field("sr1", "d1", "text", 2, signer_id="sg1", x=72, y=640,
+                     max_length=40, question="Bon pour accord", optional=None)
+    assert calls[0]["json"] == {"type": "text", "page": 2, "signer_id": "sg1",
+                                "x": 72, "y": 640, "max_length": 40,
+                                "question": "Bon pour accord"}
+
+
+def test_update_field_sends_only_what_changes(calls, client):
+    client.update_field("sr1", "d1", "f1", y=700, page=None)
+    assert calls[0]["json"] == {"y": 700}
+
+
+def test_list_templates_passes_pagination(calls, client):
+    client.list_templates(after="c1", limit=10)
+    assert calls[0]["params"] == {"after": "c1", "limit": 10}
+
+
+def test_create_from_template_forwards_placeholders(calls, client):
+    placeholders = {"signers": [{"label": "Client", "info": {
+        "first_name": "Alice", "last_name": "Dupont",
+        "email": "alice.dupont@example.com", "locale": "fr"}}],
+        "read_only_text_fields": [{"label": "Prix", "text": "1 000"}]}
+    client.create_signature_request("Contrat", template_id="t1",
+                                    template_placeholders=placeholders)
+    assert calls[0]["json"] == {"name": "Contrat", "delivery_mode": "email",
+                                "template_id": "t1",
+                                "template_placeholders": placeholders}
 
 
 def test_binary_body_is_returned_as_bytes(calls, client):

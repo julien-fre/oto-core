@@ -1,0 +1,83 @@
+# Common cases of the authentication of a call: what a request carries, from the auth block of a connector and the
+# values of its credential fields, with the semantics of docs/conception/format-de-description.md, « Le compte ». Only
+# the kinds signed from the credential alone: api_key, bearer and basic (a token exchange or a consent is not a case).
+#
+# Synthetic: no real connector, no vendor; every value is made up and says so (test-key-not-real). The fabrique checks
+# each case as the connector block of a description (the schema, then the rules of every description, rule 2 included:
+# each reference of auth names a credential field), then writes ts/src/auth-cases.ts for the host package
+# (`@otomata_tech/connectors/auth-cases`), which signs each case with its engine. tests/test_auth_cases.py plays the
+# cases against a reference written in the test: the Python lib signs no request of a description.
+#
+# A case:
+# - auth, credential: the connector's blocks, in source form;
+# - values: the value of each credential field, as the host assembles them at the call;
+# - headers: the headers authentication adds, names in lowercase (HTTP compares them without case), values exact;
+# - query: the query parameters authentication adds.
+# Basic: Authorization: Basic base64(username + ":" + password), the text encoded in UTF-8; without username, the user
+# name is empty, base64(":" + password).
+cases:
+  - name: basic_with_username
+    auth: { kind: basic, username: api_id, password: api_token }
+    credential:
+      - { name: api_id, label: API ID, secret: false }
+      - { name: api_token, label: API token, secret: true }
+    values: { api_id: test-user, api_token: test-key-not-real }
+    headers: { authorization: "Basic dGVzdC11c2VyOnRlc3Qta2V5LW5vdC1yZWFs" }
+    query: {}
+
+  - name: basic_without_username
+    auth: { kind: basic, password: api_key }
+    credential:
+      - { name: api_key, label: API key, secret: true }
+    values: { api_key: test-key-not-real }
+    headers: { authorization: "Basic OnRlc3Qta2V5LW5vdC1yZWFs" }
+    query: {}
+
+  - name: basic_without_username_utf8
+    auth: { kind: basic, password: api_key }
+    credential:
+      - { name: api_key, label: API key, secret: true }
+    values: { api_key: test-kéy-not-real }
+    headers: { authorization: "Basic OnRlc3Qta8OpeS1ub3QtcmVhbA==" }
+    query: {}
+
+  - name: basic_password_with_colons
+    auth: { kind: basic, username: api_id, password: api_token }
+    credential:
+      - { name: api_id, label: API ID, secret: false }
+      - { name: api_token, label: API token, secret: true }
+    values: { api_id: test-user, api_token: "pass:with:colons-not-real" }
+    headers: { authorization: "Basic dGVzdC11c2VyOnBhc3M6d2l0aDpjb2xvbnMtbm90LXJlYWw=" }
+    query: {}
+
+  - name: bearer
+    auth: { kind: bearer, token: api_key }
+    credential:
+      - { name: api_key, label: API key, secret: true }
+    values: { api_key: test-key-not-real }
+    headers: { authorization: "Bearer test-key-not-real" }
+    query: {}
+
+  - name: api_key_header
+    auth: { kind: api_key, in: header, name: X-Api-Key, key: api_key }
+    credential:
+      - { name: api_key, label: API key, secret: true }
+    values: { api_key: test-key-not-real }
+    headers: { x-api-key: test-key-not-real }
+    query: {}
+
+  - name: api_key_header_prefix
+    auth: { kind: api_key, in: header, name: Authorization, prefix: "Token ", key: api_key }
+    credential:
+      - { name: api_key, label: API key, secret: true }
+    values: { api_key: test-key-not-real }
+    headers: { authorization: "Token test-key-not-real" }
+    query: {}
+
+  - name: api_key_query
+    auth: { kind: api_key, in: query, name: api_key, key: api_key }
+    credential:
+      - { name: api_key, label: API key, secret: true }
+    values: { api_key: test-key-not-real }
+    headers: {}
+    query: { api_key: test-key-not-real }

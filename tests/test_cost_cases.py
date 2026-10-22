@@ -48,6 +48,8 @@ def test_the_cases_cover_the_format():
     assert {c["per"] for c in costs} == {"request", "page", "item"}
     assert any("times" in c for c in costs) and any("weights" in c for c in costs)
     assert any("unit" in c for c in costs) and any("unit" not in c for c in costs)
+    assert {c["per"] for c in costs if "quantity" in c} == {"request", "page"}
+    assert any("quantity" in c and "settle" in c for c in costs)
     assert any("pagination" in f and "cost" in f for f in functions)
     jobs = [f["async"] for f in functions if "async" in f]
     assert any("within_s" in j for j in jobs) and any(j.get("no_deadline") for j in jobs)

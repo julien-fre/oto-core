@@ -38,7 +38,10 @@ describe("generated definitions", () => {
   it.each(functions)("%s: every path parameter and mapped argument names a schema key", (_name, _connector, fn) => {
     const keys = Object.keys(fn.schema.properties as object)
     for (const param of fn.request.pathParams) expect(keys).toContain(param)
-    const mapped = [fn.request.query, fn.request.body, fn.request.headers, fn.request.files ?? {}].flatMap((names) => Object.values(names))
+    // Un corps en texte est l'argument qui forme le corps entier (règle 20) ; en table, des noms côté API.
+    const whole = typeof fn.request.body === "string" ? [fn.request.body] : []
+    const body = typeof fn.request.body === "string" ? {} : fn.request.body
+    const mapped = [...whole, ...[fn.request.query, body, fn.request.headers, fn.request.files ?? {}].flatMap((names) => Object.values(names))]
     for (const argument of mapped) {
       expect(keys).toContain(argument)
     }
@@ -112,7 +115,8 @@ describe("generated definitions", () => {
       for (const fn of connector.functions) {
         expect(Object.keys(fn.schema.properties as object), fn.name).not.toContain(identity.name)
         expect(fn.request.path, fn.name).not.toContain(cited)
-        for (const names of [fn.request.query, fn.request.body, fn.request.headers]) expect(Object.keys(names)).not.toContain(identity.name)
+        const body = typeof fn.request.body === "string" ? {} : fn.request.body
+        for (const names of [fn.request.query, body, fn.request.headers]) expect(Object.keys(names)).not.toContain(identity.name)
       }
     },
   )
@@ -131,7 +135,7 @@ describe("generated definitions", () => {
       if (mark === "credential_rejected" && body === undefined) expect(statuses).not.toContain(403)
       if (mark === "quota_exhausted" && body === undefined) expect(statuses).not.toContain(429)
       if (mark !== undefined) expect(retryable).toBe(false)
-      if (body !== undefined) expect(body.equals.length).toBeGreaterThan(0)
+      if (body !== undefined) expect((body.equals !== undefined ? body.equals : body.contains).length).toBeGreaterThan(0)
     }
     for (const fn of connector.functions) {
       for (const r of fn.refusals) if (typeof r.when === "string") expect(r.body ?? r.marksAccount, `${fn.name}: ${r.code}`).toBeUndefined()

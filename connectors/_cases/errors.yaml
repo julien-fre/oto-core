@@ -1,0 +1,162 @@
+# Common cases of the error table: the entry an answer of the vendor selects, with the semantics of
+# docs/conception/format-de-description.md, « Signal de refus du service ». The first entry whose status covers the
+# answer and whose body condition holds, when it has one, wins.
+#
+# A body condition reads the value at its dotted path (a list index as digits) in the JSON body of the answer:
+# - equals: the value is one of the listed values, same JSON type, exact (190 is not "190", a text keeps its case);
+# - contains: the value is a text that contains one of the listed texts, both lowercased with the Unicode default
+#   lowercase mapping, without locale (JavaScript toLowerCase, Python str.lower, not casefold). A value that is absent,
+#   null, a number, a boolean, a list or an object contains nothing, nor does a body that is not JSON. A text is found
+#   anywhere, inside a word included.
+#
+# Synthetic: no real connector, no vendor. The fabrique assembles `connector` and `function` into one description,
+# checked with the schema and the rules of every description (rule 10 included), then converts it as it converts a
+# description: ts/src/error-cases.ts for the host package (`@otomata_tech/connectors/error-cases`), whose engine selects
+# the entry for each answer. tests/test_error_cases.py plays the cases against a reference written in the test: the
+# Python lib reads no error table of a description.
+#
+# A case:
+# - answer: the status and the body of the vendor's answer, `json` (any JSON value) or `text` (a body that is not JSON);
+# - entry: the code and the account mark (null when the entry marks nothing) of the entry selected, or null when no
+#   entry applies (a success under a 2xx; otherwise the engine's own refusal, which these cases do not fix).
+connector:
+  name: error_cases
+  label: Error cases
+  namespace: error_cases
+  version: 1.0.0
+  api_version: v1
+  base_url: https://api.example.test/v1
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  modes: [byo_org]
+  errors:
+    - { status: 200, body: { path: errors.0.extensions.code, equals: [UNAUTHENTICATED] }, code: key_refused,
+        retryable: false, marks_account: credential_rejected, message: "The key is refused." }
+    - { status: 400, body: { path: error.code, equals: [190, 102, true] }, code: authorization_expired,
+        retryable: false, marks_account: credential_rejected, message: "The authorization expired." }
+    - { status: 400, code: invalid_request, retryable: false, message: "The request is invalid." }
+    - { status: 402, body: { path: message, contains: ["Crédits insuffisants"] }, code: credits_exhausted,
+        retryable: false, marks_account: quota_exhausted, message: "The account is out of credits." }
+    - { status: 422, body: { path: message, contains: [insufficient credits, ran out of] }, code: credits_exhausted,
+        retryable: false, marks_account: quota_exhausted, message: "The account is out of credits." }
+    - { status: 422, body: { path: errors.0.detail, contains: [insufficient credits] }, code: credits_exhausted,
+        retryable: false, marks_account: quota_exhausted, message: "The account is out of credits." }
+    - { status: 422, code: invalid_request, retryable: false, message: "The request is invalid." }
+    - { status: 429, code: rate_limited, retryable: true, message: "Rate limit reached: retry later." }
+
+function:
+  name: get_record
+  class: read
+  description: Get one record by its id.
+  input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+  examples: [{ title: One record, input: { id: r-1 } }]
+  call: { method: GET, path: "/records/{id}" }
+
+cases:
+  # --- contains ----------------------------------------------------------------------------------------------------
+  - name: contains_whole_text
+    answer: { status: 422, json: { message: insufficient credits } }
+    entry: { code: credits_exhausted, marks_account: quota_exhausted }
+
+  - name: contains_inside_a_sentence
+    answer: { status: 422, json: { message: "You have insufficient credits." } }
+    entry: { code: credits_exhausted, marks_account: quota_exhausted }
+
+  - name: contains_case_aside
+    answer: { status: 422, json: { message: "INSUFFICIENT Credits" } }
+    entry: { code: credits_exhausted, marks_account: quota_exhausted }
+
+  - name: contains_another_listed_text
+    answer: { status: 422, json: { message: "You ran out of mobile number credits" } }
+    entry: { code: credits_exhausted, marks_account: quota_exhausted }
+
+  - name: contains_inside_a_word
+    answer: { status: 422, json: { message: "insufficient creditsss" } }
+    entry: { code: credits_exhausted, marks_account: quota_exhausted }
+
+  - name: contains_declared_with_capitals_and_accents
+    answer: { status: 402, json: { message: "Erreur : CRÉDITS INSUFFISANTS pour cette offre" } }
+    entry: { code: credits_exhausted, marks_account: quota_exhausted }
+
+  - name: contains_not_found_next_condition
+    answer: { status: 402, json: { message: "Payment required" } }
+    entry: null
+
+  - name: contains_at_a_list_index
+    answer: { status: 422, json: { errors: [{ detail: "Insufficient credits on this plan" }] } }
+    entry: { code: credits_exhausted, marks_account: quota_exhausted }
+
+  - name: contains_text_absent
+    answer: { status: 422, json: { message: "person_titles must be a list" } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_text_cut_short
+    answer: { status: 422, json: { message: "insufficient credit" } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_path_absent
+    answer: { status: 422, json: { error: insufficient credits } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_value_null
+    answer: { status: 422, json: { message: null } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_value_a_number
+    answer: { status: 422, json: { message: 402 } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_value_a_list_of_texts
+    answer: { status: 422, json: { message: [insufficient credits] } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_value_an_object
+    answer: { status: 422, json: { message: { text: insufficient credits } } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_value_empty_text
+    answer: { status: 422, json: { message: "" } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_body_a_list
+    answer: { status: 422, json: [insufficient credits] }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: contains_body_not_json
+    answer: { status: 422, text: "insufficient credits" }
+    entry: { code: invalid_request, marks_account: null }
+
+  # --- equals ------------------------------------------------------------------------------------------------------
+  - name: equals_integer
+    answer: { status: 400, json: { error: { code: 190 } } }
+    entry: { code: authorization_expired, marks_account: credential_rejected }
+
+  - name: equals_boolean
+    answer: { status: 400, json: { error: { code: true } } }
+    entry: { code: authorization_expired, marks_account: credential_rejected }
+
+  - name: equals_integer_written_as_text
+    answer: { status: 400, json: { error: { code: "190" } } }
+    entry: { code: invalid_request, marks_account: null }
+
+  - name: equals_text_keeps_its_case
+    answer: { status: 200, json: { errors: [{ extensions: { code: unauthenticated } }] } }
+    entry: null
+
+  - name: equals_under_a_success
+    answer: { status: 200, json: { errors: [{ extensions: { code: UNAUTHENTICATED } }] } }
+    entry: { code: key_refused, marks_account: credential_rejected }
+
+  - name: success_without_condition
+    answer: { status: 200, json: { id: r-1 } }
+    entry: null
+
+  # --- status ------------------------------------------------------------------------------------------------------
+  - name: status_without_condition
+    answer: { status: 429, json: { message: insufficient credits } }
+    entry: { code: rate_limited, marks_account: null }
+
+  - name: status_without_entry
+    answer: { status: 503, text: "Service Unavailable" }
+    entry: null

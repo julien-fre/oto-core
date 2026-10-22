@@ -53,6 +53,11 @@
       "type": "string",
       "pattern": "^[^.\\s]+(\\.[^.\\s]+)*$"
     },
+    "strip_path": {
+      "description": "A key removed from the output, or a path to one: keys separated by dots, each non-empty (call.recording). Relative to each element of items when it is declared, to the whole answer otherwise; a list met on the way is crossed, the rest of the path applying to each of its elements. A key that holds a dot cannot be named.",
+      "type": "string",
+      "pattern": "^[^.]+(\\.[^.]+)*$"
+    },
     "timeout_s": {
       "description": "A timeout in seconds: the connector's, or one function's. At most 300, the ceiling the host package of oto 2 runs.",
       "type": "integer",
@@ -69,10 +74,11 @@
       "enum": ["credential_rejected", "quota_exhausted"]
     },
     "body_condition": {
-      "description": "A condition on the JSON body of the response: the value at path (dotted, a list index as a number) equals one of the values. The entry applies only when it holds; under the same status, the next entry is tried.",
+      "description": "A condition on the JSON body of the response, on the value at path (dotted, a list index as a number), by one operator: equals, the value is one of the values (same type, exact); contains, the value is a text that contains one of the texts, both lowercased (Unicode default lowercase, no locale). A value that is absent or not a text never contains anything. The entry applies only when it holds; under the same status, the next entry is tried.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "equals"],
+      "required": ["path"],
+      "oneOf": [{ "required": ["equals"] }, { "required": ["contains"] }],
       "properties": {
         "path": { "$ref": "#/$defs/text" },
         "equals": {
@@ -80,6 +86,13 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "type": ["string", "integer", "boolean"] }
+        },
+        "contains": {
+          "description": "Texts searched in the text at path, case aside: a vendor message that is not fixed (insufficient credits).",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/text" }
         }
       }
     },
@@ -431,10 +444,10 @@
         {
           "properties": {
             "kind": { "const": "basic" },
-            "username": { "description": "Credential field.", "$ref": "#/$defs/identifier" },
+            "username": { "description": "Credential field of the user name. Absent, the user name is empty: Authorization: Basic base64(\":\" + password).", "$ref": "#/$defs/identifier" },
             "password": { "description": "Credential field.", "$ref": "#/$defs/identifier" }
           },
-          "required": ["kind", "username", "password"],
+          "required": ["kind", "password"],
           "additionalProperties": false
         },
         {
@@ -609,6 +622,58 @@
         }
       ]
     },
+    "mime_type": {
+      "description": "A MIME type without parameters, in lower case: audio/mpeg, application/pdf.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$"
+    },
+    "output_file": {
+      "description": "The output of the function is a file: the host keeps it as a transit file of the caller (24 hours, the same for every file) and returns its id; the bytes and the third party's address never reach the agent. Exclusive of items, strip, projection and schema; never on a paginated or asynchronous function nor on the collect of a job (rule 17 of the fabrique).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "name"],
+      "if": { "properties": { "from": { "const": "json" } }, "required": ["from"] },
+      "else": { "required": ["types"] },
+      "properties": {
+        "from": {
+          "description": "Where the bytes are: body, the body of the answer; url, an address the JSON answer holds at path, downloaded at once; base64 or base64url, the bytes encoded in a field of the JSON answer at path; json, the JSON answer itself, or its branch at path, written as JSON (application/json, no types; 4 MB at most, the default; the name a template that ends with .json).",
+          "enum": ["body", "url", "base64", "base64url", "json"]
+        },
+        "path": { "description": "Dotted path of the address or of the encoded bytes in the JSON answer, required with url, base64 and base64url, refused with body; with json, the branch of the answer that is the file, the whole answer when absent.", "$ref": "#/$defs/dotted_path" },
+        "auth": {
+          "description": "from: url only. none (default): a signed address that receives no secret. account: the account's authentication, set only when the address has the origin of the resolved base URL; otherwise nothing is downloaded.",
+          "enum": ["none", "account"]
+        },
+        "types": {
+          "description": "The extensions the function may return, each with the MIME types the third party may announce for it, the first being the type of the kept file. An announced type that is none of those of the retained extension, nor application/octet-stream or binary/octet-stream, nor absent, is refused. Required, except with from: json, which refuses it (its type is application/json).",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[a-z0-9]{1,16}$" },
+          "additionalProperties": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/mime_type" } }
+        },
+        "name": {
+          "description": "The file name, tried in this order: header (Content-Disposition read as RFC 6266, filename* before filename), path (a field of the JSON answer), then template. The first name whose extension is declared wins; the template always gives one.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["template"],
+          "properties": {
+            "header": { "description": "A header of the answer (of the download for from: url); never with base64.", "type": "string", "pattern": "^[A-Za-z0-9-]+$" },
+            "path": { "description": "Dotted path of the name in the JSON answer; never with from: body.", "$ref": "#/$defs/dotted_path" },
+            "template": {
+              "description": "A template over the required input arguments ({call_id}) that ends with a declared extension.",
+              "$ref": "#/$defs/text"
+            }
+          }
+        },
+        "max_bytes": {
+          "description": "The largest file, in bytes: from 1 byte to 50 MB (52428800, the ceiling of a file at the host of oto 2), the default; with from: json, 4 MB at most (4194304, that of a JSON answer), the default. An empty file is refused.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 52428800,
+          "default": 52428800
+        }
+      }
+    },
     "function": {
       "type": "object",
       "additionalProperties": false,
@@ -654,6 +719,10 @@
             }
           },
           "not": { "required": ["within_s", "no_deadline"] }
+        },
+        "background": {
+          "description": "The vendor answers in minutes: the host runs the function in the background, outside the request of the assistant, and answers at once with a job id, read by its native function job.read; the final answer is that of the synchronous call (data, rendered file, refusal). The function declares its own timeout_s, the delay of the call itself, queue not included; never with async, on the collect of an asynchronous job, nor paginated (rule 21 of the fabrique). The description never tells the job id: the host adds it to the text it serves.",
+          "const": true
         },
         "scopes": {
           "description": "Only in a connector with access levels, where it is required: the scopes this function requires, all of them. It is served at a level when each is a scope of the level or implied by one. class stays: it says what the function does.",
@@ -717,7 +786,10 @@
               "pattern": "^/[^\\s?#]*$"
             },
             "query": { "$ref": "#/$defs/argument_map" },
-            "body": { "description": "JSON body, whatever the method: a DELETE may carry one.", "$ref": "#/$defs/argument_map" },
+            "body": {
+              "description": "JSON body, whatever the method: a DELETE may carry one. A map of API-side names to input arguments, or the name of one input argument, a strict object (type: object, additionalProperties: false, properties declared) that is the whole body, sent as validated (rule 20 of the fabrique).",
+              "oneOf": [{ "$ref": "#/$defs/argument_map" }, { "$ref": "#/$defs/identifier" }]
+            },
             "headers": { "$ref": "#/$defs/argument_map" },
             "files": {
               "description": "Multipart part name to the input argument that carries the id of a transit file of the caller. When present, the body is sent as multipart/form-data: each body entry and body constant becomes a text part, each file a part with the file's own name and type. The host reads the file under the caller's identity and consumes it after a successful send.",
@@ -771,17 +843,32 @@
           "properties": {
             "schema": { "description": "Shape of one record, after items/strip/projection are applied.", "$ref": "#/$defs/output_schema" },
             "items": { "description": "Dotted path of the list in the response.", "$ref": "#/$defs/text" },
-            "strip": { "description": "Keys removed.", "type": "array", "items": { "$ref": "#/$defs/text" } },
-            "projection": { "description": "Keys kept.", "type": "array", "items": { "$ref": "#/$defs/text" } }
+            "strip": {
+              "description": "Keys removed, each by its path (strip_path), before projection. A path under another is refused (rule 18 of the fabrique).",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/strip_path" }
+            },
+            "projection": { "description": "Keys kept.", "type": "array", "items": { "$ref": "#/$defs/text" } },
+            "sample": {
+              "description": "A made-up raw answer of the API, a guard of the fabrique only: required when a path of strip holds a dot, refused otherwise; each path of strip must reach a key in it (rule 19). Made-up values only, addresses in domains reserved for tests (example.test). Never a contract of the answer: not validated at run time, not documentation, not a source of types, never in the generated output."
+            },
+            "file": { "$ref": "#/$defs/output_file" }
           }
         },
         "cost": {
-          "description": "What a call costs. Before the call, its worst case from the arguments: one per request sent (request, page: each page of a paginated read is a request), or, per item, the size of the items argument times the size of the times argument, or the sum over the items of the weights of the values each lists (weights). After the call, settle reads the real quantity in the response. Both count the same unit.",
+          "description": "What a call costs. Before the call, its worst case from the arguments: quantity per request sent (request, page: each page of a paginated read is a request; quantity is one when absent), or, per item, the size of the items argument times the size of the times argument, or the sum over the items of the weights of the values each lists (weights). After the call, settle reads the real quantity in the response. Both count the same unit.",
           "type": "object",
           "additionalProperties": false,
           "required": ["per"],
           "properties": {
             "per": { "enum": ["request", "page", "item"] },
+            "quantity": {
+              "description": "per: request or page only: what one request costs, in unit (required), an integer of two or more; absent, one. The worst case is the requests the call may send times quantity, and so is the quantity settled without settle.",
+              "type": "integer",
+              "minimum": 2
+            },
             "items": {
               "description": "per: item only, required there: the list argument each element of which counts once. Required in the input, at least one element.",
               "$ref": "#/$defs/identifier"
@@ -823,11 +910,11 @@
           "allOf": [
             {
               "if": { "properties": { "per": { "const": "item" } } },
-              "then": { "required": ["items", "unit"], "not": { "required": ["times", "weights"] } },
+              "then": { "required": ["items", "unit"], "not": { "anyOf": [{ "required": ["times", "weights"] }, { "required": ["quantity"] }] } },
               "else": { "not": { "anyOf": [{ "required": ["items"] }, { "required": ["times"] }, { "required": ["weights"] }] } }
             },
             {
-              "if": { "required": ["settle"] },
+              "if": { "anyOf": [{ "required": ["settle"] }, { "required": ["quantity"] }] },
               "then": { "required": ["unit"] }
             }
           ]

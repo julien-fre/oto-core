@@ -9,18 +9,20 @@ name: Tag release (poser un tag de version)
 # Le tag est posé sur le HEAD de main par le workflow lui-même (GITHUB_TOKEN,
 # contents: write). Vérification incluse : le `version` du pyproject doit être
 # ÉGAL au tag demandé — c'est le gotcha documenté dans CLAUDE.md (un tag posé
-# sans bump fait mentir `pip show oto-core`, vécu le 2026-06-22).
+# sans bump fait mentir `pip show oto-core`, vécu le 2026-06-22). Le paquet npm `ts/`
+# porte la même version (2026-10-20) : un tag posé avec un `ts/package.json` en retard
+# publierait la lib et pas le paquet, et la version resterait à moitié publiée.
 #
 # NB : un tag créé avec le GITHUB_TOKEN ne déclenche aucun autre workflow
 # (garde anti-récursion GitHub). Or publish.yml s'abonne aux tags `v*` (publication
-# PyPI, 2026-09-12) : un tag posé ici ne le déclencherait PAS, et la version ne
-# partirait jamais sur PyPI, en silence. Ce workflow dispatche donc publish.yml
+# PyPI, 2026-09-12 ; npm, 2026-10-20) : un tag posé ici ne le déclencherait PAS, et la
+# version ne partirait jamais, en silence. Ce workflow dispatche donc publish.yml
 # explicitement — workflow_dispatch est l'exception à cette garde.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Tag à poser sur le HEAD de main (ex: v1.90.0). Doit égaler le version du pyproject."
+        description: "Tag à poser sur le HEAD de main (ex: v1.90.0). Doit égaler la version du pyproject et de ts/package.json."
         required: true
 
 permissions:
@@ -34,7 +36,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
-      - name: Vérifier format + concordance pyproject
+      - name: Vérifier format + concordance pyproject et ts/package.json
         env:
           DEMANDEE: ${{ inputs.version }}
         run: |
@@ -48,6 +50,11 @@ jobs:
             echo "::error::pyproject version=$PYVER ≠ tag demandé $DEMANDEE — bumper d'abord (CLAUDE.md : jamais de tag sans bump)"
             exit 1
           fi
+          NPMVER=$(node -p 'require("./ts/package.json").version')
+          if [ "v$NPMVER" != "$DEMANDEE" ]; then
+            echo "::error::ts/package.json version=$NPMVER ≠ tag demandé $DEMANDEE — bumper aussi le paquet npm (docs/release.md)"
+            exit 1
+          fi
       - name: Poser le tag
         env:
           DEMANDEE: ${{ inputs.version }}
@@ -57,7 +64,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$DEMANDEE"
           git push origin "refs/tags/$DEMANDEE"
-      - name: Publier sur PyPI (dispatch de publish.yml)
+      - name: Publier sur PyPI et npm (dispatch de publish.yml)
         env:
           DEMANDEE: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,112 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Mistral AI API v1, audio transcription (Voxtral): https://docs.mistral.ai/capabilities/audio_transcription
+# Errors: https://docs.mistral.ai/resources/error-glossary (relu le 2026-10-22).
+# 1.0.0: one method of the existing client (oto.tools.mistral, MistralClient.transcribe), the client unchanged.
+#
+# The key is the host application's (holder: host), the same for every organization: no organization sets a key of
+# its own. A refused key or a billing block marks the account, and the host says to ask whoever runs the application.
+#
+# The request is the client's: POST /audio/transcriptions in multipart, the audio as the part `file`, and the text
+# parts the client sends with diarize=True, as constants: model voxtral-mini-2602 (the client's
+# DEFAULT_TRANSCRIPTION_MODEL, a dated version), timestamp_granularities segment (without it, diarization is a 422)
+# and diarize true; language and context_bias when given.
+#
+# Limits: up to 3 hours of audio per request on Mistral's side; the answer within 300 s on the host's side (the
+# function's timeout_s, the client's read timeout), measured up to 2 h 35 of audio. The host runs the call in the
+# background (background: true): Mistral answers in minutes.
+#
+# Cost: Mistral bills the seconds of audio, which the answer gives at usage.prompt_audio_seconds (the client's
+# duration_s). The arguments do not tell the length of the audio: the worst case is one request of 3 hours, 10800
+# seconds (quantity), and the call is settled at the seconds the answer gives.
+#
+# Named gaps with the client (tests/test_mistral_description.py):
+# 1. vocabulary: the client normalizes context_bias (splits into words, drops those under 3 characters, removes
+#    duplicates, keeps 100 terms at most, returns what it dropped); the description takes the normalized form only,
+#    terms of 3 characters or more without spaces, joined by commas, 100 at most: the agent splits.
+# 2. answer: the client returns normalize_transcription(...) (text, language, model, duration_s, segments with
+#    speaker); the description returns Mistral's raw answer, whole, as a JSON file of the caller.
+#
+# Not described here (kept in the Python client):
+# - chat, complete, complete_json, chat_with_tools: model inference, a model and messages chosen per call, not a
+#   connector function;
+# - list_models: the models of the key, an authentication probe of the client; the key is the host's, no account
+#   has a key to probe.
+connector:
+  name: mistral
+  label: Mistral AI
+  namespace: mistral
+  version: 1.0.0
+  api_version: v1
+  base_url: https://api.mistral.ai/v1
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: Mistral API key, secret: true, holder: host }
+  modes: [platform]
+  errors:
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Mistral rejected the request as malformed: check the arguments." }
+    - { status: 401, code: key_refused, retryable: false, marks_account: credential_rejected,
+        message: "Mistral did not accept the API key of this application: missing, revoked or from another workspace." }
+    - { status: 402, code: billing_blocked, retryable: false, marks_account: quota_exhausted,
+        message: "A billing condition blocks the Mistral organization: credits at zero, spending limit reached or a failed payment." }
+    - { status: 403, code: not_allowed, retryable: false,
+        message: "Mistral refused the operation: the plan or the workspace does not give access to this model." }
+    - { status: 404, code: not_found, retryable: false,
+        message: "Mistral found no such model or endpoint." }
+    - { status: 422, code: invalid_request, retryable: false,
+        message: "Mistral could not validate the request: the audio format or an argument; detail names the field." }
+    - { status: 429, code: rate_limited, retryable: true,
+        message: "Mistral limit reached (requests, tokens or concurrent requests): retry in a moment." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
+        message: "Mistral is temporarily unavailable: retry later." }
+
+functions:
+  - name: transcribe
+    class: read
+    description: >-
+      Transcribe an audio file of yours with Mistral Voxtral, speakers
+      separated and timestamped per segment. file is the id of a transit file
+      of yours (a call recording from another function, an upload), sent as
+      is and consumed once Mistral accepts it. language (ISO 639-1, fr) is
+      optional: without it, Mistral detects the language. context_bias is the
+      vocabulary to favor (names, jargon): terms of 3 characters or more,
+      without spaces, joined by commas, 100 at most (Acme,Durand,Voxtral);
+      split a name of several words into its words yourself. Up to 3 hours of
+      audio per request; the answer comes within 300 seconds (measured up to
+      2 h 35 of audio). The answer is a JSON file of yours, Mistral's raw
+      answer: text, language, segments (start, end, text, speaker_id) and
+      usage.prompt_audio_seconds, the billed seconds of audio.
+    input:
+      type: object
+      additionalProperties: false
+      required: [file]
+      properties:
+        file: { type: string, format: uuid, description: "Id of a transit file of yours: the audio to transcribe." }
+        language:
+          type: string
+          minLength: 1
+          description: "Language of the audio, ISO 639-1 (fr, en); without it, Mistral detects it."
+        context_bias:
+          type: string
+          pattern: "^[^\\s,]{3,}(,[^\\s,]{3,}){0,99}$"
+          personal: true
+          description: "Terms to favor, 3 characters or more each, without spaces, joined by commas, 100 at most: Acme,Durand,Voxtral."
+    examples:
+      - title: One recording, language detected
+        input: { file: "0f8fad5b-d9cb-469f-a165-70867728950e" }
+      - title: A meeting in French, with its names and jargon
+        input: { file: "0f8fad5b-d9cb-469f-a165-70867728950e", language: fr, context_bias: "Acme,Durand,toiture,devis" }
+    call:
+      method: POST
+      path: /audio/transcriptions
+      body: { language: language, context_bias: context_bias }
+      files: { file: file }
+      constants:
+        body: { model: voxtral-mini-2602, timestamp_granularities: segment, diarize: true }
+    timeout_s: 300
+    background: true
+    output:
+      file:
+        from: json
+        name: { template: transcription.json }
+    cost: { per: request, quantity: 10800, unit: seconds, settle: { path: usage.prompt_audio_seconds } }

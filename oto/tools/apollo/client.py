@@ -52,6 +52,15 @@ _CREDITS_EXHAUSTED = re.compile(r"insufficient credits|ran out of \w+(?: \w+)? c
                                 re.I)
 
 
+def _query(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Query parameters with booleans written `true`/`false`: `requests` would
+    write `True`/`False` (Python capital), which Apollo does not read as a
+    boolean — a safeguard flag believed lifted, or held, would silently be
+    neither. Lists (`contact_ids[]`…) and other values pass unchanged."""
+    return {k: ("true" if v else "false") if isinstance(v, bool) else v
+            for k, v in params.items()}
+
+
 class ApolloClient:
     """
     Apollo.io API client for:
@@ -117,6 +126,8 @@ class ApolloClient:
         """
         url = f"{self.BASE_URL}/{endpoint}"
         headers = {"X-Api-Key": self.api_key, "Content-Type": "application/json"}
+        if kwargs.get("params"):
+            kwargs["params"] = _query(kwargs["params"])
 
         for essai in range(self._RETRY_MAX + 1):
             self._rate_limit()
@@ -485,16 +496,15 @@ class ApolloClient:
         # `requestBody`, its 14 parameters are all `in: query`, and its
         # own example puts them there. Identity, for its part, stays in the body — that is
         # what this client has always done and Apollo reads it fine from there
-        # (`domain` takes part in the match, verified on 2026-08-04). And the booleans
-        # are serialized BY HAND: `requests` would write `reveal_phone_number=True`
-        # (Python capital), where the API expects `true` — an API that silently
+        # (`domain` takes part in the match, verified on 2026-08-04). The booleans
+        # leave as `true`/`false` (`_query`, in `_send`): an API that silently
         # ignores what it does not recognize would return no error, just a
         # reveal that does not happen and a caller waiting for a POST for nothing.
         params = {}
         for nom, valeur in (("reveal_personal_emails", reveal_personal_emails),
                             ("reveal_phone_number", reveal_phone_number)):
             if valeur is not None:
-                params[nom] = "true" if valeur else "false"
+                params[nom] = valeur
         if webhook_url:
             params["webhook_url"] = webhook_url
 
@@ -638,13 +648,12 @@ class ApolloClient:
 
         # Same split as `match_person`: identity in the BODY (here
         # `details`, which Apollo's contract does declare as `requestBody` for this
-        # endpoint), CONTROL parameters in the query string, booleans
-        # serialized by hand — `requests` would write `True`, the API expects `true`.
+        # endpoint), CONTROL parameters in the query string.
         params = {}
         for nom, valeur in (("reveal_personal_emails", reveal_personal_emails),
                             ("reveal_phone_number", reveal_phone_number)):
             if valeur is not None:
-                params[nom] = "true" if valeur else "false"
+                params[nom] = valeur
         if webhook_url:
             params["webhook_url"] = webhook_url
 
@@ -860,7 +869,7 @@ class ApolloClient:
                 `contacts_without_ownership_permission`, `add_if_in_queue`,
                 `contact_verification_skipped`, `user_id`, `auto_unpause_at` —
                 all Apollo safeguards at `False`/absent by default; pass them
-                explicitly as `True` to lift them
+                explicitly as `True` to lift them (sent as `true`/`false`)
 
         ⚠️ Apollo doc: 403 "Master API key required" on this endpoint — to be
         confirmed with a real key, not verified from this environment.

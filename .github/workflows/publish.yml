@@ -1,7 +1,10 @@
-name: Publish (PyPI)
+name: Publish (PyPI, npm)
 
 # Publie oto-core sur PyPI à chaque version — décision du 2026-09-12 : « publier seul
 # à chaque version ». Mécanisme repris d'o-browser (.github/workflows/publish.yml).
+# Publie aussi, à la même version, le paquet npm `@otomata_tech/connectors` (`ts/`) —
+# décision du 2026-10-20 : un seul numéro de version pour le dépôt, `tests/test_npm_package_version.py`
+# le garde. Jobs `npm` et `publish-npm`, plus bas.
 #
 # Trusted publishing (OIDC) : AUCUN jeton stocké. PyPI fait confiance à ce dépôt et à
 # ce NOM DE FICHIER. Enregistrement unique côté PyPI :
@@ -19,6 +22,13 @@ name: Publish (PyPI)
 # Deux jobs : la construction exécute du code tiers (setuptools tiré de PyPI) et ne peut
 # PAS obtenir de jeton OIDC ; seul `publish` a `id-token: write`.
 # Une version déjà présente sur PyPI fait échouer l'upload (400) : voulu, jamais `skip-existing`.
+#
+# npm : même séparation. `npm` installe les dépendances de développement (code tiers),
+# vérifie, teste et empaquette, sans jeton ; `publish-npm` publie l'archive construite,
+# sans checkout ni installation, avec le seul `id-token: write` (provenance) et
+# `NPM_TOKEN`. Les deux publications sont indépendantes : un échec npm ne retient pas
+# PyPI, ni l'inverse ; rejouer un tag fait échouer celle qui est déjà partie (npm refuse
+# aussi de republier une version, 403), et « Re-run failed jobs » ne rejoue que l'autre.
 
 on:
   push:
@@ -148,3 +158,93 @@ jobs:
 
       - name: Publish ${{ needs.build.outputs.tag }} to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  npm:
+    name: Paquet npm — tag == version, tests, archive
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ts
+    steps:
+      # Checkout du TAG, comme `build` ; pas de cache npm dans un workflow qui publie.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.build.outputs.tag }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Vérifier tag == version (package.json, package-lock.json)
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          node - <<'JS'
+          const fs = require("fs")
+          const attendue = process.env.TAG.replace(/^v/, "")
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"))
+          const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"))
+          const lues = { "package.json": pkg.version, "package-lock.json": lock.version, 'package-lock.json packages[""]': lock.packages[""].version }
+          const fausses = Object.entries(lues).filter(([, v]) => v !== attendue)
+          for (const [f, v] of fausses) console.log(`::error::tag v${attendue} ≠ ${f} version=${v}`)
+          if (pkg.private) { console.log("::error::package.json porte private: true"); process.exit(1) }
+          if (fausses.length) process.exit(1)
+          console.log(`OK : tag, package.json et package-lock.json = ${attendue}`)
+          JS
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      # `npm pack` liste les fichiers publiés (la même liste que `npm pack --dry-run`) et
+      # écrit l'archive que `publish-npm` publiera telle quelle.
+      - name: Empaqueter (liste des fichiers publiés)
+        run: npm pack
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm
+          path: ts/*.tgz
+          if-no-files-found: error
+
+  publish-npm:
+    name: Publier sur npm (provenance)
+    needs: [build, test, npm]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # provenance npm — et rien d'autre
+    steps:
+      # Sans jeton, `npm publish` échouerait plus loin sur un 401 obscur, ou rien ne
+      # partirait : l'absence se dit ici, en erreur, jamais en étape sautée.
+      - name: Exiger le secret NPM_TOKEN
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::secret NPM_TOKEN absent du dépôt : @otomata_tech/connectors n'est PAS publié (docs/release.md)"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm
+          path: npm/
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      # L'archive est nommée d'après la version du tag : une autre ne serait pas trouvée.
+      # Une version déjà publiée fait échouer (403) : voulu, comme pour PyPI.
+      # `./` en tête : sans lui, npm lit `npm/<archive>.tgz` comme le dépôt GitHub `npm/<archive>`
+      # (`git ls-remote`, échec 128, v1.190.0) ; `tests/test_publish_npm.py` le garde.
+      - name: Publish ${{ needs.build.outputs.tag }} to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: npm publish "./npm/otomata_tech-connectors-${TAG#v}.tgz" --provenance --access public

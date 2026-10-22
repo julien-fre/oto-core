@@ -23,6 +23,15 @@ from ..common import raise_for_upstream
 _HTTP_TIMEOUT = (10, 60)  # (connect, read) — never wait indefinitely
 
 
+def _query(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Query parameters with booleans written `true`/`false`: `requests` would
+    write `True`/`False` (Python capital), which lemlist does not read as a
+    boolean — a filter believed set, or cleared, would silently be neither.
+    Other values pass unchanged."""
+    return {k: ("true" if v else "false") if isinstance(v, bool) else v
+            for k, v in params.items()}
+
+
 @dataclass
 class Campaign:
     """Campaign data.
@@ -148,6 +157,10 @@ class LemlistClient:
         headers = {"Authorization": self._get_auth_header()}
 
         kwargs.setdefault("timeout", _HTTP_TIMEOUT)
+        # A dict query has its booleans written `true`/`false` (`_query`); a
+        # query already encoded as a string (`_vars_query`) passes as is.
+        if isinstance(kwargs.get("params"), dict):
+            kwargs["params"] = _query(kwargs["params"])
         response = requests.request(method, url, headers=headers, **kwargs)
         if response.status_code not in tolerate:
             raise_for_upstream(response, service="lemlist")
@@ -170,8 +183,8 @@ class LemlistClient:
 
     @staticmethod
     def _flag_params(**flags: bool) -> Dict[str, str]:
-        """Lemlist reads boolean flags as query strings — `True` would serialize
-        as `"True"`, so only the enabled ones are sent, as `"true"`."""
+        """Opt-in flags: only the enabled ones are sent, as `"true"` — a
+        disabled flag is left out rather than sent as `false`."""
         return {k: "true" for k, v in flags.items() if v}
 
     # --- Campaigns ---
@@ -2124,6 +2137,8 @@ class LemlistClient:
         segment_type: str = "all",
         signal_processing_type: str = "manual",
         signal_opportunity_template: dict = None,
+        persona_id: str = None,
+        campaign_id: str = None,
         activate: bool = False,
     ) -> Dict[str, Any]:
         """Create a watch list.
@@ -2147,7 +2162,18 @@ class LemlistClient:
         (`INVALID_FILTER_VALUE`) — and numeric values travel as STRINGS
         (`{"filterId": "maxIdentificationsPerDay", "in": ["5"]}`). Read
         `get_watch_list_filters(type=…)` before building the payload.
+
+        `persona_id` (`pdp_…`) and `campaign_id` (`cam_…`) only go with
+        `signal_processing_type="push_to_campaign"`. The campaign is the one the
+        list feeds; the persona says WHO to push when the signal carries a
+        company and no contact, as `companyEmployeeVisitedMyWebsite` mostly
+        does (lemlist names the visitor only for some US traffic).
         """
+        if (persona_id is not None or campaign_id is not None) and \
+                signal_processing_type != "push_to_campaign":
+            raise ValueError(
+                "persona_id and campaign_id need "
+                "signal_processing_type='push_to_campaign'")
         if type not in self.WATCH_LIST_TYPES:
             raise ValueError(
                 f"type must be one of {self.WATCH_LIST_TYPES}, got {type!r}")
@@ -2167,6 +2193,8 @@ class LemlistClient:
         for key, value in (
             ("emoji", emoji),
             ("signalOpportunityTemplate", signal_opportunity_template),
+            ("personaId", persona_id),
+            ("campaignId", campaign_id),
         ):
             if value is not None:
                 body[key] = value
