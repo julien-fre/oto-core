@@ -2,11 +2,17 @@
 # Allo API reference: https://help.withallo.com/en/v2/api-reference/introduction
 # OpenAPI: https://help.withallo.com/openapi.json
 # Errors: https://help.withallo.com/en/v2/api-reference/guides/error-handling
+# 1.1.0: no address of a recording reaches the agent. The reads of a call (list_conversations, under last_item;
+# search_conversation_items, get_conversation_item, get_conversation_items) strip recording_url,
+# recording_download_url (signed, 48 hours) and its expiry; the audio comes as a file (get_call_recording), in place
+# of get_recording_link, which returned a signed link (60 minutes) that plays without an Allo login.
+# Lists are paged by number from 1 and answer pagination {page, size, total_count, total_pages, has_more}, without the
+# next page number that the format's pagination reads: no pagination is declared, the agent passes page itself.
 connector:
   name: allo
   label: Allo
   namespace: allo
-  version: 1.0.0
+  version: 1.1.0
   api_version: v2 (SMS on v1)
   base_url: https://api.withallo.com
   auth:
@@ -23,11 +29,11 @@ connector:
   probe: { function: get_me }
   errors:
     - { status: 400, code: invalid_request, retryable: false,
-        message: "Allo rejected the request as invalid: error.param names the faulty argument, error.suggestion what to do." }
+        message: "Allo rejected the request as invalid: check the ids (cll-*, msg-*, per-*, com-*, dea-*), the E.164 numbers and the dates." }
     - { status: 401, code: key_rejected, retryable: false, marks_account: credential_rejected,
         message: "Allo did not accept the API key: it is wrong, revoked or expired." }
     - { status: 403, code: scope_missing, retryable: false,
-        message: "The Allo API key lacks the scope this call needs: get_me lists the key's scopes." }
+        message: "Allo refused the call: the API key lacks the scope it needs (scopes are chosen when the key is created in Allo), or its user may not reach this object." }
     - { status: 404, code: not_found, retryable: false,
         message: "Allo object not found: check the id or the phone number (E.164)." }
     - { status: 409, code: conflict, retryable: false,
@@ -79,8 +85,10 @@ functions:
     class: read
     description: >-
       The conversations of one Allo line, one per contact number, most recent
-      activity first. last_activity_since (ISO 8601) reads only what changed.
-      extend=transcript adds the call transcripts (large).
+      activity first, each with its last call or text (last_item).
+      last_activity_since (ISO 8601) reads only what changed.
+      extend=transcript adds the call transcripts (large). The audio of a call
+      is never a link: get it as a file with get_call_recording.
     input:
       type: object
       additionalProperties: false
@@ -89,17 +97,34 @@ functions:
         allo_number: &allo_number { type: string, minLength: 1, description: "An Allo line, E.164." }
         last_activity_since: { type: string, format: date-time }
         unread: { type: boolean }
-        page: &page { type: integer, minimum: 1, description: "Page number, from 1." }
+        page: &page { type: integer, minimum: 1, description: "Page number, from 1; pagination.has_more in the answer is false on the last page." }
         size: &size { type: integer, minimum: 1, maximum: 100 }
         extend: &extend { type: string, enum: [transcript] }
     examples:
       - title: Unread conversations of a line
-        input: { allo_number: "+33187000000", unread: true }
+        input: { allo_number: "+33199000000", unread: true }
     call:
       method: GET
       path: /v2/api/conversations
       query: { allo_number: allo_number, last_activity_since: last_activity_since, unread: unread,
                page: page, size: size, extend: extend }
+    # The addresses of a call's recording never reach the agent: recording_url, recording_download_url (signed,
+    # 48 hours, no login) and its expiry, here on the last item of each conversation.
+    output:
+      strip: [data.last_item.recording_url, data.last_item.recording_download_url,
+              data.last_item.recording_download_expires_at]
+      sample:
+        data:
+          - contact_number: "+33199000001"
+            last_item: &sample_item
+              id: cll-0
+              type: CALL
+              duration: 42
+              recording_duration: 30
+              recording_url: "https://files.example.test/recordings/cll-0.mp3"
+              recording_download_url: "https://files.example.test/sign/recordings/cll-0.mp3?token=t-0"
+              recording_download_expires_at: "2026-01-01T00:00:00Z"
+        pagination: &sample_pagination { page: 1, size: 20, total_count: 1, total_pages: 1, has_more: false }
 
   - name: search_conversation_items
     class: read
@@ -108,7 +133,8 @@ functions:
       member, direction, type, result, tags, unread or unresponded, and date
       ({from, to}, both dates); search is a keyword over transcripts, summaries
       and message content. Each item: id (cll-* call, msg-* text), date,
-      duration, result, member, contact, summary, tags, recording url.
+      duration, result, member, contact, summary, tags. The audio of a call is
+      never a link: get it as a file with get_call_recording.
     input:
       type: object
       additionalProperties: false
@@ -144,13 +170,17 @@ functions:
               direction: direction, type: type, result: result, tags: tags, unread: unread,
               unresponded: unresponded, search: search, date: date, sort: sort, extend: extend,
               page: page, size: size }
+    output:
+      strip: &item_addresses [data.recording_url, data.recording_download_url, data.recording_download_expires_at]
+      sample: { data: [*sample_item], pagination: *sample_pagination }
 
   - name: get_conversation_item
     class: read
     description: >-
       One call (cll-*) or text (msg-*): date, duration, result, member,
-      contact, AI summary, tags, extracted data, recording url, content of a
-      text. extend=transcript adds the transcript.
+      contact, AI summary, tags, extracted data, content of a text.
+      extend=transcript adds the transcript. The audio of a call is never a
+      link: get it as a file with get_call_recording.
     input:
       type: object
       additionalProperties: false
@@ -162,10 +192,13 @@ functions:
       - title: A call with its transcript
         input: { item_id: cll-abc123, extend: transcript }
     call: { method: GET, path: "/v2/api/conversations/items/{item_id}", query: { extend: extend } }
+    output: { strip: *item_addresses, sample: { data: *sample_item } }
 
   - name: get_conversation_items
     class: read
-    description: Several calls or texts by id in one request, full details.
+    description: >-
+      Several calls or texts by id in one request, full details. The audio of
+      a call is never a link: get it as a file with get_call_recording.
     input:
       type: object
       additionalProperties: false
@@ -176,22 +209,46 @@ functions:
       - title: Two calls
         input: { ids: [cll-abc123, cll-def456] }
     call: { method: POST, path: /v2/api/conversations/items/batch, body: { ids: ids } }
+    output: { strip: *item_addresses, sample: { data: [*sample_item] } }
 
-  - name: get_recording_link
+  - name: get_call_recording
     class: read
     description: >-
-      A fresh signed link to a call's recording, valid 60 minutes. It plays
-      without an Allo login: share it with nobody who may not hear the call.
+      Get the audio recording of one Allo call (cll-*) as a file of yours,
+      kept 24 hours: the answer gives its file id, to pass as is to a function
+      that takes a file (a transcription). Never a link. A text (msg-*) or an
+      unrecorded call has none; only a user who may play the call in Allo gets
+      it, and never on a HIPAA-enabled team.
     input:
       type: object
       additionalProperties: false
       required: [item_id]
       properties:
-        item_id: *item_id
+        item_id: { type: string, minLength: 1, description: "cll-* id of a call." }
     examples:
       - title: The recording of a call
         input: { item_id: cll-abc123 }
+    # The codes Allo puts in error.code (OpenAPI, getConversationItemRecording).
+    refusals:
+      - { code: recording_not_found, when: 404, body: { path: error.code, equals: [RECORDING_NOT_FOUND] },
+          message: "This call has no recording: it was not recorded, or the id is a text (msg-*)." }
+      - { code: call_not_found, when: 404, message: "No Allo call with this id." }
+      - { code: recording_access_denied, when: 403, body: { path: error.code, equals: [RECORDING_ACCESS_DENIED] },
+          message: "The user of this API key may not play this call's recording in Allo." }
+      - { code: recording_download_restricted, when: 403, body: { path: error.code, equals: [RECORDING_DOWNLOAD_RESTRICTED] },
+          message: "The line belongs to a HIPAA-enabled team: Allo never lets its recordings out." }
     call: { method: GET, path: "/v2/api/conversations/items/{item_id}/recording" }
+    # data.url is a fresh link signed by its own query, valid 60 minutes and played with no Allo login: downloaded at
+    # once, without the account's authentication, never followed through a redirect.
+    output:
+      file:
+        from: url
+        path: data.url
+        auth: none
+        types: { mp3: [audio/mpeg, audio/mp3] }
+        name: { template: "call-{item_id}-recording.mp3" }
+        max_bytes: 52428800
+    timeout_s: 120
 
   - name: update_call_summary
     class: write
@@ -227,7 +284,7 @@ functions:
         allo_number: *allo_number
     examples:
       - title: Archive a conversation
-        input: { contact_number: "+33612345678", action: ARCHIVE }
+        input: { contact_number: "+33199000001", action: ARCHIVE }
     call:
       method: PUT
       path: "/v2/api/conversations/{contact_number}/action"
@@ -301,7 +358,7 @@ functions:
         size: *size
     examples:
       - title: Notes on a conversation
-        input: { contact_number: "+33612345678", allo_number: "+33187000000" }
+        input: { contact_number: "+33199000001", allo_number: "+33199000000" }
     call:
       method: GET
       path: "/v2/api/conversations/{contact_number}/notes"
@@ -321,7 +378,7 @@ functions:
         sender_id: { type: string, minLength: 1, description: "The member the note is written as." }
     examples:
       - title: A note after a call
-        input: { contact_number: "+33612345678", content: "Wants a demo next week." }
+        input: { contact_number: "+33199000001", content: "Wants a demo next week." }
     call:
       method: POST
       path: "/v2/api/conversations/{contact_number}/notes"
@@ -427,7 +484,7 @@ functions:
         custom_attributes: &custom { type: object }
     examples:
       - title: A new prospect
-        input: { numbers: ["+33612345678"], name: Marie, last_name: Durand, job_title: CEO }
+        input: { numbers: ["+33199000001"], name: Marie, last_name: Durand, job_title: CEO }
     call:
       method: POST
       path: /v2/api/crm/people
@@ -704,7 +761,7 @@ functions:
         email: *queue_email
     examples:
       - title: Two prospects to call
-        input: { numbers: [{ number: "+33612345678", name: Marie, company: Acme }, { number: "+33698765432" }] }
+        input: { numbers: [{ number: "+33199000001", name: Marie, company: Acme }, { number: "+33199000002" }] }
     call:
       method: POST
       path: /v2/api/dialing-queues/current/numbers
@@ -790,26 +847,36 @@ functions:
   - name: send_sms
     class: sensitive
     description: >-
-      Send a text message now, billed per segment: from one of the team's
-      numbers (from_number, recipient in the same country), or from a Sender
-      ID verified by Allo (sender_id, France). Give exactly one of the two.
+      Send a text message now: from one of the team's numbers (from_number,
+      recipient in the same country), or from a Sender ID verified by Allo
+      (sender_id, France). Give exactly one of the two. Billed per segment:
+      160 characters (153 once split), or 70 (67) as soon as one character is
+      outside the standard SMS alphabet (ç, ê, â, a curly quote, an emoji).
     input:
       type: object
       additionalProperties: false
       required: [to, message]
       properties:
         to: { type: string, minLength: 1, personal: true, description: "Recipient, E.164." }
-        message: { type: string, minLength: 1 }
+        message: { type: string, minLength: 1, maxLength: 1000 }
         from_number: { type: string, minLength: 1, description: "One of the team's numbers, E.164." }
         sender_id: { type: string, minLength: 1, description: "A Sender ID verified by Allo." }
+      oneOf:
+        - { required: [from_number] }
+        - { required: [sender_id] }
     examples:
       - title: A text from a US line
-        input: { from_number: "+14155550100", to: "+14155551234", message: "Thanks for your time today!" }
+        input: { from_number: "+14155550100", to: "+14155550123", message: "Thanks for your time today!" }
       - title: A text from a French Sender ID
-        input: { sender_id: MyCompany, to: "+33612345678", message: "Merci pour votre temps aujourd'hui." }
+        input: { sender_id: MyCompany, to: "+33199000001", message: "Merci pour votre temps aujourd'hui." }
     call:
       method: POST
       path: /v1/api/sms
       body: { from: from_number, sender_id: sender_id, to: to, message: message }
+    # Allo bills a text per segment (help.withallo.com/en/billing/sms-rates, read 2026-10-22): up to 15 for the 1000
+    # characters the API takes. The answer does not say how many segments were sent, so nothing settles the real
+    # quantity: a quantity of 15 would settle every text at its worst case. One request is what this file can state;
+    # a quantity computed from an argument (the segments of a text) is a question of the format.
+    cost: { per: request }
     confirm:
       summary: "Send a text to {to} now: it cannot be recalled."

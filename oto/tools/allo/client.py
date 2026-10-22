@@ -1,6 +1,6 @@
 """Allo API client (https://help.withallo.com/en/v2/api-reference/introduction) —
 the calls and texts of an Allo team (business phone system with AI summaries),
-its lines and members, tags and internal notes, its contacts CRM (people,
+the audio of a call as a file, its lines and members, tags and internal notes, its contacts CRM (people,
 companies, deals), the Power Dialer queue, team analytics and SMS sending.
 
 Auth: an API key created under Settings → API by an Admin or a Manager, sent as
@@ -14,20 +14,28 @@ as parsed JSON, unchanged (`{"data": …}`, lists with `pagination`).
 
 - **Pages are 1-indexed** (`page`, `size`); a list answers `pagination` with
   `total_count`, `total_pages` and `has_more`.
-- **Phone numbers are E.164** (`+33612345678`). A conversation is keyed by the
+- **Phone numbers are E.164** (`+33199000001`). A conversation is keyed by the
   contact's number on one Allo line (`allo_number`); in a path the number is
   percent-encoded (`+` as `%2B`).
 - **Item ids**: `cll-*` for a call, `msg-*` for a text. Only a call has a
   summary, tags and a recording.
-- **A recording link is signed and short-lived** (`get_recording_link`, 60
-  minutes) and plays without an Allo login.
+- **The audio of a call is never a link** (description 1.1.0): Allo gives
+  `recording_url`, `recording_download_url` (signed, 48 hours, plays without an
+  Allo login) and its expiry on every call it returns, and a fresh signed link
+  (60 minutes) at `/items/{id}/recording`. Every read of a call removes them
+  (`RECORDING_ADDRESS_FIELDS`); `get_call_recording` downloads the audio at once
+  and returns it as a `FileOut` (name, bytes, type), through
+  `oto.connectors.files.file_output` and the declaration of the description:
+  the signed link is fetched without the API key, no redirect followed, 50 MB
+  and 120 s at most.
 - **SMS**: from one of the team's numbers (`from_number`, recipient in the same
   country) or, for France, from a Sender ID verified by Allo (`sender_id`).
   A text is sent at once and billed per segment.
 - **Dialing queue**: one current queue per user; the queue calls act on the
   key owner's queue unless `user_id` or `email` names a teammate.
-- **Rate limits** per key: 20 reads and 5 writes per second; a 429 carries
-  `retry_after_seconds`. Writes are not retried.
+- **Rate limits** per key: 20 reads and 5 writes per second. The client retries
+  nothing, read or write: a 429 raises `UpstreamHTTPError` like any refusal, and
+  the caller waits the `error.retry_after_seconds` of its body.
 - **Errors** carry `error.code`, `error.message` and often `error.suggestion`.
 """
 from __future__ import annotations
@@ -37,6 +45,7 @@ from urllib.parse import quote
 
 import requests
 
+from ...connectors.files import FileOut, file_output
 from ..common import raise_for_upstream
 from ..common.credentials import require
 
@@ -46,6 +55,9 @@ BASE_URL = "https://api.withallo.com"
 SORTS = ("DATE_DESC", "DATE_ASC", "NAME_ASC", "NAME_DESC", "CREATED_DESC", "CREATED_ASC")
 CONVERSATION_ACTIONS = ("READ", "UNREAD", "ARCHIVE", "UNARCHIVE")
 MAX_SIZE = 100
+# The addresses of a call's recording: `recording_url`, `recording_download_url` (signed, 48 hours, no login) and its
+# expiry. They never leave the client; the audio comes as a file (`get_call_recording`).
+RECORDING_ADDRESS_FIELDS = ("recording_url", "recording_download_url", "recording_download_expires_at")
 
 
 def _segment(value: Any, name: str) -> str:
@@ -76,6 +88,23 @@ def _clean(values: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in values.items() if v is not None}
 
 
+def _without_addresses(item: Any) -> None:
+    """Remove the recording addresses (`RECORDING_ADDRESS_FIELDS`) of one item; anything but an object is left as is."""
+    if isinstance(item, dict):
+        for field in RECORDING_ADDRESS_FIELDS:
+            item.pop(field, None)
+
+
+def _items_without_addresses(answer: Any, *, under: Optional[str] = None) -> Any:
+    """The answer whose items (`data`, one object or a list), or the `under` key of each, lost their recording
+    addresses; the rest of the answer (`pagination`) is kept."""
+    if isinstance(answer, dict):
+        data = answer.get("data")
+        for entry in data if isinstance(data, list) else [data]:
+            _without_addresses(entry.get(under) if under and isinstance(entry, dict) else entry)
+    return answer
+
+
 class AlloClient:
     """One method per endpoint of the Allo API served here."""
 
@@ -87,15 +116,21 @@ class AlloClient:
             "Accept": "application/json",
         })
 
-    def _request(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None,
-                 body: Optional[Dict[str, Any]] = None) -> Any:
+    def _send(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None,
+              body: Optional[Dict[str, Any]] = None, stream: bool = False) -> requests.Response:
+        """One request, never retried; a refusal of the API raises `UpstreamHTTPError`."""
         # A boolean in the query is written `true`/`false`, never Python's `True`.
         clean = {k: (str(v).lower() if isinstance(v, bool) else v)
                  for k, v in _clean(params or {}).items()}
         resp = self.session.request(method, f"{BASE_URL}{path}", params=clean or None,
                                     json=_clean(body) if body is not None else None,
-                                    timeout=_HTTP_TIMEOUT)
+                                    timeout=_HTTP_TIMEOUT, stream=stream)
         raise_for_upstream(resp, service="allo")
+        return resp
+
+    def _request(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None,
+                 body: Optional[Dict[str, Any]] = None) -> Any:
+        resp = self._send(method, path, params=params, body=body)
         return resp.json() if resp.content else {}
 
     # --- account -----------------------------------------------------------
@@ -123,10 +158,11 @@ class AlloClient:
     def list_conversations(self, allo_number: str, *, last_activity_since: Optional[str] = None,
                            unread: Optional[bool] = None, page: Optional[int] = None,
                            size: Optional[int] = None, extend: Optional[str] = None) -> Any:
-        """The conversations of one line, by contact, most recent activity first."""
-        return self._request("GET", "/v2/api/conversations", params={
+        """The conversations of one line, by contact, most recent activity first; the
+        last item of each without its recording addresses."""
+        return _items_without_addresses(self._request("GET", "/v2/api/conversations", params={
             "allo_number": allo_number, "last_activity_since": last_activity_since,
-            "unread": unread, "page": page, "size": _size(size), "extend": extend})
+            "unread": unread, "page": page, "size": _size(size), "extend": extend}), under="last_item")
 
     def search_conversation_items(self, *, allo_number: Optional[str] = None,
                                   contact_number: Optional[str] = None,
@@ -137,32 +173,40 @@ class AlloClient:
                                   date: Optional[Dict[str, str]] = None, sort: Optional[str] = None,
                                   extend: Optional[str] = None, page: Optional[int] = None,
                                   size: Optional[int] = None) -> Any:
-        """Calls and texts across every conversation, filtered; `search` is a
-        keyword over transcripts, summaries and message content."""
-        return self._request("POST", "/v2/api/conversations/items/search", body={
+        """Calls and texts across every conversation, filtered, without their
+        recording addresses; `search` is a keyword over transcripts, summaries and
+        message content."""
+        return _items_without_addresses(self._request("POST", "/v2/api/conversations/items/search", body={
             "allo_number": allo_number, "contact_number": contact_number, "user_id": user_id,
             "direction": _choice("direction", direction, ("INBOUND", "OUTBOUND")),
             "type": _choice("type", type, ("CALL", "SMS", "ALL")),
             "result": _choice("result", result, ("ANSWERED", "VOICEMAIL", "TRANSFERRED")),
             "tags": tags, "unread": unread, "unresponded": unresponded, "search": search,
             "date": date, "sort": _choice("sort", sort, ("DATE_DESC", "DATE_ASC", "RELEVANCE")),
-            "extend": extend, "page": page, "size": _size(size)})
+            "extend": extend, "page": page, "size": _size(size)}))
 
     def get_conversation_item(self, item_id: str, *, extend: Optional[str] = None) -> Any:
-        """One call (`cll-*`) or text (`msg-*`)."""
-        return self._request("GET", f"/v2/api/conversations/items/{_segment(item_id, 'item_id')}",
-                             params={"extend": extend})
+        """One call (`cll-*`) or text (`msg-*`), without its recording addresses."""
+        return _items_without_addresses(self._request(
+            "GET", f"/v2/api/conversations/items/{_segment(item_id, 'item_id')}", params={"extend": extend}))
 
     def get_conversation_items(self, ids: List[str]) -> Any:
-        """Several items by id in one request."""
+        """Several items by id in one request, without their recording addresses."""
         if not ids:
             raise ValueError("`ids` must list at least one item id.")
-        return self._request("POST", "/v2/api/conversations/items/batch", body={"ids": list(ids)})
+        return _items_without_addresses(
+            self._request("POST", "/v2/api/conversations/items/batch", body={"ids": list(ids)}))
 
-    def get_recording_link(self, item_id: str) -> Any:
-        """A fresh signed link to a call's recording, valid 60 minutes."""
-        return self._request(
-            "GET", f"/v2/api/conversations/items/{_segment(item_id, 'item_id')}/recording")
+    def get_call_recording(self, item_id: str) -> FileOut:
+        """The recording of one call (`cll-*`), as a file (`call-<id>-recording.mp3`).
+
+        Raises `UpstreamHTTPError` when the API refuses the call (404: unknown call, or no recording; 403: the key's
+        user may not play it, or a HIPAA-enabled team), `FileOutputError` when the file is refused, `requests.Timeout`
+        beyond the 120 s of the function."""
+        segment = _segment(item_id, "item_id")
+        answer = self._send("GET", f"/v2/api/conversations/items/{segment}/recording", stream=True)
+        return file_output("allo", "get_call_recording", answer=answer, args={"item_id": str(item_id).strip()},
+                           session=self.session, base_url=BASE_URL)
 
     def update_call_summary(self, item_id: str, content: str, *,
                             template_key: Optional[str] = None) -> Any:

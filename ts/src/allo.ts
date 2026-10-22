@@ -76,7 +76,7 @@ export const listConversations = defineFunction({
   connector: "allo",
   class: "read",
   act: false,
-  description: "The conversations of one Allo line, one per contact number, most recent activity first. last_activity_since (ISO 8601) reads only what changed. extend=transcript adds the call transcripts (large).",
+  description: "The conversations of one Allo line, one per contact number, most recent activity first, each with its last call or text (last_item). last_activity_since (ISO 8601) reads only what changed. extend=transcript adds the call transcripts (large). The audio of a call is never a link: get it as a file with get_call_recording.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -85,13 +85,17 @@ export const listConversations = defineFunction({
       "allo_number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164."},
       "last_activity_since": {"type": "string", "format": "date-time"},
       "unread": {"type": "boolean"},
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100},
       "extend": {"type": "string", "enum": ["transcript"]}
     }
   },
   examples: [
-    { title: "Unread conversations of a line", input: {"allo_number": "+33187000000", "unread": true} },
+    { title: "Unread conversations of a line", input: {"allo_number": "+33199000000", "unread": true} },
   ],
   refusals: [],
   request: {
@@ -102,6 +106,7 @@ export const listConversations = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["data.last_item.recording_url", "data.last_item.recording_download_url", "data.last_item.recording_download_expires_at"] },
 })
 
 export const searchConversationItems = defineFunction({
@@ -109,7 +114,7 @@ export const searchConversationItems = defineFunction({
   connector: "allo",
   class: "read",
   act: false,
-  description: "Calls and texts across every conversation, filtered by line, contact, member, direction, type, result, tags, unread or unresponded, and date ({from, to}, both dates); search is a keyword over transcripts, summaries and message content. Each item: id (cll-* call, msg-* text), date, duration, result, member, contact, summary, tags, recording url.",
+  description: "Calls and texts across every conversation, filtered by line, contact, member, direction, type, result, tags, unread or unresponded, and date ({from, to}, both dates); search is a keyword over transcripts, summaries and message content. Each item: id (cll-* call, msg-* text), date, duration, result, member, contact, summary, tags. The audio of a call is never a link: get it as a file with get_call_recording.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -132,7 +137,11 @@ export const searchConversationItems = defineFunction({
       },
       "sort": {"type": "string", "enum": ["DATE_DESC", "DATE_ASC", "RELEVANCE"]},
       "extend": {"type": "string", "enum": ["transcript"]},
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -148,6 +157,7 @@ export const searchConversationItems = defineFunction({
     body: {"allo_number": "allo_number", "contact_number": "contact_number", "user_id": "user_id", "direction": "direction", "type": "type", "result": "result", "tags": "tags", "unread": "unread", "unresponded": "unresponded", "search": "search", "date": "date", "sort": "sort", "extend": "extend", "page": "page", "size": "size"},
     headers: {},
   },
+  output: { strip: ["data.recording_url", "data.recording_download_url", "data.recording_download_expires_at"] },
 })
 
 export const getConversationItem = defineFunction({
@@ -155,7 +165,7 @@ export const getConversationItem = defineFunction({
   connector: "allo",
   class: "read",
   act: false,
-  description: "One call (cll-*) or text (msg-*): date, duration, result, member, contact, AI summary, tags, extracted data, recording url, content of a text. extend=transcript adds the transcript.",
+  description: "One call (cll-*) or text (msg-*): date, duration, result, member, contact, AI summary, tags, extracted data, content of a text. extend=transcript adds the transcript. The audio of a call is never a link: get it as a file with get_call_recording.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -177,6 +187,7 @@ export const getConversationItem = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["data.recording_url", "data.recording_download_url", "data.recording_download_expires_at"] },
 })
 
 export const getConversationItems = defineFunction({
@@ -184,7 +195,7 @@ export const getConversationItems = defineFunction({
   connector: "allo",
   class: "read",
   act: false,
-  description: "Several calls or texts by id in one request, full details.",
+  description: "Several calls or texts by id in one request, full details. The audio of a call is never a link: get it as a file with get_call_recording.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -203,24 +214,30 @@ export const getConversationItems = defineFunction({
     body: {"ids": "ids"},
     headers: {},
   },
+  output: { strip: ["data.recording_url", "data.recording_download_url", "data.recording_download_expires_at"] },
 })
 
-export const getRecordingLink = defineFunction({
-  name: "allo.get_recording_link",
+export const getCallRecording = defineFunction({
+  name: "allo.get_call_recording",
   connector: "allo",
   class: "read",
   act: false,
-  description: "A fresh signed link to a call's recording, valid 60 minutes. It plays without an Allo login: share it with nobody who may not hear the call.",
+  description: "Get the audio recording of one Allo call (cll-*) as a file of yours, kept 24 hours: the answer gives its file id, to pass as is to a function that takes a file (a transcription). Never a link. A text (msg-*) or an unrecorded call has none; only a user who may play the call in Allo gets it, and never on a HIPAA-enabled team.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "required": ["item_id"],
-    "properties": {"item_id": {"type": "string", "minLength": 1, "description": "cll-* for a call, msg-* for a text."}}
+    "properties": {"item_id": {"type": "string", "minLength": 1, "description": "cll-* id of a call."}}
   },
   examples: [
     { title: "The recording of a call", input: {"item_id": "cll-abc123"} },
   ],
-  refusals: [],
+  refusals: [
+    { code: "recording_not_found", when: 404, message: "This call has no recording: it was not recorded, or the id is a text (msg-*).", body: {"path": "error.code", "equals": ["RECORDING_NOT_FOUND"]} },
+    { code: "call_not_found", when: 404, message: "No Allo call with this id." },
+    { code: "recording_access_denied", when: 403, message: "The user of this API key may not play this call's recording in Allo.", body: {"path": "error.code", "equals": ["RECORDING_ACCESS_DENIED"]} },
+    { code: "recording_download_restricted", when: 403, message: "The line belongs to a HIPAA-enabled team: Allo never lets its recordings out.", body: {"path": "error.code", "equals": ["RECORDING_DOWNLOAD_RESTRICTED"]} },
+  ],
   request: {
     method: "GET",
     path: "/v2/api/conversations/items/{item_id}/recording",
@@ -229,6 +246,8 @@ export const getRecordingLink = defineFunction({
     body: {},
     headers: {},
   },
+  timeoutMs: 120000,
+  output: { file: { from: "url", path: "data.url", auth: "none", types: {"mp3": ["audio/mpeg", "audio/mp3"]}, name: { template: "call-{item_id}-recording.mp3" }, maxBytes: 52428800 } },
 })
 
 export const updateCallSummary = defineFunction({
@@ -278,7 +297,7 @@ export const updateConversation = defineFunction({
     }
   },
   examples: [
-    { title: "Archive a conversation", input: {"contact_number": "+33612345678", "action": "ARCHIVE"} },
+    { title: "Archive a conversation", input: {"contact_number": "+33199000001", "action": "ARCHIVE"} },
   ],
   refusals: [],
   request: {
@@ -409,12 +428,16 @@ export const listConversationNotes = defineFunction({
     "properties": {
       "contact_number": {"type": "string", "minLength": 1, "personal": true, "description": "The contact's number, E.164."},
       "allo_number": {"type": "string", "minLength": 1, "description": "An Allo line, E.164."},
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
   examples: [
-    { title: "Notes on a conversation", input: {"contact_number": "+33612345678", "allo_number": "+33187000000"} },
+    { title: "Notes on a conversation", input: {"contact_number": "+33199000001", "allo_number": "+33199000000"} },
   ],
   refusals: [],
   request: {
@@ -445,7 +468,7 @@ export const createConversationNote = defineFunction({
     }
   },
   examples: [
-    { title: "A note after a call", input: {"contact_number": "+33612345678", "content": "Wants a demo next week."} },
+    { title: "A note after a call", input: {"contact_number": "+33199000001", "content": "Wants a demo next week."} },
   ],
   refusals: [],
   request: {
@@ -470,7 +493,11 @@ export const listPersonNotes = defineFunction({
     "required": ["person_id"],
     "properties": {
       "person_id": {"type": "string", "minLength": 1, "description": "per-* id."},
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -546,7 +573,11 @@ export const searchPeople = defineFunction({
         "type": "string",
         "enum": ["DATE_DESC", "DATE_ASC", "NAME_ASC", "NAME_DESC", "CREATED_DESC", "CREATED_ASC"]
       },
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -614,7 +645,7 @@ export const createPerson = defineFunction({
     }
   },
   examples: [
-    { title: "A new prospect", input: {"numbers": ["+33612345678"], "name": "Marie", "last_name": "Durand", "job_title": "CEO"} },
+    { title: "A new prospect", input: {"numbers": ["+33199000001"], "name": "Marie", "last_name": "Durand", "job_title": "CEO"} },
   ],
   refusals: [],
   request: {
@@ -683,7 +714,11 @@ export const searchCompanies = defineFunction({
         "type": "string",
         "enum": ["DATE_DESC", "DATE_ASC", "NAME_ASC", "NAME_DESC", "CREATED_DESC", "CREATED_ASC"]
       },
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -806,7 +841,11 @@ export const searchDeals = defineFunction({
         "type": "string",
         "enum": ["DATE_DESC", "DATE_ASC", "NAME_ASC", "NAME_DESC", "CREATED_DESC", "CREATED_ASC"]
       },
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -860,7 +899,11 @@ export const listPersonAttributes = defineFunction({
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -888,7 +931,11 @@ export const listCompanyAttributes = defineFunction({
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -923,7 +970,11 @@ export const getDialingQueue = defineFunction({
         "personal": true,
         "description": "A teammate's email, when no user_id."
       },
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -1051,7 +1102,7 @@ export const addQueueNumbers = defineFunction({
     }
   },
   examples: [
-    { title: "Two prospects to call", input: {"numbers": [{"number": "+33612345678", "name": "Marie", "company": "Acme"}, {"number": "+33698765432"}]} },
+    { title: "Two prospects to call", input: {"numbers": [{"number": "+33199000001", "name": "Marie", "company": "Acme"}, {"number": "+33199000002"}]} },
   ],
   refusals: [],
   request: {
@@ -1170,7 +1221,11 @@ export const getOutboundMetrics = defineFunction({
       "granularity": {"type": "string", "enum": ["DAY", "WEEK", "MONTH"]},
       "extend": {"type": "string", "enum": ["items"]},
       "stage": {"type": "string", "enum": ["DIAL", "CONNECTED", "CONVERSATION", "CONVERSION"]},
-      "page": {"type": "integer", "minimum": 1, "description": "Page number, from 1."},
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page number, from 1; pagination.has_more in the answer is false on the last page."
+      },
       "size": {"type": "integer", "minimum": 1, "maximum": 100}
     }
   },
@@ -1193,21 +1248,22 @@ export const sendSms = defineFunction({
   connector: "allo",
   class: "sensitive",
   act: true,
-  description: "Send a text message now, billed per segment: from one of the team's numbers (from_number, recipient in the same country), or from a Sender ID verified by Allo (sender_id, France). Give exactly one of the two.",
+  description: "Send a text message now: from one of the team's numbers (from_number, recipient in the same country), or from a Sender ID verified by Allo (sender_id, France). Give exactly one of the two. Billed per segment: 160 characters (153 once split), or 70 (67) as soon as one character is outside the standard SMS alphabet (ç, ê, â, a curly quote, an emoji).",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "required": ["to", "message"],
     "properties": {
       "to": {"type": "string", "minLength": 1, "personal": true, "description": "Recipient, E.164."},
-      "message": {"type": "string", "minLength": 1},
+      "message": {"type": "string", "minLength": 1, "maxLength": 1000},
       "from_number": {"type": "string", "minLength": 1, "description": "One of the team's numbers, E.164."},
       "sender_id": {"type": "string", "minLength": 1, "description": "A Sender ID verified by Allo."}
-    }
+    },
+    "oneOf": [{"required": ["from_number"]}, {"required": ["sender_id"]}]
   },
   examples: [
-    { title: "A text from a US line", input: {"from_number": "+14155550100", "to": "+14155551234", "message": "Thanks for your time today!"} },
-    { title: "A text from a French Sender ID", input: {"sender_id": "MyCompany", "to": "+33612345678", "message": "Merci pour votre temps aujourd'hui."} },
+    { title: "A text from a US line", input: {"from_number": "+14155550100", "to": "+14155550123", "message": "Thanks for your time today!"} },
+    { title: "A text from a French Sender ID", input: {"sender_id": "MyCompany", "to": "+33199000001", "message": "Merci pour votre temps aujourd'hui."} },
   ],
   refusals: [],
   request: {
@@ -1218,6 +1274,7 @@ export const sendSms = defineFunction({
     body: {"from": "from_number", "sender_id": "sender_id", "to": "to", "message": "message"},
     headers: {},
   },
+  cost: { per: "request" },
   confirm: { summary: "Send a text to {to} now: it cannot be recalled." },
 })
 
@@ -1225,7 +1282,7 @@ export const connector = defineConnector({
   name: "allo",
   label: "Allo",
   namespace: "allo",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "v2 (SMS on v1)",
   baseUrl: "https://api.withallo.com",
   auth: {"kind": "api_key", "in": "header", "name": "Authorization", "prefix": "Api-Key ", "key": "api_key"},
@@ -1234,9 +1291,9 @@ export const connector = defineConnector({
   timeoutMs: 60000,
   rateLimit: { requests: 5, intervalMs: 1000 },
   errors: [
-    { status: 400, code: "invalid_request", message: "Allo rejected the request as invalid: error.param names the faulty argument, error.suggestion what to do.", retryable: false },
+    { status: 400, code: "invalid_request", message: "Allo rejected the request as invalid: check the ids (cll-*, msg-*, per-*, com-*, dea-*), the E.164 numbers and the dates.", retryable: false },
     { status: 401, code: "key_rejected", message: "Allo did not accept the API key: it is wrong, revoked or expired.", retryable: false, marksAccount: "credential_rejected" },
-    { status: 403, code: "scope_missing", message: "The Allo API key lacks the scope this call needs: get_me lists the key's scopes.", retryable: false },
+    { status: 403, code: "scope_missing", message: "Allo refused the call: the API key lacks the scope it needs (scopes are chosen when the key is created in Allo), or its user may not reach this object.", retryable: false },
     { status: 404, code: "not_found", message: "Allo object not found: check the id or the phone number (E.164).", retryable: false },
     { status: 409, code: "conflict", message: "Allo refused a duplicate or a state conflict.", retryable: false },
     { status: 429, code: "rate_limited", message: "Allo rate limit reached (20 reads, 5 writes per second): retry after error.retry_after_seconds.", retryable: true },
@@ -1251,7 +1308,7 @@ export const connector = defineConnector({
     searchConversationItems,
     getConversationItem,
     getConversationItems,
-    getRecordingLink,
+    getCallRecording,
     updateCallSummary,
     updateConversation,
     listTags,
