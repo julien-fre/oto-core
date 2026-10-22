@@ -1,7 +1,7 @@
 // Les cas communs du corps entier (`src/body-cases.ts`, sortis par la fabrique de `connectors/_cases/body.yaml`) : des
 // données que le paquet de l'hôte joue contre son moteur et `registerConnectors`. Ici, leur forme : chaque fonction des
-// cas forme son corps d'un argument, un objet strict et requis (fermé, ou à clés libres en texte toutes donnée
-// personnelle) ; chaque cas valide l'entrée et attend pour corps l'objet donné ; chaque entrée rejetée est refusée par le
+// cas forme son corps d'un argument, un objet strict et requis (fermé, ou à clés libres toutes donnée personnelle, en
+// texte ou à valeur simple) ; chaque cas valide l'entrée et attend pour corps l'objet donné ; chaque entrée rejetée est refusée par le
 // schéma ; chaque fonction refusée nomme l'un des huit refus.
 import { Ajv2020 } from "ajv/dist/2020.js"
 import { describe, expect, it } from "vitest"
@@ -41,8 +41,11 @@ describe("body cases", () => {
     if (typeof argument !== "string") throw new Error(`${fn.name}: the body of a case function is one argument`)
     const property = (fn.schema.properties as Record<string, Record<string, unknown>>)[argument]
     expect(property?.type).toBe("object")
-    // Fermé, ou des clés libres en texte, toutes donnée personnelle : exactement cette forme (décidé le 2026-10-22).
-    expect([false, { type: "string", personal: true }]).toContainEqual(property?.additionalProperties)
+    // Fermé, ou des clés libres toutes donnée personnelle, en texte ou à valeur simple : exactement ces formes (décidé
+    // le 2026-10-22).
+    expect([false, { type: "string", personal: true }, { type: ["string", "number", "boolean"], personal: true }]).toContainEqual(
+      property?.additionalProperties,
+    )
     expect(Object.keys(property?.properties as object).length).toBeGreaterThan(0)
     expect(fn.schema.required).toContain(argument)
     expect(fn.request.constants?.body).toBeUndefined()
@@ -50,14 +53,16 @@ describe("body cases", () => {
     expect(fn.pagination).toBeUndefined()
   })
 
-  it("should carry a case function whose object admits free text keys, and a call that sends one", () => {
+  it("should carry a case function of each kind of free keys, and calls that send them", () => {
     const open = caseFunctions.filter((fn) => {
       const argument = fn.request.body as string
       return (fn.schema.properties as Record<string, Record<string, unknown>>)[argument]?.additionalProperties !== false
     })
-    expect(open.map((fn) => fn.name)).toEqual(["body_cases.upsert_contact"])
-    const sent = bodyCases.filter((c) => c.function === open[0]).map((c) => Object.keys(c.request.body))
-    expect(sent.some((keys) => keys.includes("city"))).toBe(true)
+    expect(open.map((fn) => fn.name)).toEqual(["body_cases.upsert_contact", "body_cases.update_account"])
+    const sent = (fn: ConnectorFunction | undefined) => bodyCases.filter((c) => c.function === fn).map((c) => c.request.body)
+    expect(sent(open[0]).some((body) => body.city === "Lyon")).toBe(true)
+    const simple = sent(open[1]).flatMap((body) => Object.values(body).map((value) => typeof value))
+    expect(new Set(simple)).toEqual(new Set(["string", "number", "boolean"]))
   })
 
   it.each(bodyCases.map((c) => [c.name, c] as const))("%s: a valid input, the object given for body", (_name, c) => {

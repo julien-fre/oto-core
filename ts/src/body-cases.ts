@@ -117,6 +117,39 @@ export const upsertContact = defineFunction({
   },
 })
 
+export const updateAccount = defineFunction({
+  name: "body_cases.update_account",
+  connector: "body_cases",
+  class: "write",
+  act: true,
+  description: "Update an account; the account is the whole body, its custom fields free keys of a simple value.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["account"],
+    "properties": {
+      "account": {
+        "type": "object",
+        "additionalProperties": {"type": ["string", "number", "boolean"], "personal": true},
+        "required": ["name"],
+        "properties": {"name": {"type": "string"}, "domain": {"type": "string"}}
+      }
+    }
+  },
+  examples: [
+    { title: "One account", input: {"account": {"name": "Valbrune", "seats": 12, "is_customer": true}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/accounts",
+    pathParams: [],
+    query: {},
+    body: "account",
+    headers: {},
+  },
+})
+
 export const removeLeads = defineFunction({
   name: "body_cases.remove_leads",
   connector: "body_cases",
@@ -170,6 +203,7 @@ export const connector = defineConnector({
     createLead,
     updateCampaign,
     upsertContact,
+    updateAccount,
     removeLeads,
   ],
 })
@@ -628,6 +662,230 @@ export const refusedFreeKeysNoDeclaredProperty = defineFunction({
   },
   examples: [
     { title: "A note", input: {"note": {"mood": "calm"}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/notes",
+    pathParams: [],
+    query: {},
+    body: "note",
+    headers: {},
+  },
+})
+
+export const refusedFreeSimpleNotPersonal = defineFunction({
+  name: "body_cases.add_note",
+  connector: "body_cases",
+  class: "write",
+  act: true,
+  description: "Add a note.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note"],
+    "properties": {
+      "note": {
+        "type": "object",
+        "additionalProperties": {"type": ["string", "number", "boolean"]},
+        "properties": {"text": {"type": "string"}}
+      }
+    }
+  },
+  examples: [
+    { title: "A note", input: {"note": {"text": "Hello", "weight": 2}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/notes",
+    pathParams: [],
+    query: {},
+    body: "note",
+    headers: {},
+  },
+})
+
+export const refusedFreeSimpleInteger = defineFunction({
+  name: "body_cases.add_note",
+  connector: "body_cases",
+  class: "write",
+  act: true,
+  description: "Add a note.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note"],
+    "properties": {
+      "note": {
+        "type": "object",
+        "additionalProperties": {"type": ["string", "integer", "boolean"], "personal": true},
+        "properties": {"text": {"type": "string"}}
+      }
+    }
+  },
+  examples: [
+    { title: "A note", input: {"note": {"text": "Hello", "weight": 2}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/notes",
+    pathParams: [],
+    query: {},
+    body: "note",
+    headers: {},
+  },
+})
+
+export const refusedFreeSimpleWithNull = defineFunction({
+  name: "body_cases.add_note",
+  connector: "body_cases",
+  class: "write",
+  act: true,
+  description: "Add a note.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note"],
+    "properties": {
+      "note": {
+        "type": "object",
+        "additionalProperties": {"type": ["string", "number", "boolean", "null"], "personal": true},
+        "properties": {"text": {"type": "string"}}
+      }
+    }
+  },
+  examples: [
+    { title: "A note", input: {"note": {"text": "Hello", "weight": null}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/notes",
+    pathParams: [],
+    query: {},
+    body: "note",
+    headers: {},
+  },
+})
+
+export const refusedFreeSimpleTwoTypes = defineFunction({
+  name: "body_cases.add_note",
+  connector: "body_cases",
+  class: "write",
+  act: true,
+  description: "Add a note.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note"],
+    "properties": {
+      "note": {
+        "type": "object",
+        "additionalProperties": {"type": ["string", "number"], "personal": true},
+        "properties": {"text": {"type": "string"}}
+      }
+    }
+  },
+  examples: [
+    { title: "A note", input: {"note": {"text": "Hello", "weight": 2}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/notes",
+    pathParams: [],
+    query: {},
+    body: "note",
+    headers: {},
+  },
+})
+
+export const refusedFreeSimpleOtherOrder = defineFunction({
+  name: "body_cases.add_note",
+  connector: "body_cases",
+  class: "write",
+  act: true,
+  description: "Add a note.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note"],
+    "properties": {
+      "note": {
+        "type": "object",
+        "additionalProperties": {"type": ["number", "string", "boolean"], "personal": true},
+        "properties": {"text": {"type": "string"}}
+      }
+    }
+  },
+  examples: [
+    { title: "A note", input: {"note": {"text": "Hello", "weight": 2}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/notes",
+    pathParams: [],
+    query: {},
+    body: "note",
+    headers: {},
+  },
+})
+
+export const refusedFreeSimpleWithAnObject = defineFunction({
+  name: "body_cases.add_note",
+  connector: "body_cases",
+  class: "write",
+  act: true,
+  description: "Add a note.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note"],
+    "properties": {
+      "note": {
+        "type": "object",
+        "additionalProperties": {"type": ["string", "number", "boolean", "object"], "personal": true},
+        "properties": {"text": {"type": "string"}}
+      }
+    }
+  },
+  examples: [
+    { title: "A note", input: {"note": {"text": "Hello", "meta": {}}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/notes",
+    pathParams: [],
+    query: {},
+    body: "note",
+    headers: {},
+  },
+})
+
+export const refusedFreeSimpleOneWordMore = defineFunction({
+  name: "body_cases.add_note",
+  connector: "body_cases",
+  class: "write",
+  act: true,
+  description: "Add a note.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["note"],
+    "properties": {
+      "note": {
+        "type": "object",
+        "additionalProperties": {"type": ["string", "number", "boolean"], "personal": true, "maxLength": 100},
+        "properties": {"text": {"type": "string"}}
+      }
+    }
+  },
+  examples: [
+    { title: "A note", input: {"note": {"text": "Hello", "weight": 2}} },
   ],
   refusals: [],
   request: {
@@ -1099,6 +1357,44 @@ export const bodyCases: readonly BodyCase[] = [
     },
   },
   {
+    name: "free_simple_values_are_sent",
+    function: updateAccount,
+    input: {
+      "account": {
+        "name": "Valbrune",
+        "domain": "valbrune.test",
+        "seats": 120,
+        "revenue": 2500000.5,
+        "is_customer": true,
+        "founded": "2001-04-01"
+      }
+    },
+    request: {
+      path: "/accounts",
+      query: [],
+      headers: {},
+      body: {
+        "name": "Valbrune",
+        "domain": "valbrune.test",
+        "seats": 120,
+        "revenue": 2500000.5,
+        "is_customer": true,
+        "founded": "2001-04-01"
+      },
+    },
+  },
+  {
+    name: "free_simple_false_and_zero_are_sent",
+    function: updateAccount,
+    input: {"account": {"name": "Valbrune", "is_customer": false, "seats": 0, "note": ""}},
+    request: {
+      path: "/accounts",
+      query: [],
+      headers: {},
+      body: {"name": "Valbrune", "is_customer": false, "seats": 0, "note": ""},
+    },
+  },
+  {
     name: "delete_with_body",
     function: removeLeads,
     input: {"campaign_id": "cam-1", "selection": {"ids": ["l-1", "l-2"]}},
@@ -1167,6 +1463,26 @@ export const bodyRejectedInputs: readonly BodyRejectedInput[] = [
     name: "free_keys_without_a_required_property",
     function: upsertContact,
     input: {"contact": {"city": "Lyon"}},
+  },
+  {
+    name: "free_simple_value_is_null",
+    function: updateAccount,
+    input: {"account": {"name": "Valbrune", "seats": null}},
+  },
+  {
+    name: "free_simple_value_is_an_object",
+    function: updateAccount,
+    input: {"account": {"name": "Valbrune", "address": {"city": "Lyon"}}},
+  },
+  {
+    name: "free_simple_value_is_a_list",
+    function: updateAccount,
+    input: {"account": {"name": "Valbrune", "tags": ["vip"]}},
+  },
+  {
+    name: "free_simple_declared_key_keeps_its_schema",
+    function: updateAccount,
+    input: {"account": {"name": "Valbrune", "domain": 12}},
   },
 ]
 
@@ -1240,6 +1556,41 @@ export const bodyRefusedFunctions: readonly BodyRefusedFunction[] = [
   {
     name: "free_keys_no_declared_property",
     function: refusedFreeKeysNoDeclaredProperty,
+    refusal: "body_argument_not_strict",
+  },
+  {
+    name: "free_simple_not_personal",
+    function: refusedFreeSimpleNotPersonal,
+    refusal: "body_argument_not_strict",
+  },
+  {
+    name: "free_simple_integer",
+    function: refusedFreeSimpleInteger,
+    refusal: "body_argument_not_strict",
+  },
+  {
+    name: "free_simple_with_null",
+    function: refusedFreeSimpleWithNull,
+    refusal: "body_argument_not_strict",
+  },
+  {
+    name: "free_simple_two_types",
+    function: refusedFreeSimpleTwoTypes,
+    refusal: "body_argument_not_strict",
+  },
+  {
+    name: "free_simple_other_order",
+    function: refusedFreeSimpleOtherOrder,
+    refusal: "body_argument_not_strict",
+  },
+  {
+    name: "free_simple_with_an_object",
+    function: refusedFreeSimpleWithAnObject,
+    refusal: "body_argument_not_strict",
+  },
+  {
+    name: "free_simple_one_word_more",
+    function: refusedFreeSimpleOneWordMore,
     refusal: "body_argument_not_strict",
   },
   {

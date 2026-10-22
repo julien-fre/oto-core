@@ -1,7 +1,8 @@
 # Common cases of the whole body: `call.body` that names one input argument, a strict object, instead of a map, with the
 # semantics of docs/conception/format-de-description.md, « Le bloc functions », « Le corps entier » (rule 20 of the
-# fabrique). At its root only, the object may admit free keys instead of `additionalProperties: false`: exactly
-# `{ type: string, personal: true }`, each undeclared key a text, marked personal data (decided 2026-10-22).
+# fabrique). At its root only, the object may admit free keys instead of `additionalProperties: false`, each undeclared
+# key marked personal data: exactly `{ type: string, personal: true }`, a text, or
+# `{ type: [string, number, boolean], personal: true }`, a simple value (both decided 2026-10-22).
 #
 # Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the functions the
 # cases carry into one description, checked with the schema and the rules of every description (rule 20 included), then
@@ -196,6 +197,44 @@ cases:
       headers: {}
       body: { email: ada@example.test, "Favourite colour": "" }
 
+  # --- Free keys of a simple value at the root of the object, all personal data ---------------------------------------
+  - name: free_simple_values_are_sent
+    function: &update_account
+      name: update_account
+      class: write
+      description: Update an account; the account is the whole body, its custom fields free keys of a simple value.
+      input:
+        type: object
+        additionalProperties: false
+        required: [account]
+        properties:
+          account:
+            type: object
+            # Any key the properties do not declare is a text, a number or a boolean, and personal data.
+            additionalProperties: { type: [string, number, boolean], personal: true }
+            required: [name]
+            properties:
+              name: { type: string }
+              domain: { type: string }
+      examples: [{ title: One account, input: { account: { name: Valbrune, seats: 12, is_customer: true } } }]
+      call: { method: PATCH, path: /accounts, body: account }
+    input:
+      account: { name: Valbrune, domain: valbrune.test, seats: 120, revenue: 2500000.5, is_customer: true, founded: "2001-04-01" }
+    request:
+      path: /accounts
+      query: []
+      headers: {}
+      body: { name: Valbrune, domain: valbrune.test, seats: 120, revenue: 2500000.5, is_customer: true, founded: "2001-04-01" }
+
+  - name: free_simple_false_and_zero_are_sent
+    function: *update_account
+    input: { account: { name: Valbrune, is_customer: false, seats: 0, note: "" } }
+    request:
+      path: /accounts
+      query: []
+      headers: {}
+      body: { name: Valbrune, is_customer: false, seats: 0, note: "" }
+
   # --- A DELETE carries its body -------------------------------------------------------------------------------------
   - name: delete_with_body
     function:
@@ -258,6 +297,18 @@ rejected:
   - name: free_keys_without_a_required_property
     function: upsert_contact
     input: { contact: { city: Lyon } }
+  - name: free_simple_value_is_null
+    function: update_account
+    input: { account: { name: Valbrune, seats: null } }
+  - name: free_simple_value_is_an_object
+    function: update_account
+    input: { account: { name: Valbrune, address: { city: Lyon } } }
+  - name: free_simple_value_is_a_list
+    function: update_account
+    input: { account: { name: Valbrune, tags: [vip] } }
+  - name: free_simple_declared_key_keeps_its_schema
+    function: update_account
+    input: { account: { name: Valbrune, domain: 12 } }
 
 refused:
   - name: unknown_argument
@@ -497,6 +548,132 @@ refused:
         properties:
           note: { type: object, additionalProperties: { type: string, personal: true }, properties: {} }
       examples: [{ title: A note, input: { note: { mood: calm } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_simple_not_personal
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: [string, number, boolean] }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, weight: 2 } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_simple_integer
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: [string, integer, boolean], personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, weight: 2 } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_simple_with_null
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: [string, number, boolean, "null"], personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, weight: null } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_simple_two_types
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: [string, number], personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, weight: 2 } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_simple_other_order
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: [number, string, boolean], personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, weight: 2 } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_simple_with_an_object
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: [string, number, boolean, object], personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, meta: {} } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_simple_one_word_more
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: [string, number, boolean], personal: true, maxLength: 100 }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, weight: 2 } } }]
       call: { method: POST, path: /notes, body: note }
     refusal: body_argument_not_strict
 

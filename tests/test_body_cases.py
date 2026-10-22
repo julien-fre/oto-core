@@ -18,7 +18,7 @@ from jsonschema import Draft202012Validator
 
 from fabrique import body_cases
 from fabrique.descriptions import (BODY_REFUSALS, DescriptionError, _personal_marks, body_argument_refusal,
-                                   check_personal, check_rules, free_text_keys, strict_object)
+                                   check_personal, check_rules, free_keys, strict_object)
 
 LOADED = body_cases.load()
 FUNCTIONS = {function["name"]: function for function in LOADED.description.data["functions"]}
@@ -92,10 +92,17 @@ def _contact() -> dict:
     return copy.deepcopy(FUNCTIONS["upsert_contact"]["input"]["properties"]["contact"])
 
 
-def test_free_text_keys_make_a_strict_object():
-    assert free_text_keys({"type": "string", "personal": True})
+def _account() -> dict:
+    return copy.deepcopy(FUNCTIONS["update_account"]["input"]["properties"]["account"])
+
+
+def test_free_keys_make_a_strict_object():
+    assert free_keys({"type": "string", "personal": True})
+    assert free_keys({"type": ["string", "number", "boolean"], "personal": True})
     assert strict_object(_contact())
+    assert strict_object(_account())
     assert body_argument_refusal(FUNCTIONS["upsert_contact"]) is None
+    assert body_argument_refusal(FUNCTIONS["update_account"]) is None
 
 
 # Ce que les cas communs ne peuvent pas porter, le schéma des descriptions les refusant avant la règle 20 (un nombre),
@@ -104,16 +111,20 @@ def test_free_text_keys_make_a_strict_object():
     True, None, 0, 1, "string", [], {}, {"type": "string"}, {"personal": True}, {"type": "string", "personal": 1},
     {"type": "string", "personal": "true"}, {"type": ["string"], "personal": True}, {"type": "integer", "personal": True},
     {"type": "string", "personal": True, "maxLength": 100}, {"type": "string", "personal": True, "description": "A field."},
+    {"type": ["string", "number", "boolean"], "personal": 1}, {"type": ("string", "number", "boolean"), "personal": True},
+    {"type": ["string", "number", "boolean", "boolean"], "personal": True},
+    {"type": ["string", "integer", "boolean"], "personal": True}, {"type": ["string", "number", "boolean"]},
 ], ids=["true", "absent", "zero", "one", "a_text", "a_list", "empty_schema", "not_personal", "untyped", "personal_one",
-        "personal_text", "type_list", "integer", "max_length", "description"])
+        "personal_text", "type_list", "integer", "max_length", "description", "simple_personal_one", "simple_tuple",
+        "simple_twice", "simple_integer", "simple_not_personal"])
 def test_any_other_free_keys_are_not_strict(additional):
-    assert not free_text_keys(additional)
-    contact = _contact()
-    if additional is None:
-        del contact["additionalProperties"]
-    else:
-        contact["additionalProperties"] = additional
-    assert not strict_object(contact)
+    assert not free_keys(additional)
+    for argument in (_contact(), _account()):
+        if additional is None:
+            del argument["additionalProperties"]
+        else:
+            argument["additionalProperties"] = additional
+        assert not strict_object(argument)
 
 
 def test_free_text_keys_hold_at_the_root_of_the_argument_only():
@@ -137,6 +148,14 @@ def test_free_text_keys_are_marked_personal_by_rule_15():
                      "input.properties.contact.properties.email": True}
 
 
+def test_free_simple_keys_are_marked_personal_by_rule_15():
+    """Les clés libres à valeur simple de même, quel que soit le type de la valeur."""
+    function = FUNCTIONS["update_account"]
+    check_personal(function, "connectors/_cases/body.yaml")
+    assert dict(_personal_marks(function["input"], "input")) == {"input.properties.account.additionalProperties": True}
+
+
 def test_free_text_keys_go_out_as_they_are_in_typescript():
     source = body_cases.typescript_source(LOADED)
     assert '        "additionalProperties": {"type": "string", "personal": true},\n' in source
+    assert '        "additionalProperties": {"type": ["string", "number", "boolean"], "personal": true},\n' in source
