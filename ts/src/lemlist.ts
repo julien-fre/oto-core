@@ -2225,7 +2225,7 @@ export const upsertContact = defineFunction({
   connector: "lemlist",
   class: "write",
   act: true,
-  description: "Create or update a contact of the lemlist CRM, one route for both: matched by contactId (update only), email, linkedinUrl or linkedinUrlSalesNav, one of them at least. The fields left out keep their value. Any key besides lemlist's fields is a custom field of the CRM, a text, registered in the team's fields beforehand (list_fields). Nothing is sent to the contact.",
+  description: "Create or update a contact of the lemlist CRM, one route for both: matched by contactId (update only), email, linkedinUrl or linkedinUrlSalesNav, one of them at least. The fields left out keep their value. Any key besides lemlist's fields is a custom field of the CRM, registered in the team's fields beforehand (list_fields): a text, a number or a boolean, as the field's type says; a date as a text. Nothing is sent to the contact.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -2233,8 +2233,8 @@ export const upsertContact = defineFunction({
     "properties": {
       "contact": {
         "type": "object",
-        "additionalProperties": {"type": "string", "personal": true},
-        "description": "The contact, under lemlist's names; any other key is a custom field, a text.",
+        "additionalProperties": {"type": ["string", "number", "boolean"], "personal": true},
+        "description": "The contact, under lemlist's names; any other key is a custom field, a text, a number or a boolean.",
         "properties": {
           "contactId": {
             "type": "string",
@@ -2456,7 +2456,7 @@ export const upsertCompany = defineFunction({
   connector: "lemlist",
   class: "write",
   act: true,
-  description: "Create or update a company of the lemlist CRM, one route for both: matched by companyId (update only), domain, linkedinUrl or linkedinUrlSalesNav; without companyId, name and one of the three are needed. The fields left out keep their value. Any key besides lemlist's fields is a custom field of the CRM, a text, registered in the team's fields beforehand (list_fields).",
+  description: "Create or update a company of the lemlist CRM, one route for both: matched by companyId (update only), domain, linkedinUrl or linkedinUrlSalesNav; without companyId, name and one of the three are needed. The fields left out keep their value. Any key besides lemlist's fields is a custom field of the CRM, registered in the team's fields beforehand (list_fields): a text, a number or a boolean, as the field's type says; a date as a text.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -2464,8 +2464,8 @@ export const upsertCompany = defineFunction({
     "properties": {
       "company": {
         "type": "object",
-        "additionalProperties": {"type": "string", "personal": true},
-        "description": "The company, under lemlist's names; any other key is a custom field, a text.",
+        "additionalProperties": {"type": ["string", "number", "boolean"], "personal": true},
+        "description": "The company, under lemlist's names; any other key is a custom field, a text, a number or a boolean.",
         "properties": {
           "companyId": {
             "type": "string",
@@ -4503,7 +4503,7 @@ export const connector = defineConnector({
   name: "lemlist",
   label: "lemlist",
   namespace: "lemlist",
-  version: "1.2.0",
+  version: "1.2.1",
   apiVersion: "v1 and v2 routes",
   baseUrl: "https://api.lemlist.com/api",
   auth: {"kind": "basic", "password": "api_key"},

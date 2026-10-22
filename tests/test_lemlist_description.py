@@ -1,11 +1,13 @@
-"""La description `lemlist` 1.2.0 : celle du client existant (`oto.tools.lemlist`), sans rien y changer.
+"""La description `lemlist` 1.2.1 : celle du client existant (`oto.tools.lemlist`), sans rien y changer.
 
 Une fonction par méthode du client qui envoie une seule requête à `api.lemlist.com/api`, sous son nom, avec ses noms
 d'arguments et les clés que le client envoie à lemlist (chemin, query, corps, parties d'un multipart). Depuis la 1.1.0,
 les méthodes dont le corps est un argument entier, un dictionnaire envoyé tel quel, se disent par `call.body: <argument>`
 (règle 20 de la fabrique) : l'argument est un objet strict, aux clés de lemlist. Depuis la 1.2.0, `create_lead`,
 `upsert_contact` et `upsert_company` y prennent aussi, à côté des clés déclarées, des clés libres en texte (les
-variables d'un lead, les champs personnalisés du CRM), `additionalProperties: {type: string, personal: true}`. Restent
+variables d'un lead, les champs personnalisés du CRM), `additionalProperties: {type: string, personal: true}` ; depuis
+la 1.2.1, les champs personnalisés du CRM, que lemlist type, sont des valeurs simples,
+`additionalProperties: {type: [string, number, boolean], personal: true}`. Restent
 hors du fichier, au client écrit à la main : les corps formés à partir d'un argument (un identifiant ajouté, un email
 retiré), le corps en tableau nu, les query à clés libres (les variables d'un lead), les compositions et aides locales,
 les routes choisies selon un argument, la relève d'enrichissement (un 404 y est une réponse), les exports CSV et la
@@ -41,10 +43,12 @@ WHOLE_BODY = {
     "update_deliverability_alert": "data", "create_lead": "lead", "upsert_contact": "contact",
     "upsert_company": "company",
 }
-# Les corps entiers à clés libres au premier niveau, à côté des clés déclarées : les variables d'un lead, les champs
-# personnalisés du CRM. Toute clé non déclarée est un texte, donnée personnelle (la seule forme ouverte de la règle 20).
+# Les corps entiers à clés libres au premier niveau, à côté des clés déclarées, toutes donnée personnelle (règle 20) :
+# les variables d'un lead, des textes, comme lemlist les garde ; les champs personnalisés du CRM, des valeurs simples,
+# texte, nombre ou vrai/faux, comme lemlist les type (`POST /fields`), une date en texte.
 FREE_TEXT_KEYS = {"type": "string", "personal": True}
-FREE_KEYS = {"create_lead", "upsert_contact", "upsert_company"}
+FREE_SIMPLE_KEYS = {"type": ["string", "number", "boolean"], "personal": True}
+FREE_KEYS = {"create_lead": FREE_TEXT_KEYS, "upsert_contact": FREE_SIMPLE_KEYS, "upsert_company": FREE_SIMPLE_KEYS}
 # Les méthodes publiques du client qui ne sont pas une requête unitaire que le format sait dire, et pourquoi.
 LEFT_OUT = {
     "update_task": "the body is the data argument, with the task id added to it",
@@ -408,9 +412,9 @@ def _values(name: str, function: dict) -> dict:
     return {argument: values[argument] for argument in function["input"]["properties"]}
 
 
-def test_the_description_is_version_1_2_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_2_1_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.2.0"
+    assert description["connector"]["version"] == "1.2.1"
     check(description, LEMLIST)
 
 
@@ -595,12 +599,12 @@ def test_each_whole_body_is_sent_by_the_client_as_given_key_by_key():
 def test_each_whole_body_is_a_strict_object_with_the_keys_the_client_documents():
     """Chaque clé que le client nomme dans sa documentation (entre accents graves, ou la liste des champs d'un lead
     de `create_lead`) est une clé du corps, sauf celles que `BODY_KEYS_LEFT_OUT` écarte avec leur motif ; les clés
-    libres sont exactement des textes, donnée personnelle ; `update_step` prend le vocabulaire d'`add_step`, sans
+    libres ont exactement la forme de leur genre, donnée personnelle ; `update_step` prend le vocabulaire d'`add_step`, sans
     `index`."""
     functions = _functions()
     for name, argument in WHOLE_BODY.items():
         schema = functions[name]["input"]["properties"][argument]
-        expected = FREE_TEXT_KEYS if name in FREE_KEYS else False
+        expected = FREE_KEYS.get(name, False)
         assert schema["type"] == "object" and schema["additionalProperties"] == expected, name
         assert argument in functions[name]["input"]["required"], name
         doc = inspect.getdoc(getattr(LemlistClient, name))
@@ -654,24 +658,34 @@ def test_what_the_client_checks_locally_the_schema_refuses_first():
         assert _refused_by_the_client("update_schedule", arguments), refused
 
 
-def test_the_free_keys_are_texts_sent_with_the_declared_ones_and_nothing_else_passes():
-    """`create_lead`, `upsert_contact` et `upsert_company` : une clé libre texte part du client dans le même corps que
-    les clés déclarées, telle quelle, seule ou plusieurs, vide comprise ; une clé libre qui n'est pas un texte (nombre,
-    booléen, `null`, objet, liste) est refusée par le schéma d'entrée, avant tout envoi ; seules ces trois fonctions
-    ont des clés libres."""
+# Les valeurs d'une clé libre selon son genre : celles qui passent le schéma d'entrée et partent du client telles
+# quelles, celles qu'il refuse avant tout envoi. Une date est un texte.
+ACCEPTED = {"text": ("Lyon", "", "2026-10-22"), "simple": ("Lyon", "", "2026-10-22", 3, 0, 2.5, True, False)}
+REFUSED = {"text": (3, 2.5, True, None, {"a": "b"}, ["x"]), "simple": (None, {"a": "b"}, ["x"])}
+
+
+def test_the_free_keys_are_sent_with_the_declared_ones_and_nothing_else_passes():
+    """`create_lead` : une clé libre est un texte, comme lemlist garde les variables d'un lead ; `upsert_contact` et
+    `upsert_company` : un texte, un nombre ou un vrai/faux, comme lemlist type les champs personnalisés du CRM. Une clé
+    libre admise part du client dans le même corps que les clés déclarées, telle quelle, seule ou plusieurs, vide
+    comprise ; une autre (`null`, objet, liste, et nombre ou booléen pour un lead) est refusée par le schéma d'entrée,
+    avant tout envoi ; seules ces trois fonctions ont des clés libres."""
     functions = _functions()
     assert {n for n, a in WHOLE_BODY.items()
-            if functions[n]["input"]["properties"][a]["additionalProperties"] is not False} == FREE_KEYS
+            if functions[n]["input"]["properties"][a]["additionalProperties"] is not False} == set(FREE_KEYS)
     for name in sorted(FREE_KEYS):
         function, argument = functions[name], WHOLE_BODY[name]
+        kind = "text" if FREE_KEYS[name] == FREE_TEXT_KEYS else "simple"
         full = _values(name, function)
-        for free in ({"ville": "Lyon"}, {"ville": "Lyon", "posteRecrute": "un Traffic Manager", "vide": ""}):
+        frees = [{"ville": "Lyon"}, {"ville": "Lyon", "posteRecrute": "un Traffic Manager", "vide": ""}]
+        frees += [{"champ": value} for value in ACCEPTED[kind]]
+        for free in frees:
             body = {**free, **{k: v for k, v in full[argument].items() if k in ("email", "name")}}
             arguments = {**full, argument: body}
             jsonschema.validate(arguments, function["input"])
             sent = _sent_by_the_client(name, copy.deepcopy(arguments))
             assert sent["json"] == body, (name, body)
             assert _client_view(function, sent) == _described(name, function, arguments), (name, body)
-        for value in (3, 2.5, True, None, {"a": "b"}, ["x"]):
+        for value in REFUSED[kind]:
             arguments = {**full, argument: {**full[argument], "ville": value}}
             assert not jsonschema.Draft202012Validator(function["input"]).is_valid(arguments), (name, value)

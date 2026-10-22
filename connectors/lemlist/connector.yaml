@@ -30,10 +30,12 @@
 # condition), the HH:mm hours, weekdays 1 to 7 and IANA time zone of update_schedule. update_campaign leaves out
 # autoReview and autoReviewConditions, as create_campaign does: they turn adding a lead into a send. create_lead,
 # upsert_contact and upsert_company take, next to lemlist's fields, keys the user creates: the custom variables of a
-# lead (lemlist's OpenAPI: additionalProperties of type string), the custom fields of a contact or a company. Their
-# argument admits free keys as texts, each one personal (additionalProperties: { type: string, personal: true }, the one
-# open form rule 20 admits); a free key that is not a text is refused before any call. The enrichment flags of
-# create_lead go only when true, as the client sends them.
+# lead (lemlist's OpenAPI: additionalProperties of type string), the custom fields of a contact or a company. Each free
+# key is personal. The variables of a lead are texts, as lemlist stores them (additionalProperties: { type: string,
+# personal: true }); the custom fields of the CRM are typed by lemlist (POST /fields: text, number, boolean, date), so
+# they are simple values (additionalProperties: { type: [string, number, boolean], personal: true }), a date as a text.
+# A free key of another type (null, an object, a list; a number or a boolean for a lead) is refused before any call.
+# The enrichment flags of create_lead go only when true, as the client sends them.
 #
 # A campaign created by the API is born running, not as a draft (measured by the client on 2026-08-31): nothing
 # sends until a sender, a step and a launched lead exist, and pause_campaign right after creating it keeps it quiet.
@@ -90,7 +92,7 @@ connector:
   name: lemlist
   label: lemlist
   namespace: lemlist
-  version: 1.2.0
+  version: 1.2.1
   api_version: v1 and v2 routes
   base_url: https://api.lemlist.com/api
   auth:
@@ -1565,7 +1567,8 @@ functions:
       matched by contactId (update only), email, linkedinUrl or
       linkedinUrlSalesNav, one of them at least. The fields left out keep
       their value. Any key besides lemlist's fields is a custom field of the
-      CRM, a text, registered in the team's fields beforehand (list_fields).
+      CRM, registered in the team's fields beforehand (list_fields): a text,
+      a number or a boolean, as the field's type says; a date as a text.
       Nothing is sent to the contact.
     input:
       type: object
@@ -1574,8 +1577,8 @@ functions:
       properties:
         contact:
           type: object
-          additionalProperties: { type: string, personal: true }
-          description: "The contact, under lemlist's names; any other key is a custom field, a text."
+          additionalProperties: { type: [string, number, boolean], personal: true }
+          description: "The contact, under lemlist's names; any other key is a custom field, a text, a number or a boolean."
           properties:
             contactId: { type: string, minLength: 1, description: "Contact id (ctc_…): updates that contact, never creates one." }
             email: { type: string, personal: true }
@@ -1729,8 +1732,9 @@ functions:
       matched by companyId (update only), domain, linkedinUrl or
       linkedinUrlSalesNav; without companyId, name and one of the three are
       needed. The fields left out keep their value. Any key besides
-      lemlist's fields is a custom field of the CRM, a text, registered in
-      the team's fields beforehand (list_fields).
+      lemlist's fields is a custom field of the CRM, registered in the
+      team's fields beforehand (list_fields): a text, a number or a boolean,
+      as the field's type says; a date as a text.
     input:
       type: object
       additionalProperties: false
@@ -1738,8 +1742,8 @@ functions:
       properties:
         company:
           type: object
-          additionalProperties: { type: string, personal: true }
-          description: "The company, under lemlist's names; any other key is a custom field, a text."
+          additionalProperties: { type: [string, number, boolean], personal: true }
+          description: "The company, under lemlist's names; any other key is a custom field, a text, a number or a boolean."
           properties:
             companyId: { type: string, minLength: 1, description: "Company id (cpy_…): updates that company, never creates one." }
             name: { type: string }
