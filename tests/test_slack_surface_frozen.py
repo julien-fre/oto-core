@@ -18,6 +18,7 @@ import oto.tools.slack.text as text
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DESCRIPTION = ROOT / "connectors" / "slack" / "connector.yaml"
+USER_DESCRIPTION = ROOT / "connectors" / "slack_user" / "connector.yaml"
 
 EXPECTED_MEMBERS = {
     '_file_source': '(self, file_id: str) -> tuple',
@@ -55,6 +56,14 @@ OUTSIDE_DESCRIPTION = {
     "search_messages", "fetch_file", "download_file",
     "create_usergroup", "update_usergroup", "set_usergroup_users", "disable_usergroup", "enable_usergroup",
 }
+#: Méthodes publiques que la description `slack_user` ne porte pas (motifs : `LEFT_OUT` et `LEFT_TO_SLACK` de
+#: `tests/test_slack_user_description.py`).
+OUTSIDE_USER_DESCRIPTION = {
+    "fetch_file", "download_file",
+    "create_usergroup", "update_usergroup", "set_usergroup_users", "disable_usergroup", "enable_usergroup",
+    "channel_info", "get_user_info", "find_user_by_email", "join_channel", "list_usergroups", "usergroup_users",
+    "post_ephemeral",
+}
 
 
 def _members():
@@ -63,8 +72,8 @@ def _members():
             if not n.startswith("__") and callable(getattr(mod.SlackClient, n))}
 
 
-def _functions():
-    return {f["name"]: f for f in yaml.safe_load(DESCRIPTION.read_text(encoding="utf-8"))["functions"]}
+def _functions(path=DESCRIPTION):
+    return {f["name"]: f for f in yaml.safe_load(path.read_text(encoding="utf-8"))["functions"]}
 
 
 def test_membres_et_signatures_figes():
@@ -84,3 +93,8 @@ def test_noms_importables():
 def test_une_fonction_decrite_est_une_methode_du_meme_nom():
     public = {n for n in EXPECTED_MEMBERS if not n.startswith("_")}
     assert set(_functions()) == public - OUTSIDE_DESCRIPTION
+
+
+def test_une_fonction_de_slack_user_est_une_methode_du_meme_nom():
+    public = {n for n in EXPECTED_MEMBERS if not n.startswith("_")}
+    assert set(_functions(USER_DESCRIPTION)) == public - OUTSIDE_USER_DESCRIPTION

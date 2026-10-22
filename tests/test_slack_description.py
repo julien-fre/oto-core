@@ -81,7 +81,8 @@ PERSONAL = {
     "post_ephemeral": {"user", "text", "blocks"}, "get_user_info": {"user_id"}, "open_dm": {"user"},
     "find_user_by_email": {"email"},
 }
-# Ce que le client enverrait sur le jeton d'utilisateur, les deux jetons posés : ce que la description ne dit pas.
+# Ce que le client enverrait sur le jeton d'utilisateur, les deux jetons posés : ce que décrit `slack_user` (décidé par
+# Alexis le 2026-10-22), sauf `post_ephemeral`, laissé au bot (`LEFT_TO_SLACK` de `tests/test_slack_user_description.py`).
 ROUTED_TO_THE_USER = {
     # Lecture d'un DM, liste des seules conversations directes, ouverture de son DM : le jeton d'utilisateur.
     "by_reading": {("history", "D0000000001"), ("replies", "D0000000001"), ("list_channels", "im"),
@@ -285,7 +286,7 @@ def test_the_query_flags_go_only_true_as_in_the_client():
 def test_every_function_goes_on_the_bot_token_and_the_users_routing_is_the_named_gap():
     """Le jeton du bot seul : chaque fonction décrite part sur lui, comme la décrit le fichier. Les deux jetons posés, le
     client en envoie certaines sur le jeton d'utilisateur, par l'appel (lecture d'un DM) ou par l'auteur
-    (`default_as_user`) : c'est ce que la description ne dit pas, figé ici."""
+    (`default_as_user`) : c'est ce que décrit `slack_user`, figé ici ; ici, le bot n'y va qu'en repli."""
     functions = _functions()
     for name, function in functions.items():
         sent = _sent_by_the_client(name, _values(function))
@@ -432,3 +433,12 @@ def test_the_bot_token_is_the_only_secret_and_no_function_names_a_token():
     for name, function in _functions().items():
         assert not {"as_user", "token", "author"} & set(function["input"]["properties"]), name
         assert not re.search(r"xox[bp]-", str(function["examples"])), name
+
+
+def test_what_the_client_sends_on_the_user_token_is_described_by_slack_user():
+    """Le côté de la personne, `slack_user`, porte ce que le client envoie sur son jeton, plus la recherche, que le
+    client n'envoie que là ; `post_ephemeral` reste au bot."""
+    user_side = {f["name"] for f in yaml.safe_load((CONNECTORS / "slack_user" / "connector.yaml").read_text(
+        encoding="utf-8"))["functions"]}
+    routed = {name for name, _ in ROUTED_TO_THE_USER["by_reading"]} | ROUTED_TO_THE_USER["by_author"]
+    assert user_side == (routed - {"post_ephemeral"}) | {"search_messages"}
