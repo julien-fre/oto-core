@@ -1,0 +1,237 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Salesforce REST API (https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/). The values come from
+# the Python client, oto.tools.salesforce, which this description follows: one request per method, under
+# {instance_url}/services/data/v60.0, the access token as a bearer token. The function names, the argument names and
+# the parameters sent to Salesforce are the client's; the client is not changed (tests/test_salesforce_description.py
+# reads it to keep both equal).
+#
+# Authorization. The client takes a consent already given (client id and secret of a Salesforce connected app, a
+# refresh token, a login URL) and renews the access token at {login_url}/services/oauth2/token (grant refresh_token,
+# client id and secret in the form body). Salesforce reports no expires_in on a refresh: the client keeps a token for
+# 3,600 s and renews it on a 401. Under rotation (mandatory on External Client Apps) each refresh returns a new refresh
+# token that replaces the old one, which the client adopts and hands to its caller. The consent itself is oto 1's
+# (authorization code with PKCE S256, scopes api and refresh_token, at {login_url}/services/oauth2/authorize): here,
+# oauth2_user. The login URL is the account's My Domain (https://<domain>.my.salesforce.com, a sandbox's
+# https://<domain>.sandbox.my.salesforce.com), login.salesforce.com by default in the client: a url setting, cited by
+# authorize_url and token_url.
+#
+# The instance. Every call goes to the org's own host, instance_url, which the token answer gives (the client keeps it
+# with the access token, oto 1 in the account's meta): from_token, cited by base_url. The API version is the client's,
+# v60.0, in base_url.
+#
+# Who consented: the client reads no identity, and no function here is a read without a required argument. The
+# identity is read at Salesforce's common userinfo service, with the id scope, which the consent asks for on top of
+# oto 1's api and refresh_token. Its address is fixed (login.salesforce.com), where a sandbox's token is answered by
+# test.salesforce.com: the format says no identity address that follows a setting (a gap to decide).
+#
+# Read and act. Describing an sObject, reading a record and the SOQL and SOSL statements stay on the read side.
+# Deleting a record asks for a confirmation (class sensitive): the record goes to the Recycle Bin, with what cascades
+# from it.
+#
+# Pagination. A query answers at most 2,000 records, and nextRecordsUrl, a full path
+# (/services/data/v60.0/query/<locator>), when more remain: the format follows a parameter, not an address, so no
+# pagination is declared. query_more takes the last segment of nextRecordsUrl, the query locator, which the agent
+# copies; the client takes the whole path.
+#
+# Errors. Salesforce answers a refusal with a JSON list, [{message, errorCode}]: a malformed statement, an unknown
+# field or sObject under a 400 are told from another invalid request by errorCode; the org's daily API allocation
+# exhausted (REQUEST_LIMIT_EXCEEDED, a rolling 24 h quota, not a rate) from a missing permission under a 403. A 401 is
+# an expired session: the host renews the consent and retries once, as the client does. Nothing marks the account:
+# oauth2_user, the host renews the consent.
+#
+# Not described here, left to the hand-written client:
+# - create_record, update_record, upsert_record, create_records, update_records: the body is the record's fields, which
+#   depend on the org (custom fields Foo__c) and take text, numbers, booleans and null in JSON (a date as ISO 8601
+#   text). The format says a whole body with free keys as text only: they wait for free keys of a simple value (text,
+#   number or boolean), a format change decided on 2026-10-22, for salesforce 1.1.0;
+# - list_records: the client builds the SOQL text from fields, where and limit, with default fields per standard
+#   sObject; the format sends each argument under its own name. query serves the same read;
+# - list_notes and create_note: two requests each (a ContentDocumentLink, then the ContentNote), and the note's
+#   content base64-encoded or decoded by the client.
+# No rate is declared: Salesforce counts requests per org per 24 h, not a rate, and the client paces nothing. No probe:
+# no read without a required argument (oto 1 probes with a SOQL query).
+connector:
+  name: salesforce
+  label: Salesforce
+  namespace: salesforce
+  version: 1.0.0
+  api_version: v60.0
+  base_url: "{instance_url}/services/data/v60.0"
+  auth:
+    kind: oauth2_user
+    authorize_url: "{login_url}/services/oauth2/authorize"
+    token_url: "{login_url}/services/oauth2/token"
+    client_auth: body
+    scopes: [api, refresh_token, id]
+    pkce: S256
+    refresh: refresh_token
+    rotates: true
+    expires_in_default: 3600
+    identity:
+      url: https://login.salesforce.com/services/oauth2/userinfo
+      path: preferred_username
+      scopes: [id]
+    from_token: [instance_url]
+  settings:
+    - { name: login_url, label: Login URL (your My Domain), type: url }
+  # Each org consents with its own login URL; a person, or the org's admin for the whole org (oto 1).
+  modes: [byo_user, byo_org]
+  # The client waits 60 s for an answer (10 s to connect).
+  timeout_s: 60
+  errors:
+    - { status: 400, body: { path: 0.errorCode, equals: [MALFORMED_QUERY, MALFORMED_SEARCH, INVALID_FIELD, INVALID_TYPE] },
+        code: invalid_statement, retryable: false,
+        message: "Salesforce rejected the SOQL or SOSL statement, a field or an sObject name: check the names with describe." }
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Salesforce rejected the request as invalid: check the arguments." }
+    - { status: 401, code: authorization_expired, retryable: false,
+        message: "Salesforce no longer accepts this authorization (expired or revoked): the person must connect again." }
+    - { status: 403, body: { path: 0.errorCode, equals: [REQUEST_LIMIT_EXCEEDED] }, code: api_limit_reached, retryable: false,
+        message: "The Salesforce org has used its API requests of the last 24 hours: retry once its allocation frees up." }
+    - { status: 403, code: permission_missing, retryable: false,
+        message: "Salesforce refused the access: the person's profile or permission sets do not grant this object, field or action." }
+    - { status: 404, code: not_found, retryable: false,
+        message: "Salesforce found no such record or sObject, or a deleted record: check the names and the id." }
+    - { status: [500, 502, 503], code: upstream_unavailable, retryable: true,
+        message: "Salesforce is temporarily unavailable: retry later." }
+
+functions:
+  # --- sObjects -----------------------------------------------------------------
+
+  - name: describe
+    class: read
+    description: >-
+      Describe an sObject type of the org (Account, Contact, Lead, Opportunity,
+      or a custom Foo__c): its flags (createable, updateable, deletable,
+      queryable, searchable, keyPrefix) and its fields, each with its name,
+      label, type, length, nillable, createable, updateable, referenceTo and
+      picklistValues. The field names are those to use in SOQL, SOSL and
+      get_record.
+    input:
+      type: object
+      additionalProperties: false
+      required: [sobject]
+      properties:
+        sobject: &sobject
+          type: string
+          pattern: "^[A-Za-z][A-Za-z0-9_]*$"
+          description: "API name of the sObject type: Account, Contact, Lead, Opportunity, or a custom Foo__c."
+    examples:
+      - { title: The fields of a contact, input: { sobject: Contact } }
+      - { title: A custom object, input: { sobject: Invoice__c } }
+    call: { method: GET, path: "/sobjects/{sobject}/describe/" }
+    output:
+      projection: [name, label, labelPlural, custom, createable, updateable, deletable, queryable, searchable, keyPrefix, fields]
+    cost: { per: request }
+
+  - name: get_record
+    class: read
+    description: >-
+      Get one record of an sObject type by its id, with every field the person
+      can read, or only those listed in fields (comma-separated API names).
+    input:
+      type: object
+      additionalProperties: false
+      required: [sobject, record_id]
+      properties:
+        sobject: *sobject
+        record_id: &record_id
+          type: string
+          pattern: "^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$"
+          description: "Salesforce id of the record, 15 or 18 characters."
+        fields:
+          type: string
+          description: "Comma-separated API names of the fields to return: Id,FirstName,LastName,Email. Absent: every field."
+    examples:
+      - { title: A contact, input: { sobject: Contact, record_id: "003000000000001AAA" } }
+      - { title: An account's name and website, input: { sobject: Account, record_id: "001000000000001AAA", fields: "Id,Name,Website" } }
+    call: { method: GET, path: "/sobjects/{sobject}/{record_id}", query: { fields: fields } }
+    cost: { per: request }
+
+  - name: delete_record
+    class: sensitive
+    description: >-
+      Delete one record of an sObject type by its id. The record goes to the
+      Recycle Bin, with the records that cascade from it (an account's contacts
+      and opportunities), where an admin can restore it for a limited time.
+      Salesforce answers with no content.
+    input:
+      type: object
+      additionalProperties: false
+      required: [sobject, record_id]
+      properties:
+        sobject: *sobject
+        record_id: *record_id
+    examples:
+      - { title: Delete a lead, input: { sobject: Lead, record_id: "00Q000000000001AAA" } }
+    call: { method: DELETE, path: "/sobjects/{sobject}/{record_id}" }
+    cost: { per: request }
+    confirm:
+      summary: "Delete the {sobject} record {record_id}, with what cascades from it: to the Salesforce Recycle Bin."
+
+  # --- SOQL and SOSL ---------------------------------------------------------------
+
+  - name: query
+    class: read
+    description: >-
+      Run a SOQL query: {totalSize, done, records, nextRecordsUrl}. Example:
+      SELECT Id, Name FROM Account WHERE Industry = 'Technology'. At most 2,000
+      records per answer: while done is false, pass the last segment of
+      nextRecordsUrl (after /query/) to query_more. Field and sObject names
+      come from describe.
+    input:
+      type: object
+      additionalProperties: false
+      required: [soql]
+      properties:
+        soql:
+          type: string
+          minLength: 1
+          personal: true
+          description: "The SOQL statement: SELECT Id, Name FROM Account WHERE Industry = 'Technology'."
+    examples:
+      - { title: Technology accounts, input: { soql: "SELECT Id, Name FROM Account WHERE Industry = 'Technology'" } }
+      - { title: Open leads, input: { soql: "SELECT Id, Company, Status FROM Lead WHERE IsConverted = false LIMIT 50" } }
+    call: { method: GET, path: /query/, query: { q: soql } }
+    cost: { per: request }
+
+  - name: query_more
+    class: read
+    description: >-
+      The next records of a SOQL query: query_locator is the last segment of
+      the nextRecordsUrl of the previous answer (01gD0000002HU6KIAW-2000).
+      Same answer as query; continue while done is false.
+    input:
+      type: object
+      additionalProperties: false
+      required: [query_locator]
+      properties:
+        query_locator:
+          type: string
+          pattern: "^[A-Za-z0-9]+-[0-9]+$"
+          description: "The last segment of nextRecordsUrl, after /query/: 01gD0000002HU6KIAW-2000."
+    examples:
+      - { title: The next records, input: { query_locator: "01g000000000001AAA-2000" } }
+    call: { method: GET, path: "/query/{query_locator}" }
+    cost: { per: request }
+
+  - name: search
+    class: read
+    description: >-
+      Run a SOSL search across objects: FIND {Acme} IN ALL FIELDS RETURNING
+      Account(Id, Name), Contact(Id, Name, Email). Answers {searchRecords}.
+      A SOSL statement starts with FIND; a SELECT goes to query.
+    input:
+      type: object
+      additionalProperties: false
+      required: [sosl]
+      properties:
+        sosl:
+          type: string
+          minLength: 1
+          personal: true
+          description: "The SOSL statement: FIND {Acme} IN ALL FIELDS RETURNING Account(Id, Name)."
+    examples:
+      - { title: Accounts and contacts named Acme, input: { sosl: "FIND {Acme} IN ALL FIELDS RETURNING Account(Id, Name), Contact(Id, Name)" } }
+    call: { method: GET, path: /search/, query: { q: sosl } }
+    cost: { per: request }

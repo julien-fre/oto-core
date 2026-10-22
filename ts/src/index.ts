@@ -31,6 +31,7 @@ import * as notion from "./notion"
 import * as pappers from "./pappers"
 import * as pennylane from "./pennylane"
 import * as pennylaneFirm from "./pennylane_firm"
+import * as salesforce from "./salesforce"
 import * as sellsy from "./sellsy"
 import * as serper from "./serper"
 import * as sivan from "./sivan"
@@ -74,6 +75,7 @@ export { notion }
 export { pappers }
 export { pennylane }
 export { pennylaneFirm }
+export { salesforce }
 export { sellsy }
 export { serper }
 export { sivan }
@@ -120,6 +122,7 @@ export const connectors: readonly Connector[] = [
   pappers.connector,
   pennylane.connector,
   pennylaneFirm.connector,
+  salesforce.connector,
   sellsy.connector,
   serper.connector,
   sivan.connector,
