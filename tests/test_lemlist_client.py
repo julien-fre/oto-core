@@ -959,3 +959,50 @@ def test_list_tasks_envoie_toujours_filters(monkeypatch):
     c = lm.LemlistClient(api_key="k")
     c.list_tasks()
     assert captured["params"] == {"filters": "[]"}
+
+
+# ----------------------------------------------------------------------
+# Booléens en query : ce que lit lemlist, c'est l'URL que `requests` prépare,
+# pas le dict passé à `_request`. D'où une doublure au niveau du TRANSPORT
+# (`HTTPAdapter.send`), qui voit la requête préparée telle qu'elle partirait.
+# ----------------------------------------------------------------------
+
+def _sent_query(call):
+    """Fait un appel du client avec un transport doublé ; rend la query envoyée."""
+    from unittest.mock import patch
+    from urllib.parse import parse_qsl, urlsplit
+
+    import requests
+
+    sent = []
+
+    def send(adapter, request, **kw):
+        sent.append(request)
+        r = requests.Response()
+        r.status_code, r._content, r.request, r.url = 200, b"{}", request, request.url
+        return r
+
+    with patch.object(requests.adapters.HTTPAdapter, "send", send):
+        call(lm.LemlistClient(api_key="k"))
+    assert len(sent) == 1
+    return parse_qsl(urlsplit(sent[0].url).query, keep_blank_values=True)
+
+
+@pytest.mark.parametrize("value, sent", [(True, "true"), (False, "false")])
+def test_activities_is_first_leaves_lowercase_in_the_url(value, sent):
+    """`True`/`False` (majuscule Python) ne sont pas des booléens pour lemlist :
+    un filtre qu'on croit poser, ou lever, ne serait ni l'un ni l'autre."""
+    query = _sent_query(lambda c: c.get_activities(is_first=value))
+    assert ("isFirst", sent) in query
+    assert not [v for _, v in query if v in ("True", "False")]
+
+
+def test_contacts_not_in_any_campaign_leaves_lowercase_in_the_url():
+    query = _sent_query(lambda c: c.list_contacts(not_in_any_campaign=True))
+    assert query == [("notInAnyCampaign", "true")]
+
+
+def test_add_webhook_is_first_leaves_lowercase_in_the_url():
+    query = _sent_query(lambda c: c.add_webhook(
+        "https://example.com/hook", campaign_id="cam_1", is_first=True))
+    assert query == [("campaignId", "cam_1"), ("isFirst", "true")]
