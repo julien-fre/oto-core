@@ -1236,6 +1236,68 @@ export const getCampaignLeads = defineFunction({
   cost: { per: "request" },
 })
 
+export const createLead = defineFunction({
+  name: "lemlist.create_lead",
+  connector: "lemlist",
+  class: "sensitive",
+  act: true,
+  description: "Create a lead in a campaign, never updating one: the answer carries its _id (launch_lead, update_lead). Every field is optional for lemlist, though a lead without an email, a LinkedIn URL or a phone is reached by no step. Any key besides lemlist's fields is a custom variable of the lead, a text, used as {{name}} in the messages. In a campaign with auto review, the lead is launched and sent to; otherwise it waits for launch_lead. lemlist refuses a lead already in this campaign or, with deduplicate, in another one. The enrichment flags spend lemlist credits.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["campaign_id", "lead"],
+    "properties": {
+      "campaign_id": {"type": "string", "minLength": 1, "description": "Campaign id (cam_…)."},
+      "lead": {
+        "type": "object",
+        "additionalProperties": {"type": "string", "personal": true},
+        "description": "The lead, under lemlist's names; any other key is a custom variable, a text.",
+        "properties": {
+          "email": {"type": "string", "personal": true},
+          "firstName": {"type": "string", "personal": true},
+          "lastName": {"type": "string", "personal": true},
+          "companyName": {"type": "string"},
+          "jobTitle": {"type": "string"},
+          "linkedinUrl": {"type": "string", "personal": true, "description": "LinkedIn profile URL."},
+          "picture": {"type": "string", "personal": true, "description": "Address of a profile picture."},
+          "phone": {"type": "string", "personal": true},
+          "companyDomain": {"type": "string"},
+          "icebreaker": {"type": "string", "personal": true, "description": "A personalized opening line."},
+          "timezone": {"type": "string", "description": "The lead's IANA time zone: Europe/Paris."},
+          "contactOwner": {
+            "type": "string",
+            "personal": true,
+            "description": "The owner: a user id (usr_…) or a team member's login email."
+          }
+        }
+      },
+      "deduplicate": {
+        "const": true,
+        "description": "Skip the lead if its email is already in another campaign. Omit otherwise."
+      },
+      "linkedin_enrichment": {"const": true, "description": "Run the LinkedIn enrichment on the lead. Omit otherwise."},
+      "find_email": {"const": true, "description": "Find a verified email for the lead. Omit otherwise."},
+      "verify_email": {"const": true, "description": "Verify the lead's email. Omit otherwise."},
+      "find_phone": {"const": true, "description": "Find a phone number for the lead. Omit otherwise."}
+    }
+  },
+  examples: [
+    { title: "A lead with two custom variables", input: {"campaign_id": "cam_example1", "lead": {"email": "marie@example.test", "firstName": "Marie", "companyName": "Example", "posteRecrute": "Head of Sales", "ville": "Lyon"}} },
+    { title: "A LinkedIn-only lead, skipped if already elsewhere", input: {"campaign_id": "cam_example1", "lead": {"linkedinUrl": "https://www.example.test/in/marie", "firstName": "Marie"}, "deduplicate": true} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/campaigns/{campaign_id}/leads/",
+    pathParams: ["campaign_id"],
+    query: {"deduplicate": "deduplicate", "linkedinEnrichment": "linkedin_enrichment", "findEmail": "find_email", "verifyEmail": "verify_email", "findPhone": "find_phone"},
+    body: "lead",
+    headers: {},
+  },
+  cost: { per: "request" },
+  confirm: { summary: "Add a lead to lemlist campaign {campaign_id}: a campaign with auto review sends to it at once." },
+})
+
 export const updateLead = defineFunction({
   name: "lemlist.update_lead",
   connector: "lemlist",
@@ -2158,6 +2220,83 @@ export const getContact = defineFunction({
   cost: { per: "request" },
 })
 
+export const upsertContact = defineFunction({
+  name: "lemlist.upsert_contact",
+  connector: "lemlist",
+  class: "write",
+  act: true,
+  description: "Create or update a contact of the lemlist CRM, one route for both: matched by contactId (update only), email, linkedinUrl or linkedinUrlSalesNav, one of them at least. The fields left out keep their value. Any key besides lemlist's fields is a custom field of the CRM, a text, registered in the team's fields beforehand (list_fields). Nothing is sent to the contact.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["contact"],
+    "properties": {
+      "contact": {
+        "type": "object",
+        "additionalProperties": {"type": "string", "personal": true},
+        "description": "The contact, under lemlist's names; any other key is a custom field, a text.",
+        "properties": {
+          "contactId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Contact id (ctc_…): updates that contact, never creates one."
+          },
+          "email": {"type": "string", "personal": true},
+          "linkedinUrl": {"type": "string", "personal": true, "description": "LinkedIn profile URL."},
+          "linkedinUrlSalesNav": {"type": "string", "personal": true, "description": "Sales Navigator profile URL."},
+          "additionalEmails": {"type": "array", "items": {"type": "string", "personal": true}},
+          "firstName": {"type": "string", "personal": true},
+          "lastName": {"type": "string", "personal": true},
+          "phone": {"type": "string", "personal": true},
+          "jobTitle": {"type": "string"},
+          "jobDescription": {"type": "string"},
+          "picture": {"type": "string", "personal": true, "description": "Address of a profile picture."},
+          "timezone": {"type": "string"},
+          "industry": {"type": "string"},
+          "languages": {"type": "string"},
+          "location": {"type": "string"},
+          "skills": {"type": "string"},
+          "summary": {"type": "string"},
+          "tagline": {"type": "string"},
+          "peopleDbSeniority": {"type": "string"},
+          "peopleDbDepartment": {"type": "string"},
+          "peopleDbConnectionCount": {"type": "string"},
+          "contactOwner": {
+            "type": "string",
+            "personal": true,
+            "description": "The owner: a user id (usr_…) or a team member's email."
+          },
+          "source": {"type": "string", "description": "Origin of the record, on creation only (lemlist: api)."},
+          "companyId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Link to this company of lemlist (cpy_…), first choice."
+          },
+          "companyDomain": {"type": "string", "description": "Link to the company of lemlist with this domain."},
+          "companyLinkedinUrl": {"type": "string", "description": "Link to the company of lemlist with this LinkedIn URL."},
+          "crmId": {
+            "type": "string",
+            "description": "Id of the record in the connected CRM; a closed beta of lemlist, with an admin key."
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A contact with a custom field", input: {"contact": {"email": "marie@example.test", "firstName": "Marie", "lastName": "Martin", "jobTitle": "Head of Sales", "companyDomain": "example.test", "salon": "Lyon 2026"}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/contacts",
+    pathParams: [],
+    query: {},
+    body: "contact",
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
 export const deleteContact = defineFunction({
   name: "lemlist.delete_contact",
   connector: "lemlist",
@@ -2307,6 +2446,70 @@ export const listCompanies = defineFunction({
     pathParams: [],
     query: {"idsOrDomains": "ids_or_domains", "search": "search", "fields": "fields", "offset": "offset", "limit": "limit", "sortBy": "sort_by", "sortOrder": "sort_order", "crmSyncStatus": "crm_sync_status", "fieldRejectionReason": "field_rejection_reason"},
     body: {},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const upsertCompany = defineFunction({
+  name: "lemlist.upsert_company",
+  connector: "lemlist",
+  class: "write",
+  act: true,
+  description: "Create or update a company of the lemlist CRM, one route for both: matched by companyId (update only), domain, linkedinUrl or linkedinUrlSalesNav; without companyId, name and one of the three are needed. The fields left out keep their value. Any key besides lemlist's fields is a custom field of the CRM, a text, registered in the team's fields beforehand (list_fields).",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["company"],
+    "properties": {
+      "company": {
+        "type": "object",
+        "additionalProperties": {"type": "string", "personal": true},
+        "description": "The company, under lemlist's names; any other key is a custom field, a text.",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Company id (cpy_…): updates that company, never creates one."
+          },
+          "name": {"type": "string"},
+          "domain": {"type": "string", "description": "Website domain; a mail provider or a platform host is not kept."},
+          "linkedinUrl": {"type": "string", "description": "LinkedIn company page."},
+          "linkedinUrlSalesNav": {"type": "string", "description": "Sales Navigator company page."},
+          "companyOwner": {
+            "type": "string",
+            "personal": true,
+            "description": "The owner: a user id (usr_…) or a team member's email."
+          },
+          "industry": {"type": "string"},
+          "location": {"type": "string"},
+          "size": {"type": "string"},
+          "specialties": {"type": "string"},
+          "tagline": {"type": "string"},
+          "type": {"type": "string"},
+          "description": {"type": "string"},
+          "foundedOn": {"type": "string"},
+          "headquarters": {"type": "string"},
+          "picture": {"type": "string", "description": "Address of the logo."},
+          "source": {"type": "string", "description": "Origin of the record, on creation only (lemlist: api)."},
+          "crmId": {
+            "type": "string",
+            "description": "Id of the record in the connected CRM; a closed beta of lemlist, with an admin key."
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A company with a custom field", input: {"company": {"name": "Example", "domain": "example.test", "industry": "Software", "segment": "Mid-market"}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/companies",
+    pathParams: [],
+    query: {},
+    body: "company",
     headers: {},
   },
   cost: { per: "request" },
@@ -4300,7 +4503,7 @@ export const connector = defineConnector({
   name: "lemlist",
   label: "lemlist",
   namespace: "lemlist",
-  version: "1.1.0",
+  version: "1.2.0",
   apiVersion: "v1 and v2 routes",
   baseUrl: "https://api.lemlist.com/api",
   auth: {"kind": "basic", "password": "api_key"},
@@ -4347,6 +4550,7 @@ export const connector = defineConnector({
     getLead,
     getLeadByEmail,
     getCampaignLeads,
+    createLead,
     updateLead,
     pauseLead,
     resumeLead,
@@ -4374,11 +4578,13 @@ export const connector = defineConnector({
     resubscribeContact,
     listContacts,
     getContact,
+    upsertContact,
     deleteContact,
     listContactLists,
     createContactList,
     manageContactList,
     listCompanies,
+    upsertCompany,
     deleteCompany,
     getCompanyNotes,
     createCompanyNote,
