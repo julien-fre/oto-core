@@ -19,6 +19,7 @@ irreversible and outside this connector's scope.
 from __future__ import annotations
 
 import base64
+import re
 from typing import Any, Dict, Optional
 
 from ..const import (DEFAULT_ACCEPT, ORG_REPO_TYPES, REPO_SORTS, REPO_TYPES,
@@ -121,6 +122,34 @@ class _ReposMixin:
     def get_branch(self, owner: str, repo: str, branch: str) -> Any:
         """GET /repos/{owner}/{repo}/branches/{branch} — a branch and its HEAD."""
         return self._request("GET", f"/repos/{owner}/{repo}/branches/{branch}")
+
+    def create_branch(self, owner: str, repo: str, branch: str,
+                      from_ref: Optional[str] = None) -> Any:
+        """POST /repos/{owner}/{repo}/git/refs — a new branch, from `from_ref`.
+
+        `from_ref` is a branch name or a full commit SHA; omitted = the
+        repository's default branch, read from its profile. A branch name is
+        resolved to its HEAD SHA first: `git/refs` only takes a SHA.
+
+        This is what makes a pull request reachable without a shell: files
+        written with `create_or_update_file(branch=…)` land on the new branch,
+        then `create_pull(head=branch)`. The contents API refuses to write to a
+        branch that does not exist.
+
+        ⚠️ An existing branch is **refused with 422** ("Reference already
+        exists"), never moved: overwriting someone's branch is not a side effect
+        this call may have.
+        """
+        if not branch or branch.startswith("refs/"):
+            raise ValueError(
+                "`branch` required, as a plain name (`fix/x`), not `refs/heads/…`.")
+        if from_ref is None:
+            from_ref = self.get_repo(owner, repo)["default_branch"]
+        sha = from_ref
+        if not re.fullmatch(r"[0-9a-f]{40}", from_ref):
+            sha = self.get_branch(owner, repo, from_ref)["commit"]["sha"]
+        return self._request("POST", f"/repos/{owner}/{repo}/git/refs",
+                             json={"ref": f"refs/heads/{branch}", "sha": sha})
 
     def list_commits(self, owner: str, repo: str, sha: Optional[str] = None,
                      path: Optional[str] = None, author: Optional[str] = None,

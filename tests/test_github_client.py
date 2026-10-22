@@ -575,3 +575,41 @@ def test_none_retire_booleens_et_listes(cli):
     assert "a" not in got
     assert got["b"] == "true" and got["c"] == "false"
     assert got["labels"] == "x,y" and got["d"] == 3
+
+
+# --- branches ----------------------------------------------------------------
+
+def _repondeur(monkeypatch, reponses):
+    seen = []
+
+    def fake(self, method, url, **kwargs):
+        seen.append((method, url, kwargs.get("json")))
+        for (m, suffixe), body in reponses.items():
+            if m == method and url.endswith(suffixe):
+                return _Resp(201 if m == "POST" else 200, body)
+        raise AssertionError(f"appel inattendu {method} {url}")
+
+    monkeypatch.setattr(gh.requests.Session, "request", fake)
+    return seen
+
+
+def test_branche_depuis_la_branche_par_defaut(cli, monkeypatch):
+    seen = _repondeur(monkeypatch, {
+        ("GET", "/repos/octo/hello"): {"default_branch": "main"},
+        ("GET", "/branches/main"): {"commit": {"sha": "a" * 40}},
+        ("POST", "/git/refs"): {"ref": "refs/heads/fix/x"},
+    })
+    cli.create_branch("octo", "hello", "fix/x")
+    assert seen[-1] == ("POST", "https://api.github.com/repos/octo/hello/git/refs",
+                        {"ref": "refs/heads/fix/x", "sha": "a" * 40})
+
+
+def test_branche_depuis_un_sha_sans_lecture(cli, monkeypatch):
+    seen = _repondeur(monkeypatch, {("POST", "/git/refs"): {}})
+    cli.create_branch("octo", "hello", "fix/x", from_ref="b" * 40)
+    assert len(seen) == 1 and seen[0][2]["sha"] == "b" * 40
+
+
+def test_branche_refuse_un_nom_de_ref_complet(cli):
+    with pytest.raises(ValueError, match="plain name"):
+        cli.create_branch("octo", "hello", "refs/heads/fix/x")
