@@ -1325,6 +1325,44 @@ def test_a_json_file_is_neither_asynchronous_nor_a_collect(role, message):
         check(description, AMPLITUDE)
 
 
+@pytest.mark.parametrize("changes", [{}, {"from": "json", "path": None, "types": None,
+                                          "name": {"template": "estimate-{id}.json"}}], ids=["url", "json"])
+def test_a_background_function_renders_a_file(changes):
+    """Règle 17 : une fonction longue (règle 21) rend un fichier, qui vient du même appel ; ni la table Python ni le
+    fichier rendu n'en disent rien de plus."""
+    description = _load(SELLSY)
+    function = _rendered(description, **changes)
+    function.update(background=True, timeout_s=120)
+    checked = check(description, SELLSY)
+    source = function_source("sellsy", _get_estimate(checked.data))
+    assert "  timeoutMs: 120000,\n  background: true,\n" in source
+    assert "  output: { file: { from: " in source
+    entry = python.declared([checked])["sellsy"]["get_estimate"]
+    assert "background" not in entry and entry["timeout_s"] == 120 and "file" in entry
+
+
+@pytest.mark.parametrize("role, message", [
+    ("request_cohort_download", "function request_cohort_download: background: background_async"),
+    ("get_cohort_download_status", "function get_cohort_download_status: background: background_collect"),
+], ids=["asynchronous", "collect"])
+def test_a_background_file_is_still_neither_asynchronous_nor_a_collect(role, message):
+    """Règle 17 : `background` n'ouvre pas le fichier rendu à une fonction asynchrone ni à sa relève, que la règle 21
+    refuse d'abord."""
+    description = _load(AMPLITUDE)
+    function = _fn(description, role)
+    argument = function["input"]["required"][0] if function["input"].get("required") else None
+    template = f"cohort-{{{argument}}}.json" if argument else "cohort.json"
+    function["output"] = {"file": {"from": "json", "name": {"template": template}}}
+    function.update(background=True, timeout_s=120)
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, AMPLITUDE)
+
+
+def test_a_function_without_background_carries_none():
+    source = function_source("sellsy", _get_estimate(_load(SELLSY)))
+    assert "background" not in source
+
+
 def test_a_paginated_function_renders_no_json_file():
     description = _load(SELLSY)
     description["functions"][0]["output"] = {"file": {"from": "json", "name": {"template": "estimates.json"}}}

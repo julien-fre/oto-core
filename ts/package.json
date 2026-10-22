@@ -23,7 +23,8 @@
     "./strip-cases": "./src/strip-cases.ts",
     "./auth-cases": "./src/auth-cases.ts",
     "./error-cases": "./src/error-cases.ts",
-    "./body-cases": "./src/body-cases.ts"
+    "./body-cases": "./src/body-cases.ts",
+    "./background-cases": "./src/background-cases.ts"
   },
   "files": [
     "src",

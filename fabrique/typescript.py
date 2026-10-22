@@ -189,6 +189,8 @@ def function_definition(connector: str, function: dict) -> str:
     entries.append(("request", _request(function["call"])))
     if "timeout_s" in function:
         entries.append(("timeoutMs", js(function["timeout_s"] * 1000)))
+    if function.get("background") is True:
+        entries.append(("background", "true"))
     if "async" in function:
         entries.append(("async", _async(connector, function["async"])))
     if "pagination" in function:

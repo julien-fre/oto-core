@@ -1,0 +1,269 @@
+# Common cases of the long function: `background: true` on a function, which the host runs in the background, outside
+# the request of the assistant, answering at once with a job id that its native function `job.read` reads; the final
+# answer is that of the synchronous call. Semantics: docs/conception/format-de-description.md, « Fonction longue »
+# (rule 21 of the fabrique).
+#
+# Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the accepted
+# functions into one description, checked with the schema and the rules of every description (rule 21 included), then
+# converts it as it converts a description: ts/src/background-cases.ts for the host package
+# (`@otomata_tech/connectors/background-cases`), whose `registerConnectors` declares the accepted functions and refuses
+# the others with the same code. tests/test_background_cases.py plays them against the fabrique: the Python lib calls a
+# long function synchronously, as any other.
+#
+# An accepted function (`accepted`): `background: true`, its own `timeout_s`, and anything else a function may declare
+# with it: any class, `act` either way, `confirm` (judged before the job is queued), `cost` with `settle` (read in the
+# final answer), `output.file` (rule 17: the file comes from the same call), `call.files`, a delay shorter or longer
+# than the connector's.
+#
+# A refused function (`refused`): a function bearing `background: true`, valid against the description schema, that
+# rule 21 refuses with this code, and no other rule; `beside` lists the functions of the connector it needs (the
+# collect of an asynchronous job, the submission whose collect it is). Without `background`, the same functions are
+# accepted. The codes, the same on both sides (ts/src/background-cases.ts), in the order they are judged:
+# background_no_timeout, background_async, background_collect, background_paginated.
+connector:
+  name: background_cases
+  label: Background cases
+  namespace: background_cases
+  version: 1.0.0
+  api_version: v1
+  base_url: https://api.example.test/v1
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  modes: [byo_org]
+  errors:
+    - { status: 429, code: rate_limited, retryable: true, message: "Rate limit reached: retry later." }
+
+accepted:
+  # --- A read that sends a file and renders a JSON file, settled on its final answer --------------------------------
+  - name: transcription_renders_a_json_file
+    function:
+      name: transcribe_audio
+      class: read
+      description: >-
+        Transcribe an audio file of yours into a JSON file of yours, kept 24 hours: the answer gives its file id.
+      input:
+        type: object
+        additionalProperties: false
+        required: [file]
+        properties:
+          file: { type: string, description: "Id of a transit file of yours: the audio to transcribe." }
+          language: { type: string, pattern: "^[a-z]{2}$" }
+      examples: [{ title: One recording, input: { file: 0b6f5c1e-8d0a-4c4e-9f0e-2a1b3c4d5e6f } }]
+      call:
+        method: POST
+        path: /audio/transcriptions
+        body: { language: language }
+        files: { file: file }
+      timeout_s: 300
+      background: true
+      cost: { per: request, unit: seconds, settle: { path: usage.audio_seconds } }
+      output:
+        file:
+          from: json
+          name: { template: transcription.json }
+
+  # --- A write that renders a file at an address, longer than the connector's delay ---------------------------------
+  - name: export_renders_a_downloaded_file
+    function:
+      name: export_report
+      class: write
+      description: Build the report of one period as a CSV file of yours, kept 24 hours; never a link.
+      input:
+        type: object
+        additionalProperties: false
+        required: [period]
+        properties:
+          period: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }
+      examples: [{ title: One month, input: { period: "2026-09" } }]
+      call: { method: POST, path: /reports, body: { period: period } }
+      timeout_s: 120
+      background: true
+      output:
+        file:
+          from: url
+          path: report.url
+          types: { csv: [text/csv] }
+          name: { template: "report-{period}.csv" }
+
+  # --- A sensitive function: its summary is confirmed before the job is queued ----------------------------------------
+  - name: sensitive_confirmed_before_queuing
+    function:
+      name: purge_archive
+      class: sensitive
+      description: Delete one archive and everything in it, for good.
+      input:
+        type: object
+        additionalProperties: false
+        required: [archive_id]
+        properties:
+          archive_id: { type: string, minLength: 1 }
+      examples: [{ title: One archive, input: { archive_id: arc-1 } }]
+      refusals:
+        - { code: archive_not_found, when: 404, message: "No archive with this id." }
+      call: { method: DELETE, path: "/archives/{archive_id}" }
+      timeout_s: 240
+      background: true
+      confirm: { summary: "Purge archive {archive_id} and everything in it: irreversible." }
+
+  # --- A preparation (act: false), shorter than the connector's delay ------------------------------------------------
+  - name: preparation_shorter_than_the_connector
+    function:
+      name: draft_campaign
+      class: write
+      act: false
+      description: Draft a campaign from a brief; nothing is sent.
+      input:
+        type: object
+        additionalProperties: false
+        required: [brief]
+        properties:
+          brief: { type: string, minLength: 1, maxLength: 2000 }
+      examples: [{ title: One brief, input: { brief: A spring offer for returning customers. } }]
+      call: { method: POST, path: /campaigns/drafts, body: { brief: brief } }
+      timeout_s: 10
+      background: true
+
+  # --- A batch whose cost is counted per item and settled on the final answer ---------------------------------------
+  - name: batch_settled_on_the_final_answer
+    function:
+      name: enrich_contacts
+      class: write
+      description: Enrich a list of contacts with their professional email.
+      input:
+        type: object
+        additionalProperties: false
+        required: [contacts]
+        properties:
+          contacts:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              type: object
+              additionalProperties: false
+              required: [name, domain]
+              properties:
+                name: { type: string, personal: true }
+                domain: { type: string }
+      examples: [{ title: One contact, input: { contacts: [{ name: Ada Example, domain: example.test }] } }]
+      call: { method: POST, path: /enrichments, body: { contacts: contacts } }
+      timeout_s: 180
+      background: true
+      cost: { per: item, items: contacts, unit: credits, settle: { path: credits_used } }
+
+refused:
+  # --- background_no_timeout: the connector's delay does not count ----------------------------------------------------
+  - name: without_its_own_timeout
+    function:
+      name: summarize_document
+      class: read
+      description: Summarize one document.
+      input:
+        type: object
+        additionalProperties: false
+        required: [document_id]
+        properties:
+          document_id: { type: string }
+      examples: [{ title: One document, input: { document_id: doc-1 } }]
+      call: { method: POST, path: "/documents/{document_id}/summary" }
+      background: true
+    beside: []
+    refusal: background_no_timeout
+
+  - name: paginated_without_its_own_timeout
+    function: &list_documents
+      name: list_documents
+      class: read
+      description: List the documents, newest first.
+      input:
+        type: object
+        additionalProperties: false
+        properties:
+          cursor: { type: string }
+      examples: [{ title: First page, input: {} }]
+      call: { method: GET, path: /documents, query: { cursor: cursor } }
+      pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 5 }
+      background: true
+    beside: []
+    refusal: background_no_timeout
+
+  # --- background_async: a job the vendor holds has its collect -------------------------------------------------------
+  - name: asynchronous_submission
+    function:
+      name: submit_job
+      class: read
+      description: Submit a conversion job; its result is read by get_job.
+      input:
+        type: object
+        additionalProperties: false
+        required: [source]
+        properties:
+          source: { type: string }
+      examples: [{ title: One source, input: { source: src-1 } }]
+      call: { method: POST, path: /jobs, body: { source: source } }
+      async: { collect: get_job, job_id: { from: id, to: job_id } }
+      timeout_s: 60
+      background: true
+    beside:
+      - &get_job
+        name: get_job
+        class: read
+        description: Get the state and result of one conversion job.
+        input:
+          type: object
+          additionalProperties: false
+          required: [job_id]
+          properties:
+            job_id: { type: string }
+        examples: [{ title: One job, input: { job_id: job-1 } }]
+        call: { method: GET, path: "/jobs/{job_id}" }
+    refusal: background_async
+
+  - name: asynchronous_and_paginated
+    function:
+      name: submit_listing
+      class: read
+      description: Submit a listing job, page by page; its result is read by get_job.
+      input:
+        type: object
+        additionalProperties: false
+        properties:
+          cursor: { type: string }
+      examples: [{ title: First page, input: {} }]
+      call: { method: POST, path: /listings, body: { cursor: cursor } }
+      pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 5 }
+      async: { collect: get_job, job_id: { from: id, to: job_id } }
+      timeout_s: 60
+      background: true
+    beside: [*get_job]
+    refusal: background_async
+
+  # --- background_collect: the collect of a job answers at once -------------------------------------------------------
+  - name: collect_of_an_asynchronous_job
+    function:
+      <<: *get_job
+      timeout_s: 60
+      background: true
+    beside:
+      - name: submit_job
+        class: read
+        description: Submit a conversion job; its result is read by get_job.
+        input:
+          type: object
+          additionalProperties: false
+          required: [source]
+          properties:
+            source: { type: string }
+        examples: [{ title: One source, input: { source: src-1 } }]
+        call: { method: POST, path: /jobs, body: { source: source } }
+        async: { collect: get_job, job_id: { from: id, to: job_id } }
+    refusal: background_collect
+
+  # --- background_paginated: one call, one answer ---------------------------------------------------------------------
+  - name: paginated_read
+    function:
+      <<: *list_documents
+      timeout_s: 60
+    beside: []
+    refusal: background_paginated

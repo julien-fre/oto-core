@@ -720,6 +720,10 @@
           },
           "not": { "required": ["within_s", "no_deadline"] }
         },
+        "background": {
+          "description": "The vendor answers in minutes: the host runs the function in the background, outside the request of the assistant, and answers at once with a job id, read by its native function job.read; the final answer is that of the synchronous call (data, rendered file, refusal). The function declares its own timeout_s, the delay of the call itself, queue not included; never with async, on the collect of an asynchronous job, nor paginated (rule 21 of the fabrique). The description never tells the job id: the host adds it to the text it serves.",
+          "const": true
+        },
         "scopes": {
           "description": "Only in a connector with access levels, where it is required: the scopes this function requires, all of them. It is served at a level when each is a scope of the level or implied by one. class stays: it says what the function does.",
           "$ref": "#/$defs/scope_list"

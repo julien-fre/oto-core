@@ -637,6 +637,21 @@ def test_invalid_function_timeout_is_rejected(value):
         _validate(description)
 
 
+def test_background_base_is_valid():
+    """`background` ne vaut que `true` ; son délai propre et ses exclusions sont la règle 21 de la fabrique."""
+    description = _sellsy()
+    description["functions"][1]["background"] = True
+    _validate(description)
+
+
+@pytest.mark.parametrize("value", [False, "true", 1, None], ids=["false", "text", "number", "null"])
+def test_invalid_background_is_rejected(value):
+    description = _sellsy()
+    description["functions"][1]["background"] = value
+    with pytest.raises(ValidationError):
+        _validate(description)
+
+
 def test_connector_timeout_has_the_same_bounds():
     description = _sellsy()
     description["connector"]["timeout_s"] = 300

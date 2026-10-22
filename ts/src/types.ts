@@ -411,6 +411,15 @@ export type ConnectorFunction = {
    * (chaque page d'une lecture paginée), plus court ou plus long, jamais égal. Absent : celui du connecteur.
    */
   readonly timeoutMs?: number
+  /**
+   * Fonction longue : l'hôte l'exécute hors de la requête de l'assistant, en tâche de fond, et rend aussitôt un
+   * identifiant de travail, que relève sa fonction native `job.read` ; la réponse finale est celle qu'aurait rendue
+   * l'appel synchrone (données, fichier rendu, refus). La phrase sur l'identifiant de travail est de l'hôte, jamais de
+   * `description`. Toujours avec `timeoutMs`, le délai de l'appel lui-même, file non comprise ; jamais avec `async`, sur
+   * la relève d'un travail asynchrone ni avec `pagination` (règle 21 de la fabrique). `confirm` se juge avant la mise en
+   * file ; le coût se règle à la fin du travail, `cost.settle` lu sur la réponse finale. Absent : un appel synchrone.
+   */
+  readonly background?: true
   /** Présent pour une fonction qui soumet un travail relevé plus tard (`AsyncJob`). */
   readonly async?: AsyncJob
   readonly pagination?: Pagination

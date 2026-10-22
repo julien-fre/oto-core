@@ -102,7 +102,8 @@ pas dire :
    nom est le gabarit seul, qui finit par `.json` (`file_json_name`) ; `max_bytes` va jusqu'à 4 Mo, 4 194 304
    octets, le défaut (`file_json_max_bytes`). Les codes sont ceux des cas communs (`connectors/_cases/file.yaml`),
    jugés avant les autres refus de la règle, dans cet ordre. La forme (extensions, types MIME sans paramètre,
-   `max_bytes` de 1 octet à 50 Mo, `types` exigé hors `from: json`) est celle du schéma ;
+   `max_bytes` de 1 octet à 50 Mo, `types` exigé hors `from: json`) est celle du schéma. Une fonction longue
+   (`background`, règle 21) rend un fichier comme un appel synchrone : le fichier vient du même appel ;
 18. retirer de la sortie (`output.strip`) : chaque entrée est un chemin, des clés non vides séparées par des points
    (`strip_path_malformed`), déclaré une fois (`strip_path_twice`), jamais sous un autre chemin de la liste, qui le
    retire déjà en entier (`strip_path_overlaps`). Le schéma dit déjà la forme et le doublon ; la règle les redit
@@ -123,7 +124,14 @@ pas dire :
    `encode` ne le nomme pas (`body_argument_encoded`) ; rien d'autre n'entre au corps, ni constante de corps ni
    partie fichier (`body_argument_not_alone`) ; la fonction n'est pas paginée (`body_argument_paginated`). Ce que
    l'hôte envoie est l'objet validé, tel quel, en JSON. Les codes sont ceux des cas communs
-   (`connectors/_cases/body.yaml`).
+   (`connectors/_cases/body.yaml`) ;
+21. la fonction longue (`background: true`, que l'hôte exécute en tâche de fond et dont il rend aussitôt un identifiant
+   de travail) : elle déclare son propre délai, `timeout_s`, celui de l'appel lui-même, file non comprise
+   (`background_no_timeout` ; la règle 11 vaut telle quelle) ; elle n'est pas asynchrone (`background_async` : un
+   travail que tient le tiers a sa relève) ; elle n'est la relève d'aucun travail asynchrone (`background_collect`) ;
+   elle n'est pas paginée (`background_paginated`). Les codes sont ceux des cas communs
+   (`connectors/_cases/background.yaml`), jugés dans cet ordre ; `class`, `act`, `confirm`, `cost` et `output.file` ne
+   changent pas.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -215,6 +223,28 @@ def body_argument_refusal(function: dict) -> tuple[str, str] | None:
         return ("body_argument_not_alone", "is the whole body: no body constant nor file part joins it")
     if "pagination" in function:
         return ("body_argument_paginated", "a function whose body is one argument is not paginated")
+    return None
+
+
+# Les refus de la règle 21, les mêmes des deux côtés (cas communs `connectors/_cases/background.yaml`), dans l'ordre où
+# ils se jugent.
+BACKGROUND_REFUSALS = ("background_no_timeout", "background_async", "background_collect", "background_paginated")
+
+
+def background_refusal(function: dict, functions: list[dict]) -> tuple[str, str] | None:
+    """Le premier défaut d'une fonction longue (`background: true`), `(code, raison)`, ou `None` : la règle 21, parmi les
+    fonctions de son connecteur (une relève se lit sur la fonction qui soumet), que les cas communs rejouent."""
+    if function.get("background") is not True:
+        return None
+    if "timeout_s" not in function:
+        return ("background_no_timeout", "declares its own timeout_s, the delay of the call itself, queue not included")
+    if "async" in function:
+        return ("background_async", "is not asynchronous: a job the vendor holds has its collect, the host holds none")
+    submitter = next((f["name"] for f in functions if (f.get("async") or {}).get("collect") == function["name"]), None)
+    if submitter is not None:
+        return ("background_collect", f"collects the asynchronous job of {submitter!r}, which the vendor holds")
+    if "pagination" in function:
+        return ("background_paginated", "is not paginated: one call, one answer")
     return None
 
 
@@ -389,6 +419,14 @@ def check_timeout(connector: dict, function: dict, where: str) -> None:
         raise DescriptionError(
             f"{where}: function {function['name']}: timeout_s {own} is the connector's timeout: declare none"
         )
+
+
+def check_background(data: dict, function: dict, where: str) -> None:
+    """Règle 21 : une fonction longue a son propre délai, et n'est ni asynchrone, ni une relève, ni paginée."""
+    refusal = background_refusal(function, data["functions"])
+    if refusal is not None:
+        code, reason = refusal
+        raise DescriptionError(f"{where}: function {function['name']}: background: {code}: {reason}")
 
 
 def _check_cost_list(function: dict, key: str, where: str) -> None:
@@ -1102,6 +1140,7 @@ def check_rules(data: dict, where: str) -> None:
         check_checks(function, where)
         check_act(function, where)
         check_timeout(data["connector"], function, where)
+        check_background(data, function, where)
         check_cost(function, where)
         check_async(data, function, where)
         check_files(function, where)
