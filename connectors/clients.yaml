@@ -118,7 +118,6 @@ without_description:
   lusha: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   make: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   minari: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  mistral: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   monid: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   n8n: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   onet: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }

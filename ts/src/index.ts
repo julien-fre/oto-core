@@ -22,6 +22,7 @@ import * as malibou from "./malibou"
 import * as metaAds from "./meta_ads"
 import * as microsoft from "./microsoft"
 import * as microsoftApp from "./microsoft_app"
+import * as mistral from "./mistral"
 import * as modjo from "./modjo"
 import * as mux from "./mux"
 import * as nextmotion from "./nextmotion"
@@ -61,6 +62,7 @@ export { malibou }
 export { metaAds }
 export { microsoft }
 export { microsoftApp }
+export { mistral }
 export { modjo }
 export { mux }
 export { nextmotion }
@@ -103,6 +105,7 @@ export const connectors: readonly Connector[] = [
   metaAds.connector,
   microsoft.connector,
   microsoftApp.connector,
+  mistral.connector,
   modjo.connector,
   mux.connector,
   nextmotion.connector,
