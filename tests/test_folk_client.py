@@ -211,6 +211,31 @@ def test_relation_filter_wire_forms_146():
         folk_client.filter_params({"companies": {"not_in": {"id": "cpy_7"}}})
 
 
+def test_deals_filtered_by_person_use_the_relation_form():
+    """`people` d'un objet (deal) est une relation : `filter[people][in][id]`, jamais
+    `[like]`, que folk n'admet pas sur ce champ (doc filtering, §objects)."""
+    assert folk_client.filter_params({"people": "per_A"}) == {"filter[people][in][id]": "per_A"}
+    assert folk_client.filter_params({"people": {"not_in": ["per_A", "per_B"]}}) == {
+        "filter[people][not_in][id]": ["per_A", "per_B"]}
+    with pytest.raises(ValueError, match="not an object"):
+        folk_client.filter_params({"people": {"in": {"id": "per_A"}}})
+
+
+def test_list_deals_by_person_hits_the_right_query(monkeypatch):
+    seen = {}
+
+    def fake_request(method, url, headers=None, **kwargs):
+        seen["url"], seen["params"] = url, kwargs.get("params")
+        return _Resp({"data": {"items": [{"id": "obj_1"}], "pagination": {}}})
+
+    monkeypatch.setattr(folk_client.requests, "request", fake_request)
+    c = FolkClient(api_key="k", field_filter=_Stub(), min_interval_s=0)
+    assert c.list_deals("grp_1", people="per_42") == [{"id": "obj_1"}]
+    assert seen["url"] == f"{BASE}/groups/grp_1/deals"
+    assert seen["params"]["filter[people][in][id]"] == "per_42"
+    assert "filter[people][like]" not in seen["params"]
+
+
 def test_no_filters_no_params():
     assert folk_client.filter_params({}) == {} and folk_client.filter_params(None) == {}
 

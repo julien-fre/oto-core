@@ -21,8 +21,9 @@
 #
 # Filters. list_people, list_companies and list_deals take, as named arguments, the fields the client filters with a
 # bare value: text fields as filter[<field>][like] (contains), groups and companies as filter[<field>][in][id] (the
-# record belongs to that group or company). The client's other forms ({operator: value}, a list of ids) and the task
-# filters (a dict whose keys name the field and the operator) are left to the client.
+# record belongs to that group or company). The client's other forms ({operator: value}, a list of ids), the people of
+# a deal (filter[people][in][id], a relation as well) and the task filters (a dict whose keys name the field and the
+# operator) are left to the client.
 #
 # Folk's forms. Five methods take the bare id of a person or company (entity_id) and send it as the object
 # entity: {id}; create_deal takes people_ids and company_ids and sends people: [{id}] and companies: [{id}]. Their
@@ -64,7 +65,7 @@ connector:
   name: folk
   label: folk
   namespace: folk
-  version: 1.0.0
+  version: 1.0.1
   api_version: v1 (OpenAPI 2025-06-09)
   base_url: https://api.folk.app/v1
   auth: { kind: bearer, token: api_key }

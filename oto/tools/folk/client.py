@@ -18,7 +18,11 @@ from .pacing import DEFAULT_MIN_INTERVAL_S, SHARED_PACER, FolkPacer
 # the id: `filter[groups][in][id]=grp_…` (verified live on 2026-08-03, doc
 # developer.folk.app §list-people). As long as the client wrapped EVERY filter in
 # `[like]`, listing a group's members was impossible (signal #260).
-RELATION_FIELDS = frozenset({"groups", "companies"})
+# `people` is the relation of an OBJECT (a deal) to the people linked to it:
+# `filter[people][in][id]=per_…`, operators `all`/`in`/`not_in`/`empty`/`not_empty`
+# only (doc developer.folk.app/api-reference/filtering §Filterable fields for
+# objects) — in `[like]`, a deal filter by person matched nothing.
+RELATION_FIELDS = frozenset({"groups", "companies", "people"})
 RELATION_OPS = frozenset({"in", "not_in"})
 
 # `empty`/`not_empty` are predicates without an operand: Folk wants them with an
