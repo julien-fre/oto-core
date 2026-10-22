@@ -17,7 +17,8 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from fabrique import body_cases
-from fabrique.descriptions import BODY_REFUSALS, DescriptionError, body_argument_refusal, check_rules
+from fabrique.descriptions import (BODY_REFUSALS, DescriptionError, _personal_marks, body_argument_refusal,
+                                   check_personal, check_rules, free_text_keys, strict_object)
 
 LOADED = body_cases.load()
 FUNCTIONS = {function["name"]: function for function in LOADED.description.data["functions"]}
@@ -83,3 +84,59 @@ def test_typescript_carries_the_argument_name_as_the_body():
     assert '    body: "lead",\n' in source
     assert 'export const refusedFreeBag = defineFunction({' in source
     assert "export const bodyRefusedFunctions: readonly BodyRefusedFunction[]" in source
+
+
+# --- Les clés libres en texte, à la racine de l'argument du corps entier (décidé par Alexis le 2026-10-22) ----------
+
+def _contact() -> dict:
+    return copy.deepcopy(FUNCTIONS["upsert_contact"]["input"]["properties"]["contact"])
+
+
+def test_free_text_keys_make_a_strict_object():
+    assert free_text_keys({"type": "string", "personal": True})
+    assert strict_object(_contact())
+    assert body_argument_refusal(FUNCTIONS["upsert_contact"]) is None
+
+
+# Ce que les cas communs ne peuvent pas porter, le schéma des descriptions les refusant avant la règle 20 (un nombre),
+# ou ce que `==` confondrait (`personal: 1`, `type: ["string"]`) : jugé ici, sur la règle seule.
+@pytest.mark.parametrize("additional", [
+    True, None, 0, 1, "string", [], {}, {"type": "string"}, {"personal": True}, {"type": "string", "personal": 1},
+    {"type": "string", "personal": "true"}, {"type": ["string"], "personal": True}, {"type": "integer", "personal": True},
+    {"type": "string", "personal": True, "maxLength": 100}, {"type": "string", "personal": True, "description": "A field."},
+], ids=["true", "absent", "zero", "one", "a_text", "a_list", "empty_schema", "not_personal", "untyped", "personal_one",
+        "personal_text", "type_list", "integer", "max_length", "description"])
+def test_any_other_free_keys_are_not_strict(additional):
+    assert not free_text_keys(additional)
+    contact = _contact()
+    if additional is None:
+        del contact["additionalProperties"]
+    else:
+        contact["additionalProperties"] = additional
+    assert not strict_object(contact)
+
+
+def test_free_text_keys_hold_at_the_root_of_the_argument_only():
+    """Ailleurs dans l'objet, une table garde sa forme libre, comme avant (`variables` de `create_lead`) ; la règle ne
+    juge que la racine de l'argument, et un objet imbriqué n'y gagne ni n'y perd rien."""
+    contact = _contact()
+    contact["properties"]["address"] = {"type": "object", "additionalProperties": {"type": "integer"}}
+    assert strict_object(contact)
+    nested_only = _contact()
+    nested_only["additionalProperties"] = False
+    nested_only["properties"]["fields"] = {"type": "object", "additionalProperties": {"type": "string", "personal": True}}
+    assert strict_object(nested_only)
+
+
+def test_free_text_keys_are_marked_personal_by_rule_15():
+    """La marque des clés libres est une marque de la règle 15, à sa place dans l'entrée : acceptée, et trouvée là."""
+    function = FUNCTIONS["upsert_contact"]
+    check_personal(function, "connectors/_cases/body.yaml")
+    marks = dict(_personal_marks(function["input"], "input"))
+    assert marks == {"input.properties.contact.additionalProperties": True,
+                     "input.properties.contact.properties.email": True}
+
+
+def test_free_text_keys_go_out_as_they_are_in_typescript():
+    source = body_cases.typescript_source(LOADED)
+    assert '        "additionalProperties": {"type": "string", "personal": true},\n' in source

@@ -1,6 +1,7 @@
 # Common cases of the whole body: `call.body` that names one input argument, a strict object, instead of a map, with the
 # semantics of docs/conception/format-de-description.md, « Le bloc functions », « Le corps entier » (rule 20 of the
-# fabrique).
+# fabrique). At its root only, the object may admit free keys instead of `additionalProperties: false`: exactly
+# `{ type: string, personal: true }`, each undeclared key a text, marked personal data (decided 2026-10-22).
 #
 # Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the functions the
 # cases carry into one description, checked with the schema and the rules of every description (rule 20 included), then
@@ -148,6 +149,53 @@ cases:
       headers: {}
       body: {}
 
+  # --- Free text keys at the root of the object, all personal data ---------------------------------------------------
+  - name: free_text_keys_are_sent
+    function: &upsert_contact
+      name: upsert_contact
+      class: write
+      description: Create or update a contact; the contact is the whole body, its custom fields free text keys.
+      input:
+        type: object
+        additionalProperties: false
+        required: [contact]
+        properties:
+          contact:
+            type: object
+            # Any key the properties do not declare is a text, and personal data; declared keys keep their own schema.
+            additionalProperties: { type: string, personal: true }
+            required: [email]
+            properties:
+              email: { type: string, personal: true }
+              first_name: { type: string }
+              score: { type: integer, minimum: 0 }
+      examples: [{ title: One contact, input: { contact: { email: ada@example.test, city: Lyon } } }]
+      call: { method: POST, path: /contacts, body: contact }
+    input: { contact: { email: ada@example.test, first_name: Ada, score: 3, city: Lyon, team_size: "10-50" } }
+    request:
+      path: /contacts
+      query: []
+      headers: {}
+      body: { email: ada@example.test, first_name: Ada, score: 3, city: Lyon, team_size: "10-50" }
+
+  - name: declared_keys_only
+    function: *upsert_contact
+    input: { contact: { email: ada@example.test, score: 0 } }
+    request:
+      path: /contacts
+      query: []
+      headers: {}
+      body: { email: ada@example.test, score: 0 }
+
+  - name: empty_free_text_is_sent
+    function: *upsert_contact
+    input: { contact: { email: ada@example.test, "Favourite colour": "" } }
+    request:
+      path: /contacts
+      query: []
+      headers: {}
+      body: { email: ada@example.test, "Favourite colour": "" }
+
   # --- A DELETE carries its body -------------------------------------------------------------------------------------
   - name: delete_with_body
     function:
@@ -192,6 +240,24 @@ rejected:
   - name: property_out_of_bounds
     function: update_campaign
     input: { campaign_id: cam-1, changes: { daily_limit: 0 } }
+  - name: free_key_is_a_number
+    function: upsert_contact
+    input: { contact: { email: ada@example.test, team_size: 12 } }
+  - name: free_key_is_null
+    function: upsert_contact
+    input: { contact: { email: ada@example.test, city: null } }
+  - name: free_key_is_an_object
+    function: upsert_contact
+    input: { contact: { email: ada@example.test, address: { city: Lyon } } }
+  - name: free_key_is_a_list
+    function: upsert_contact
+    input: { contact: { email: ada@example.test, tags: [vip] } }
+  - name: declared_key_keeps_its_schema
+    function: upsert_contact
+    input: { contact: { email: ada@example.test, score: high } }
+  - name: free_keys_without_a_required_property
+    function: upsert_contact
+    input: { contact: { city: Lyon } }
 
 refused:
   - name: unknown_argument
@@ -271,6 +337,166 @@ refused:
             properties: { text: { type: string } }
             patternProperties: { "^x_": { type: string } }
       examples: [{ title: A note, input: { note: { text: Hello, x_any: Hi } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_not_personal
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: string }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, mood: calm } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_personal_false
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: string, personal: false }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, mood: calm } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_a_number
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: number, personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, weight: 2 } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_text_or_null
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: [string, "null"], personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, mood: null } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_an_object
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: object, personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, meta: {} } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_untyped
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { personal: true }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, mood: 3 } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_one_word_more
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: string, personal: true, maxLength: 100 }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, mood: calm } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_and_keys_by_pattern
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: { type: string, personal: true }
+            patternProperties: { "^x_": { type: string } }
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, x_any: Hi } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: free_keys_no_declared_property
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note: { type: object, additionalProperties: { type: string, personal: true }, properties: {} }
+      examples: [{ title: A note, input: { note: { mood: calm } } }]
       call: { method: POST, path: /notes, body: note }
     refusal: body_argument_not_strict
 

@@ -117,7 +117,8 @@ pas dire :
    (`strip_path_absent`). L'exemple ne sort ni en TypeScript ni en Python : ni contrat de réponse, ni validation à
    l'exécution, ni documentation, ni source de types ;
 20. le corps entier (`call.body` qui nomme un argument au lieu d'une table) : l'argument est déclaré
-   (`body_argument_unknown`) ; c'est un objet strict, `type: object`, `additionalProperties: false`, des
+   (`body_argument_unknown`) ; c'est un objet strict, `type: object`, `additionalProperties: false` ou, à sa racine
+   seulement, des clés libres en texte toutes donnée personnelle, exactement `{type: string, personal: true}`, des
    `properties` déclarées, au moins une, sans `patternProperties` (`body_argument_not_strict`) : jamais un sac libre ;
    il est requis (`body_argument_optional`) ; la méthode envoie un corps, jamais `GET` (`body_argument_method`) ;
    il ne va nulle part ailleurs, ni chemin, ni query, ni en-tête, ni partie fichier (`body_argument_elsewhere`) ;
@@ -186,10 +187,28 @@ BODY_REFUSALS = ("body_argument_unknown", "body_argument_not_strict", "body_argu
                  "body_argument_elsewhere", "body_argument_encoded", "body_argument_not_alone", "body_argument_paginated")
 
 
+# Les clés libres de l'argument du corps entier (décidé par Alexis le 2026-10-22), à sa racine seulement : au lieu de
+# `additionalProperties: false`, chaque clé que `properties` ne déclare pas est un texte, marqué donnée personnelle
+# (règle 15 : l'hôte ne journalise pas sa valeur). Les clés déclarées gardent leur schéma. La forme exacte, rien
+# d'autre : ni `true`, ni un autre type, ni un schéma sans `personal`, ni un mot de plus.
+FREE_TEXT_KEYS = {"type": "string", "personal": True}
+
+
+def free_text_keys(additional: object) -> bool:
+    """`additionalProperties` qui admet des clés libres en texte, toutes donnée personnelle : exactement
+    `{type: string, personal: true}`, `personal` le booléen `true` (jamais `1`, que `==` confondrait)."""
+    return (isinstance(additional, dict) and additional.keys() == FREE_TEXT_KEYS.keys()
+            and additional["type"] == "string" and additional["personal"] is True)
+
+
 def strict_object(schema: object) -> bool:
-    """Un objet strict : `type: object`, `additionalProperties: false`, au moins une propriété déclarée, aucune clé
-    admise par motif (`patternProperties` rouvrirait l'objet)."""
-    return (isinstance(schema, dict) and schema.get("type") == "object" and schema.get("additionalProperties") is False
+    """Un objet strict : `type: object`, `additionalProperties: false` ou des clés libres en texte toutes donnée
+    personnelle (`free_text_keys`), au moins une propriété déclarée, aucune clé admise par motif (`patternProperties`
+    rouvrirait l'objet)."""
+    if not isinstance(schema, dict):
+        return False
+    additional = schema.get("additionalProperties")
+    return (schema.get("type") == "object" and (additional is False or free_text_keys(additional))
             and isinstance(schema.get("properties"), dict) and len(schema["properties"]) >= 1
             and "patternProperties" not in schema)
 
@@ -206,8 +225,9 @@ def body_argument_refusal(function: dict) -> tuple[str, str] | None:
         return ("body_argument_unknown", "is not an input argument")
     if not strict_object(properties[argument]):
         return ("body_argument_not_strict",
-                "must be a strict object (type: object, additionalProperties: false, at least one declared property, "
-                "no patternProperties): the body is what the agent may send, never a free bag")
+                "must be a strict object (type: object, additionalProperties: false or free text keys "
+                "{type: string, personal: true}, at least one declared property, no patternProperties): the body is what "
+                "the agent may send, never a free bag")
     if argument not in function["input"].get("required", []):
         return ("body_argument_optional", "must be required: the whole body is never absent")
     if call["method"] in NO_BODY_METHODS:
