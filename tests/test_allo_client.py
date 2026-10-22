@@ -189,6 +189,130 @@ def test_upstream_error_is_typed(cli, capture):
     assert e.value.status_code == 403
 
 
+# --- the whole team API (1.2.0) ---------------------------------------------------------------
+
+_DROPDOWN = [{"label": "Starter"}, {"label": "Enterprise", "key": "enterprise"}]
+
+
+@pytest.mark.parametrize("call,method,path,params,body", [
+    (lambda c: c.create_person_attribute("Lead source", "TEXT"), "POST", "/v2/api/crm/attributes",
+     None, {"label": "Lead source", "type": "TEXT"}),
+    (lambda c: c.create_person_attribute("Plan", "DROPDOWN", options=_DROPDOWN), "POST", "/v2/api/crm/attributes",
+     None, {"label": "Plan", "type": "DROPDOWN", "options": _DROPDOWN}),
+    (lambda c: c.update_person_attribute("lead_source", label="Source", description=""), "PATCH",
+     "/v2/api/crm/attributes/lead_source", None, {"label": "Source", "description": ""}),
+    (lambda c: c.delete_person_attribute("lead_source"), "DELETE", "/v2/api/crm/attributes/lead_source",
+     None, None),
+    (lambda c: c.create_company_attribute("Segment", "DROPDOWN", options=_DROPDOWN, prompt="Pick one",
+                                          should_prompt_override=False), "POST",
+     "/v2/api/crm/companies/attributes", None,
+     {"label": "Segment", "type": "DROPDOWN", "options": _DROPDOWN, "prompt": "Pick one",
+      "should_prompt_override": False}),
+    (lambda c: c.update_company_attribute("segment", is_visible=False, prompt=""), "PATCH",
+     "/v2/api/crm/companies/attributes/segment", None, {"prompt": "", "is_visible": False}),
+    (lambda c: c.delete_company_attribute("segment"), "DELETE", "/v2/api/crm/companies/attributes/segment",
+     None, None),
+    (lambda c: c.get_dialing_queue_by_id("pdl-1", page=2, size=50), "GET", "/v2/api/dialing-queues/pdl-1",
+     {"page": 2, "size": 50}, None),
+    (lambda c: c.update_dialing_queue_by_id("pdl-1", voicemail_handling="SKIP"), "PATCH",
+     "/v2/api/dialing-queues/pdl-1", None, {"voicemail_handling": "SKIP"}),
+    (lambda c: c.remove_numbers_from_queue("pdl-1", unassigned=True), "DELETE",
+     "/v2/api/dialing-queues/pdl-1/numbers", {"unassigned": "true"}, None),
+    (lambda c: c.assign_dialing_queue("pdl-1", email="rep@example.test"), "PATCH",
+     "/v2/api/dialing-queues/pdl-1/assignee", None, {"email": "rep@example.test"}),
+    (lambda c: c.delete_current_dialing_queue(user_id="usr-1"), "DELETE", "/v2/api/dialing-queues/current",
+     {"user_id": "usr-1"}, None),
+    (lambda c: c.find_thread("CALL", "cll-1"), "GET", "/v2/api/threads",
+     {"entity_type": "CALL", "entity_id": "cll-1"}, None),
+    (lambda c: c.create_thread("CONVERSATION_NOTE", "not-1", "Follow up?"), "POST", "/v2/api/threads", None,
+     {"entity_type": "CONVERSATION_NOTE", "entity_id": "not-1", "content": "Follow up?"}),
+    (lambda c: c.resolve_thread("cth-1"), "POST", "/v2/api/threads/cth-1/resolve", None, None),
+    (lambda c: c.update_thread_comment("thc-1", "Done"), "PATCH", "/v2/api/threads/comments/thc-1", None,
+     {"content": "Done"}),
+    (lambda c: c.update_person_note("per-1", "not-1", "x"), "PATCH", "/v2/api/crm/people/per-1/notes/not-1",
+     None, {"content": "x"}),
+    (lambda c: c.set_default_summary_template("+33199000000"), "PUT",
+     "/v2/api/numbers/%2B33199000000/default_summary_template", None, {}),
+    (lambda c: c.get_call_flow("+33199000000", status="draft"), "GET", "/v2/api/numbers/%2B33199000000/call_flow",
+     {"status": "draft"}, None),
+    (lambda c: c.publish_call_flow("+33199000000", 0), "POST",
+     "/v2/api/numbers/%2B33199000000/call_flow/publish", None, {"lock_version": 0}),
+    (lambda c: c.update_receptionist("+33199000000", tone_of_voice="FRIENDLY", transfer_rules=[]), "PATCH",
+     "/v2/api/numbers/%2B33199000000/agent", None, {"tone_of_voice": "FRIENDLY", "transfer_rules": []}),
+    (lambda c: c.delete_receptionist_file("+33199000000", "kfl-1"), "DELETE",
+     "/v2/api/numbers/%2B33199000000/agent/knowledge/files/kfl-1", None, None),
+    (lambda c: c.create_webhook("https://hooks.example.test/allo", ["call.completed"]), "POST", "/v2/api/webhooks",
+     None, {"url": "https://hooks.example.test/allo", "topics": ["call.completed"]}),
+])
+def test_new_calls_path_verb_and_arguments(cli, capture, call, method, path, params, body):
+    call(cli)
+    assert capture["method"] == method
+    assert capture["url"] == al.BASE_URL + path
+    assert capture["kwargs"]["params"] == params
+    assert capture["kwargs"]["json"] == body
+
+
+@pytest.mark.parametrize("call", [
+    lambda c: c.create_person_attribute("Plan", "DROPDOWN"),
+    lambda c: c.create_person_attribute("Plan", "TEXT", options=_DROPDOWN),
+    lambda c: c.create_person_attribute("Plan", "LIST"),
+    lambda c: c.create_company_attribute("Segment", "DROPDOWN", options=[]),
+    lambda c: c.update_person_attribute("lead_source"),
+    lambda c: c.update_company_attribute("segment"),
+    lambda c: c.find_thread("CONTACT", "cll-1"),
+    lambda c: c.find_thread("CALL", ""),
+    lambda c: c.create_thread(None, "cll-1", "x"),
+    lambda c: c.assign_dialing_queue("pdl-1"),
+    lambda c: c.add_numbers_to_queue("pdl-1", []),
+    lambda c: c.remove_numbers_from_queue("pdl-1"),
+    lambda c: c.remove_numbers_from_queue("pdl-1", unassigned=True, position=0),
+    lambda c: c.get_dialing_queue_by_id("pdl-1", size=101),
+    lambda c: c.update_dialing_queue_by_id("pdl-1", do_not_disturb="ON"),
+    lambda c: c.create_webhook("http://hooks.example.test/allo", ["call.completed"]),
+    lambda c: c.create_webhook("https://hooks.example.test/allo", []),
+    lambda c: c.create_webhook("https://hooks.example.test/allo", ["call.ended"]),
+    lambda c: c.update_webhook("ep_1"),
+    lambda c: c.get_call_flow("+33199000000", status="live"),
+    lambda c: c.update_receptionist("+33199000000"),
+    lambda c: c.set_receptionist_status("+33199000000", "OFF"),
+    lambda c: c.set_receptionist_prompt("+33199000000", []),
+    lambda c: c.update_receptionist_website("+33199000000", "kws-1", "ON"),
+])
+def test_new_local_refusals_send_nothing(cli, capture, call):
+    capture["method"] = None
+    with pytest.raises(ValueError):
+        call(cli)
+    assert capture["method"] is None
+
+
+def test_every_example_of_the_description_calls_what_it_declares(cli, capture):
+    """Each example of each function, played on the client: the verb, the path filled with its arguments, and the
+    query and body under their API names, as the description's `call` says. The recording (a file) has its own
+    tests."""
+    import pathlib
+    from urllib.parse import quote
+
+    import yaml
+
+    description = pathlib.Path(__file__).resolve().parent.parent / "connectors" / "allo" / "connector.yaml"
+    for fn in yaml.safe_load(description.read_text(encoding="utf-8"))["functions"]:
+        if fn["name"] == "get_call_recording":
+            continue
+        call = fn["call"]
+        for example in fn["examples"]:
+            args = example["input"]
+            getattr(cli, fn["name"])(**args)
+            path = call["path"]
+            for name, value in args.items():
+                path = path.replace("{" + name + "}", quote(str(value), safe=""))
+            assert (capture["method"], capture["url"]) == (call["method"], al.BASE_URL + path), fn["name"]
+            query = {api: (str(args[arg]).lower() if isinstance(args[arg], bool) else args[arg])
+                     for api, arg in (call.get("query") or {}).items() if arg in args}
+            assert (capture["kwargs"]["params"] or {}) == query, fn["name"]
+            body = {api: args[arg] for api, arg in (call.get("body") or {}).items() if arg in args}
+            assert (capture["kwargs"]["json"] or {}) == body, fn["name"]
+
+
 # --- no recording address leaves the client (1.1.0) ------------------------------------------
 
 _ADDRESSES = {

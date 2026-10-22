@@ -43,9 +43,9 @@ def _addresses(value) -> list[str]:
     return [value] if isinstance(value, str) and "://" in value else []
 
 
-def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_2_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.1.0"
+    assert description["connector"]["version"] == "1.2.0"
     check(description, ALLO)
 
 
@@ -133,3 +133,18 @@ def test_the_python_table_declares_the_file_with_its_timeout():
     assert table["get_call_recording"] == {"file": FILE, "timeout_s": 120}
     assert table["send_sms"] == {"cost": {"per": "request"}}
     assert DECLARED["allo"] == table, "oto/connectors/declared.py is out of date: run `python -m fabrique`"
+
+
+def test_what_destroys_or_rewires_a_live_line_is_sensitive_1_2_0():
+    """1.2.0: every delete, publishing a call flow and switching the receptionist are confirmed before running;
+    the removal of queue entries stays a write, like `remove_queue_numbers`."""
+    functions = {f["name"]: f for f in _description()["functions"]}
+    sensitive = {name for name, f in functions.items() if f["class"] == "sensitive"}
+    deletes = {name for name, f in functions.items() if f["call"]["method"] == "DELETE"}
+    assert deletes - sensitive == {"remove_item_tag", "remove_queue_numbers", "remove_numbers_from_queue"}
+    assert sensitive == (deletes - {"remove_item_tag", "remove_queue_numbers", "remove_numbers_from_queue"}) | {
+        "send_sms", "publish_call_flow", "set_receptionist_status"}
+    for name in sensitive:
+        assert functions[name]["confirm"]["summary"], name
+    assert "irreversible" in functions["delete_company_attribute"]["confirm"]["summary"]
+    assert "restores" in functions["delete_person_attribute"]["confirm"]["summary"]
