@@ -90,7 +90,6 @@ without_description:
   finkare: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   firecrawl: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   fireflies: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  folk: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   forager: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   gemini: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   github: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }

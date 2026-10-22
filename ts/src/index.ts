@@ -7,6 +7,7 @@ import * as apollo from "./apollo"
 import * as claap from "./claap"
 import * as elevenlabs from "./elevenlabs"
 import * as fod from "./fod"
+import * as folk from "./folk"
 import * as fullenrich from "./fullenrich"
 import * as gmail from "./gmail"
 import * as googleCalendar from "./google_calendar"
@@ -47,6 +48,7 @@ export { apollo }
 export { claap }
 export { elevenlabs }
 export { fod }
+export { folk }
 export { fullenrich }
 export { gmail }
 export { googleCalendar }
@@ -90,6 +92,7 @@ export const connectors: readonly Connector[] = [
   claap.connector,
   elevenlabs.connector,
   fod.connector,
+  folk.connector,
   fullenrich.connector,
   gmail.connector,
   googleCalendar.connector,
