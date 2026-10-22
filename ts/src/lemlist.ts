@@ -181,6 +181,153 @@ export const duplicateCampaign = defineFunction({
   cost: { per: "request" },
 })
 
+export const updateCampaign = defineFunction({
+  name: "lemlist.update_campaign",
+  connector: "lemlist",
+  class: "write",
+  act: true,
+  description: "Change the settings of a campaign: only the keys given in data change. Its name, its senders (sendUserIds replaces the sender pool), the stop rules, the tracking, the AI handling of replies, and what happens to a lead on a reply, a click or a booked meeting. Auto-review is not set here: it turns adding a lead into a send.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["campaign_id", "data"],
+    "properties": {
+      "campaign_id": {"type": "string", "minLength": 1, "description": "Campaign id (cam_…)."},
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The settings to change, under lemlist's names; the keys left out keep their value.",
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "description": "Campaign name."},
+          "sendUserIds": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1, "description": "User id (usr_…)."},
+            "description": "The senders (usr_…), replacing the sender pool. Refused on a campaign whose sender is chosen per lead (contact owner, lead importer, custom field); every channel the sequence reaches needs a sender that can use it."
+          },
+          "stopOnEmailReplied": {"type": "boolean", "description": "Stop the campaign for a lead who replies by email."},
+          "stopOnMeetingBooked": {"type": "boolean", "description": "Stop the campaign for a lead who books a meeting."},
+          "stopOnLinkClicked": {"type": "boolean", "description": "Stop the campaign for a lead who clicks a link."},
+          "stopOnLinkClickedFilter": {"type": "string", "description": "Which link clicks stop the campaign."},
+          "leadsPausedByInterest": {"type": "boolean", "description": "Pause leads by their interest."},
+          "opportunityReplied": {"type": "boolean", "description": "Create an opportunity when a lead replies."},
+          "opportunityClicked": {"type": "boolean", "description": "Create an opportunity when a lead clicks a link."},
+          "autoLeadInterest": {"type": "boolean", "description": "Detect lead interest automatically."},
+          "disableTrackOpen": {"type": "boolean", "description": "Do not track email opens."},
+          "disableTrackClick": {"type": "boolean", "description": "Do not track link clicks."},
+          "disableTrackReply": {"type": "boolean", "description": "Do not track email replies."},
+          "disableOutOfOffice": {"type": "boolean", "description": "Do not detect out-of-office answers."},
+          "sequenceSharing": {"type": "boolean", "description": "Share the sequence."},
+          "aiFeatures": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "AI handling of replies; the flags left out keep their value.",
+            "properties": {
+              "scoreReplies": {"type": "boolean", "description": "Score the replies."},
+              "onInterestedReply": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {"type": "boolean"},
+                  "pauseAllCampaignsForLead": {"type": "boolean", "description": "Pause every campaign of the lead."},
+                  "pauseCampaignForCompany": {
+                    "type": "boolean",
+                    "description": "Pause this campaign for the other leads of the company."
+                  },
+                  "pauseAllCampaignsForCompany": {"type": "boolean", "description": "Pause every campaign for the leads of the company."}
+                }
+              },
+              "onNotInterestedReply": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {"type": "boolean"},
+                  "pauseAllCampaignsForLead": {"type": "boolean", "description": "Pause every campaign of the lead."},
+                  "pauseCampaignForCompany": {
+                    "type": "boolean",
+                    "description": "Pause this campaign for the other leads of the company."
+                  },
+                  "pauseAllCampaignsForCompany": {"type": "boolean", "description": "Pause every campaign for the leads of the company."}
+                }
+              }
+            }
+          },
+          "tracking": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "trackOpens": {"type": "boolean"},
+              "trackClicks": {"type": "boolean"},
+              "trackReplies": {"type": "boolean"}
+            }
+          },
+          "onReplied": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "What happens when a lead replies.",
+            "properties": {
+              "createNewTask": {"type": "boolean"},
+              "campaignProgress": {
+                "type": "string",
+                "enum": ["continue", "pause", "stop"],
+                "description": "What happens to the lead in the campaign."
+              },
+              "propagateProgressToCompany": {"type": "boolean", "description": "The same for the other leads of the company."},
+              "disableOutOfOffice": {"type": "boolean"}
+            }
+          },
+          "onLinkClicked": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "What happens when a lead clicks a tracked link.",
+            "properties": {
+              "createNewTask": {"type": "boolean"},
+              "campaignProgress": {
+                "type": "string",
+                "enum": ["continue", "pause", "stop"],
+                "description": "What happens to the lead in the campaign."
+              },
+              "propagateProgressToCompany": {"type": "boolean", "description": "The same for the other leads of the company."},
+              "specificLinks": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Only these links trigger it; empty, every link."
+              }
+            }
+          },
+          "onMeetingBooked": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "What happens when a lead books a meeting.",
+            "properties": {
+              "campaignProgress": {
+                "type": "string",
+                "enum": ["continue", "pause", "stop"],
+                "description": "What happens to the lead in the campaign."
+              },
+              "propagateProgressToCompany": {"type": "boolean", "description": "The same for the other leads of the company."}
+            }
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "Rename a campaign", input: {"campaign_id": "cam_example1", "data": {"name": "Q4 outreach (FR)"}} },
+    { title: "Stop on a reply, two senders", input: {"campaign_id": "cam_example1", "data": {"stopOnEmailReplied": true, "sendUserIds": ["usr_example1", "usr_example2"]}} },
+    { title: "Pause the lead and create a task on a reply", input: {"campaign_id": "cam_example1", "data": {"onReplied": {"campaignProgress": "pause", "createNewTask": true}}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/campaigns/{campaign_id}",
+    pathParams: ["campaign_id"],
+    query: {},
+    body: "data",
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
 export const getCampaignStatutes = defineFunction({
   name: "lemlist.get_campaign_statutes",
   connector: "lemlist",
@@ -266,6 +413,284 @@ export const deleteStep = defineFunction({
   confirm: { summary: "Delete step {step_id} of lemlist sequence {sequence_id}." },
 })
 
+export const addStep = defineFunction({
+  name: "lemlist.add_step",
+  connector: "lemlist",
+  class: "sensitive",
+  act: true,
+  description: "Add a step, or a condition, to a sequence (get_sequences gives the sequence id). type is required; the other keys depend on it: subject and message for an email, message for a LinkedIn message, WhatsApp or SMS, title for a manual task, method and url for an api step (lemlist calls that address for each lead), conditionKey and delayType for a condition, campaignId for a move to another campaign. On a campaign leads have entered, the new step reaches them: it sends to real people.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["sequence_id", "step"],
+    "properties": {
+      "sequence_id": {"type": "string", "minLength": 1, "description": "Sequence id (seq_…)."},
+      "step": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "description": "The step, under lemlist's names.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "email",
+              "manual",
+              "phone",
+              "api",
+              "linkedinVisit",
+              "linkedinInvite",
+              "linkedinSend",
+              "linkedinVoiceNote",
+              "linkedinFollow",
+              "linkedinLikeLastPost",
+              "linkedinCommentLastPost",
+              "linkedinEndorse",
+              "linkedinWithdrawInvitation",
+              "sendToAnotherCampaign",
+              "conditional",
+              "whatsappMessage",
+              "sms"
+            ],
+            "description": "The kind of step; on an update, it must be the step's own kind."
+          },
+          "index": {
+            "type": "integer",
+            "minimum": -1,
+            "description": "Position in the sequence; left out or past the end, the step is added last."
+          },
+          "delay": {"type": "integer", "description": "Days before the step (lemlist: 0 for the first step, 1 after)."},
+          "subject": {
+            "type": "string",
+            "description": "Email subject; empty on a follow-up, the email replies in the thread of the previous one."
+          },
+          "message": {
+            "type": "string",
+            "description": "The content: email body (HTML), LinkedIn, WhatsApp or SMS message, manual or phone task notes."
+          },
+          "altMessage": {
+            "type": "string",
+            "description": "The LinkedIn note sent instead of message: the premium invitation note (linkedinInvite), the note to a lead out of the network (linkedinSend, linkedinVoiceNote)."
+          },
+          "altMessagePremium": {
+            "type": "string",
+            "description": "linkedinSend only: the out-of-network note for a Premium or Sales Navigator account."
+          },
+          "title": {"type": "string", "description": "Title of a manual task."},
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            "description": "HTTP method of an api step."
+          },
+          "url": {"type": "string", "description": "Address an api step calls, http:// or https://."},
+          "conditionKey": {
+            "type": "string",
+            "enum": [
+              "hasEmailAddress",
+              "hasLinkedinUrl",
+              "hasPhoneNumber",
+              "hasScore",
+              "emailsOpened",
+              "emailsClicked",
+              "emailsUnsubscribed",
+              "meetingBooked",
+              "linkedinInviteAccepted",
+              "linkedinOpened",
+              "aircallDone",
+              "linkedinNetworkCheck",
+              "hasWhatsappAccount"
+            ],
+            "description": "What a conditional step tests."
+          },
+          "delayType": {"type": "string", "enum": ["within", "waitUntil"], "description": "How a conditional step waits."},
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "sendToAnotherCampaign: the campaign the lead moves to (cam_…), not archived."
+          },
+          "leadAction": {
+            "type": "string",
+            "enum": ["continue", "pause", "stop"],
+            "description": "sendToAnotherCampaign: what happens to the lead in this campaign once moved."
+          },
+          "images": {
+            "type": "array",
+            "items": {"type": "string", "format": "uri"},
+            "description": "linkedinInvite or linkedinSend: public HTTPS addresses of images lemlist downloads and hosts (png, jpeg, gif)."
+          },
+          "videos": {
+            "type": "array",
+            "items": {"type": "string", "format": "uri"},
+            "description": "linkedinInvite or linkedinSend: public HTTPS addresses of videos lemlist downloads and hosts (mp4, mov)."
+          },
+          "skillName": {"type": "string", "description": "linkedinEndorse: the skill endorsed on the lead's profile."},
+          "endorseAnyFallback": {
+            "type": "boolean",
+            "description": "linkedinEndorse: endorse any skill when the named one is missing."
+          },
+          "recordMode": {
+            "type": "string",
+            "enum": ["manual", "ai"],
+            "description": "linkedinVoiceNote: recorded by a person in the lemlist app, or generated by lemlist."
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A follow-up email two days later", input: {"sequence_id": "seq_example1", "step": {"type": "email", "subject": "", "message": "<p>Hello {{firstName}},</p>", "delay": 2}} },
+    { title: "A condition on an accepted invitation", input: {"sequence_id": "seq_example1", "step": {"type": "conditional", "conditionKey": "linkedinInviteAccepted", "delayType": "waitUntil", "delay": 1}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/sequences/{sequence_id}/steps",
+    pathParams: ["sequence_id"],
+    query: {},
+    body: "step",
+    headers: {},
+  },
+  cost: { per: "request" },
+  confirm: { summary: "Add a step to lemlist sequence {sequence_id}: the leads of a running campaign reach it." },
+})
+
+export const updateStep = defineFunction({
+  name: "lemlist.update_step",
+  connector: "lemlist",
+  class: "sensitive",
+  act: true,
+  description: "Change a step of a sequence: only the keys given in data change. type is required and must be the step's own kind: it says the step's shape, it does not convert it. images and videos replace what the step carries ([] clears them). It changes what the leads going through the step receive, and where an api step calls.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["sequence_id", "step_id", "data"],
+    "properties": {
+      "sequence_id": {"type": "string", "minLength": 1, "description": "Sequence id (seq_…)."},
+      "step_id": {"type": "string", "minLength": 1, "description": "Step id (stp_…)."},
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "description": "The keys to change, under lemlist's names, with the step's type.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "email",
+              "manual",
+              "phone",
+              "api",
+              "linkedinVisit",
+              "linkedinInvite",
+              "linkedinSend",
+              "linkedinVoiceNote",
+              "linkedinFollow",
+              "linkedinLikeLastPost",
+              "linkedinCommentLastPost",
+              "linkedinEndorse",
+              "linkedinWithdrawInvitation",
+              "sendToAnotherCampaign",
+              "conditional",
+              "whatsappMessage",
+              "sms"
+            ],
+            "description": "The kind of step; on an update, it must be the step's own kind."
+          },
+          "delay": {"type": "integer", "description": "Days before the step (lemlist: 0 for the first step, 1 after)."},
+          "subject": {
+            "type": "string",
+            "description": "Email subject; empty on a follow-up, the email replies in the thread of the previous one."
+          },
+          "message": {
+            "type": "string",
+            "description": "The content: email body (HTML), LinkedIn, WhatsApp or SMS message, manual or phone task notes."
+          },
+          "altMessage": {
+            "type": "string",
+            "description": "The LinkedIn note sent instead of message: the premium invitation note (linkedinInvite), the note to a lead out of the network (linkedinSend, linkedinVoiceNote)."
+          },
+          "altMessagePremium": {
+            "type": "string",
+            "description": "linkedinSend only: the out-of-network note for a Premium or Sales Navigator account."
+          },
+          "title": {"type": "string", "description": "Title of a manual task."},
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            "description": "HTTP method of an api step."
+          },
+          "url": {"type": "string", "description": "Address an api step calls, http:// or https://."},
+          "conditionKey": {
+            "type": "string",
+            "enum": [
+              "hasEmailAddress",
+              "hasLinkedinUrl",
+              "hasPhoneNumber",
+              "hasScore",
+              "emailsOpened",
+              "emailsClicked",
+              "emailsUnsubscribed",
+              "meetingBooked",
+              "linkedinInviteAccepted",
+              "linkedinOpened",
+              "aircallDone",
+              "linkedinNetworkCheck",
+              "hasWhatsappAccount"
+            ],
+            "description": "What a conditional step tests."
+          },
+          "delayType": {"type": "string", "enum": ["within", "waitUntil"], "description": "How a conditional step waits."},
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "sendToAnotherCampaign: the campaign the lead moves to (cam_…), not archived."
+          },
+          "leadAction": {
+            "type": "string",
+            "enum": ["continue", "pause", "stop"],
+            "description": "sendToAnotherCampaign: what happens to the lead in this campaign once moved."
+          },
+          "images": {
+            "type": "array",
+            "items": {"type": "string", "format": "uri"},
+            "description": "linkedinInvite or linkedinSend: public HTTPS addresses of images lemlist downloads and hosts (png, jpeg, gif)."
+          },
+          "videos": {
+            "type": "array",
+            "items": {"type": "string", "format": "uri"},
+            "description": "linkedinInvite or linkedinSend: public HTTPS addresses of videos lemlist downloads and hosts (mp4, mov)."
+          },
+          "skillName": {"type": "string", "description": "linkedinEndorse: the skill endorsed on the lead's profile."},
+          "endorseAnyFallback": {
+            "type": "boolean",
+            "description": "linkedinEndorse: endorse any skill when the named one is missing."
+          },
+          "recordMode": {
+            "type": "string",
+            "enum": ["manual", "ai"],
+            "description": "linkedinVoiceNote: recorded by a person in the lemlist app, or generated by lemlist."
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A new subject for an email step", input: {"sequence_id": "seq_example1", "step_id": "stp_example1", "data": {"type": "email", "subject": "Next week, {{firstName}}?"}} },
+    { title: "Clear the images of a LinkedIn message", input: {"sequence_id": "seq_example1", "step_id": "stp_example1", "data": {"type": "linkedinSend", "images": []}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/sequences/{sequence_id}/steps/{step_id}",
+    pathParams: ["sequence_id", "step_id"],
+    query: {},
+    body: "data",
+    headers: {},
+  },
+  cost: { per: "request" },
+  confirm: { summary: "Change step {step_id} of lemlist sequence {sequence_id}: the leads going through it receive the new version." },
+})
+
 export const createAbVariant = defineFunction({
   name: "lemlist.create_ab_variant",
   connector: "lemlist",
@@ -322,6 +747,53 @@ export const getAbVariant = defineFunction({
     pathParams: ["sequence_id", "step_id"],
     query: {},
     body: {},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const updateAbVariant = defineFunction({
+  name: "lemlist.update_ab_variant",
+  connector: "lemlist",
+  class: "write",
+  act: true,
+  description: "Change variant B of an email step's A/B test: only the keys given in data change.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["sequence_id", "step_id", "data"],
+    "properties": {
+      "sequence_id": {"type": "string", "minLength": 1, "description": "Sequence id (seq_…)."},
+      "step_id": {"type": "string", "minLength": 1, "description": "Step id (stp_…)."},
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The keys of variant B to change, under lemlist's names.",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "Subject of B; empty, B replies in the thread of the previous email."
+          },
+          "message": {"type": "string", "description": "Body of B (HTML)."},
+          "altMessage": {"type": "string", "description": "B's LinkedIn note, as altMessage of the step."},
+          "altMessagePremium": {"type": "string", "description": "linkedinSend only: B's premium out-of-network note."},
+          "cc": {"type": "array", "items": {"type": "string", "minLength": 3, "personal": true}},
+          "plainText": {"type": "boolean", "description": "Send B as plain text."}
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A new subject for variant B", input: {"sequence_id": "seq_example1", "step_id": "stp_example1", "data": {"subject": "A question about {{companyName}}"}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/sequences/{sequence_id}/steps/{step_id}/ab-test",
+    pathParams: ["sequence_id", "step_id"],
+    query: {},
+    body: "data",
     headers: {},
   },
   cost: { per: "request" },
@@ -488,6 +960,59 @@ export const createSchedule = defineFunction({
     pathParams: [],
     query: {},
     body: {"name": "name", "timezone": "timezone", "start": "start", "end": "end", "weekdays": "weekdays", "secondsToWait": "seconds_to_wait", "public": "public"},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const updateSchedule = defineFunction({
+  name: "lemlist.update_schedule",
+  connector: "lemlist",
+  class: "write",
+  act: true,
+  description: "Change a schedule: only the keys given in data change, with the vocabulary of create_schedule. Every campaign that uses it follows.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["schedule_id", "data"],
+    "properties": {
+      "schedule_id": {"type": "string", "minLength": 1, "description": "Schedule id (skd_…)."},
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The keys to change, under lemlist's names.",
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "timezone": {
+            "type": "string",
+            "pattern": "^([A-Za-z_]+(/[A-Za-z0-9_+-]+)+|UTC)$",
+            "description": "IANA time zone: Europe/Paris."
+          },
+          "start": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "HH:mm, 24 h."},
+          "end": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "HH:mm, 24 h."},
+          "weekdays": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "integer", "minimum": 1, "maximum": 7},
+            "description": "Active days, 1 = Monday … 7 = Sunday."
+          },
+          "secondsToWait": {"type": "integer", "minimum": 0, "description": "Seconds between two sends."},
+          "public": {"type": "boolean", "description": "Shown to the team as a template."}
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "Later hours on Monday to Thursday", input: {"schedule_id": "skd_example1", "data": {"start": "10:00", "end": "19:00", "weekdays": [1, 2, 3, 4]}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/schedules/{schedule_id}",
+    pathParams: ["schedule_id"],
+    query: {},
+    body: "data",
     headers: {},
   },
   cost: { per: "request" },
@@ -706,6 +1231,51 @@ export const getCampaignLeads = defineFunction({
     pathParams: ["campaign_id"],
     query: {"state": "state", "limit": "limit"},
     body: {},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const updateLead = defineFunction({
+  name: "lemlist.update_lead",
+  connector: "lemlist",
+  class: "write",
+  act: true,
+  description: "Change the fields of a lead in a campaign: only the keys given in data change. Its custom variables are not changed here.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["campaign_id", "lead_id", "data"],
+    "properties": {
+      "campaign_id": {"type": "string", "minLength": 1, "description": "Campaign id (cam_…)."},
+      "lead_id": {"type": "string", "minLength": 1, "description": "Lead id (lea_…)."},
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The fields to change, under lemlist's names.",
+        "properties": {
+          "firstName": {"type": "string", "personal": true},
+          "lastName": {"type": "string", "personal": true},
+          "companyName": {
+            "type": "string",
+            "description": "The lead's company, renamed in place; without one, the lead is linked to a company of that name."
+          },
+          "jobTitle": {"type": "string"},
+          "preferredContactMethod": {"type": "string", "description": "email or linkedIn."}
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A new job title", input: {"campaign_id": "cam_example1", "lead_id": "lea_example1", "data": {"jobTitle": "Head of Sales"}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/campaigns/{campaign_id}/leads/{lead_id}",
+    pathParams: ["campaign_id", "lead_id"],
+    query: {},
+    body: "data",
     headers: {},
   },
   cost: { per: "request" },
@@ -2142,6 +2712,49 @@ export const createDraft = defineFunction({
   cost: { per: "request" },
 })
 
+export const updateDraft = defineFunction({
+  name: "lemlist.update_draft",
+  connector: "lemlist",
+  class: "write",
+  act: false,
+  description: "Change a draft: only the keys given in data change. A draft sends nothing: a person sends it from the lemlist inbox.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["contact_id", "draft_id", "draft_owner", "data"],
+    "properties": {
+      "contact_id": {"type": "string", "minLength": 1, "description": "CRM contact id (ctc_…)."},
+      "draft_id": {"type": "string", "minLength": 1},
+      "draft_owner": {"type": "string", "minLength": 1, "description": "User id (usr_…)."},
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The keys to change, under lemlist's names.",
+        "properties": {
+          "subject": {"type": "string"},
+          "cc": {"type": "array", "items": {"type": "string", "minLength": 3, "personal": true}},
+          "content": {"type": "string", "description": "The content, 30 KB at most."},
+          "attachments": {"type": "array", "items": {"type": "object"}},
+          "replyToActivityId": {"type": "string", "minLength": 1, "description": "Activity id of the message replied to."}
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A new content", input: {"contact_id": "ctc_example1", "draft_id": "drf_example1", "draft_owner": "usr_example1", "data": {"content": "<p>Hello Marie, see you on Tuesday.</p>"}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/inbox/{contact_id}/drafts/{draft_id}",
+    pathParams: ["contact_id", "draft_id"],
+    query: {"draftOwner": "draft_owner"},
+    body: "data",
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
 export const deleteDraft = defineFunction({
   name: "lemlist.delete_draft",
   connector: "lemlist",
@@ -3266,6 +3879,69 @@ export const getLemwarmSettings = defineFunction({
   cost: { per: "request" },
 })
 
+export const updateLemwarmSettings = defineFunction({
+  name: "lemlist.update_lemwarm_settings",
+  connector: "lemlist",
+  class: "write",
+  act: true,
+  description: "Change the lemwarm settings of a mailbox: only the keys given in data change, one at least.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["user_mailbox_id", "data"],
+    "properties": {
+      "user_mailbox_id": {"type": "string", "minLength": 1},
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "The settings to change, under lemlist's names.",
+        "properties": {
+          "warmEmailMax": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 40,
+            "description": "Warm-up emails a day at most (lemlist enforces 1 to 40 for most teams)."
+          },
+          "warmEmailRampup": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 40,
+            "description": "Daily increase of the warm-up emails (lemlist enforces 1 to 40 for most teams)."
+          },
+          "internalCommunicationPercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Share of warm-up emails sent inside the team, in percent."
+          },
+          "answerPercentage": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Share of warm-up emails answered, in percent."
+          },
+          "warmUsePlaintext": {"type": "boolean", "description": "Warm-up emails in plain text."},
+          "warmDailyVarianceEnabled": {"type": "boolean", "description": "A random daily variance on the warm-up target."}
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "Thirty emails a day, five more each day", input: {"user_mailbox_id": "mbx_example1", "data": {"warmEmailMax": 30, "warmEmailRampup": 5}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/lemwarm/{user_mailbox_id}/settings",
+    pathParams: ["user_mailbox_id"],
+    query: {},
+    body: "data",
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
 export const startLemwarm = defineFunction({
   name: "lemlist.start_lemwarm",
   connector: "lemlist",
@@ -3417,6 +4093,92 @@ export const createDeliverabilityAlert = defineFunction({
   cost: { per: "request" },
 })
 
+export const updateDeliverabilityAlert = defineFunction({
+  name: "lemlist.update_deliverability_alert",
+  connector: "lemlist",
+  class: "write",
+  act: true,
+  description: "Change a deliverability alert: only the keys given in data change. Its widget, metric, severity and scope do not change: create another alert for that.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["alert_id", "data"],
+    "properties": {
+      "alert_id": {"type": "string", "minLength": 1},
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The keys to change, under lemlist's names.",
+        "properties": {
+          "threshold": {"type": "number", "minimum": 0, "maximum": 100},
+          "comparisonOperator": {"type": "string", "enum": ["equal", "below", "above"]},
+          "periodDays": {"type": "integer", "minimum": 1, "maximum": 30},
+          "periodMode": {"type": "string", "enum": ["rolling", "consecutive"]},
+          "channelConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The channels notified when the alert fires; one at least enabled.",
+            "properties": {
+              "email": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {"type": "boolean"},
+                  "addresses": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 3, "personal": true},
+                    "description": "Required when email is enabled, one at least."
+                  }
+                }
+              },
+              "inapp": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {"enabled": {"type": "boolean"}}
+              },
+              "webhook": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Needs a webhook subscribed to deliverabilityAlertTriggered."
+                  }
+                }
+              },
+              "slack": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {"enabled": {"type": "boolean", "description": "Needs Slack connected to the team."}}
+              }
+            }
+          },
+          "scopeEntities": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "description": "The mailboxes or domains, for an alert scoped to them."
+          },
+          "enabled": {"type": "boolean", "description": "Pause or resume the alert."}
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A threshold of 7, in the app", input: {"alert_id": "alr_example1", "data": {"threshold": 7, "channelConfig": {"inapp": {"enabled": true}}}} },
+    { title: "Pause an alert", input: {"alert_id": "alr_example1", "data": {"enabled": false}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/deliverability/alerts/{alert_id}",
+    pathParams: ["alert_id"],
+    query: {},
+    body: "data",
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
 export const deleteDeliverabilityAlert = defineFunction({
   name: "lemlist.delete_deliverability_alert",
   connector: "lemlist",
@@ -3538,7 +4300,7 @@ export const connector = defineConnector({
   name: "lemlist",
   label: "lemlist",
   namespace: "lemlist",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "v1 and v2 routes",
   baseUrl: "https://api.lemlist.com/api",
   auth: {"kind": "basic", "password": "api_key"},
@@ -3563,16 +4325,21 @@ export const connector = defineConnector({
     startCampaign,
     pauseCampaign,
     duplicateCampaign,
+    updateCampaign,
     getCampaignStatutes,
     getSequences,
     deleteStep,
+    addStep,
+    updateStep,
     createAbVariant,
     getAbVariant,
+    updateAbVariant,
     deleteAbVariant,
     selectAbWinner,
     listSchedules,
     getSchedule,
     createSchedule,
+    updateSchedule,
     deleteSchedule,
     getCampaignSchedules,
     associateSchedule,
@@ -3580,6 +4347,7 @@ export const connector = defineConnector({
     getLead,
     getLeadByEmail,
     getCampaignLeads,
+    updateLead,
     pauseLead,
     resumeLead,
     launchLead,
@@ -3624,6 +4392,7 @@ export const connector = defineConnector({
     listDrafts,
     getDraft,
     createDraft,
+    updateDraft,
     deleteDraft,
     sendInboxEmail,
     sendLinkedinMessage,
@@ -3661,11 +4430,13 @@ export const connector = defineConnector({
     disconnectEmailAccount,
     testEmailAccount,
     getLemwarmSettings,
+    updateLemwarmSettings,
     startLemwarm,
     pauseLemwarm,
     listDeliverabilityAlerts,
     getDeliverabilityAlert,
     createDeliverabilityAlert,
+    updateDeliverabilityAlert,
     deleteDeliverabilityAlert,
     listWebhooks,
     addWebhook,

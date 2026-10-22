@@ -1,12 +1,15 @@
-"""La description `lemlist` 1.0.0 : celle du client existant (`oto.tools.lemlist`), sans rien y changer.
+"""La description `lemlist` 1.1.0 : celle du client existant (`oto.tools.lemlist`), sans rien y changer.
 
 Une fonction par méthode du client qui envoie une seule requête à `api.lemlist.com/api`, sous son nom, avec ses noms
-d'arguments et les clés que le client envoie à lemlist (chemin, query, corps, parties d'un multipart). Restent hors du
-fichier, au client écrit à la main : les corps qui sont un argument entier, le corps en tableau nu, les query à clés
-libres (les variables d'un lead), les compositions et aides locales, les routes choisies selon un argument, la relève
-d'enrichissement (un 404 y est une réponse), les exports CSV et la connexion d'une boîte par ses mots de passe. Les
-gardes ci-dessous lisent le client lui-même : un endpoint, un argument ou une clé qu'il ajoute sans la description fait
-échouer le test ; une écriture servie du côté lecture aussi.
+d'arguments et les clés que le client envoie à lemlist (chemin, query, corps, parties d'un multipart). Depuis la 1.1.0,
+les méthodes dont le corps est un argument entier, un dictionnaire envoyé tel quel, se disent par `call.body: <argument>`
+(règle 20 de la fabrique) : l'argument est un objet strict, aux clés de lemlist. Restent hors du fichier, au client écrit
+à la main : les corps à clés libres (les variables d'un lead de `create_lead`, les champs personnalisés des deux upserts
+du CRM), les corps formés à partir d'un argument (un identifiant ajouté, un email retiré), le corps en tableau nu, les
+query à clés libres (les variables d'un lead), les compositions et aides locales, les routes choisies selon un argument,
+la relève d'enrichissement (un 404 y est une réponse), les exports CSV et la connexion d'une boîte par ses mots de passe.
+Les gardes ci-dessous lisent le client lui-même : un endpoint, un argument ou une clé qu'il ajoute sans la description
+fait échouer le test ; une écriture servie du côté lecture aussi.
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ import jsonschema
 import yaml
 
 from fabrique import python
-from fabrique.descriptions import CONNECTORS, check
+from fabrique.descriptions import CONNECTORS, body_argument, check
 from fabrique.typescript import connector_module
 from oto.connectors.declared import DECLARED
 from oto.tools.lemlist import client as lemlist_client
@@ -29,13 +32,23 @@ from oto.tools.lemlist.client import LemlistClient
 
 LEMLIST = CONNECTORS / "lemlist" / "connector.yaml"
 
-_BODY_IS_THE_ARGUMENT = "the body is an argument itself (a dict sent as is)"
+# Les méthodes dont le corps est un argument entier, envoyé tel quel (`call.body: <argument>`, règle 20).
+WHOLE_BODY = {
+    "update_campaign": "data", "add_step": "step", "update_step": "data", "update_ab_variant": "data",
+    "update_schedule": "data", "update_lead": "data", "update_draft": "data", "update_lemwarm_settings": "data",
+    "update_deliverability_alert": "data",
+}
+# Les corps à clés libres au premier niveau : la règle 20 ne prend qu'un objet strict, et la partie fixe seule
+# retrancherait ce que le client envoie.
+FREE_KEYS = {
+    "create_lead": ("lead", "any key besides lemlist's fields is a custom variable of the lead"),
+    "upsert_contact": ("contact", "any key besides lemlist's fields is a custom field of the CRM"),
+    "upsert_company": ("company", "any key besides lemlist's fields is a custom field of the CRM"),
+}
 # Les méthodes publiques du client qui ne sont pas une requête unitaire que le format sait dire, et pourquoi.
 LEFT_OUT = {
-    **{name: _BODY_IS_THE_ARGUMENT for name in (
-        "update_campaign", "add_step", "update_step", "update_ab_variant", "update_schedule", "update_lead",
-        "update_draft", "update_lemwarm_settings", "update_deliverability_alert", "upsert_contact", "upsert_company",
-        "create_lead")},
+    **{name: f"the body is the {argument} argument with free top-level keys: {why}"
+       for name, (argument, why) in FREE_KEYS.items()},
     "update_task": "the body is the data argument, with the task id added to it",
     "update_watch_list": "the body is the data argument, with the watch list id added to it",
     "add_lead": "the body is the lead argument, its email taken out into the path",
@@ -79,6 +92,11 @@ ARGUMENTS_LEFT_OUT = {
     "get_contact_messages": {"mark_as_read": "it writes on a read"},
     "export_campaign_leads": {"format": "the constant json: the CSV form is an export"},
     "upload_lead_audio": {"filename": "the host names the part after the transit file"},
+}
+# Les clés qu'un corps entier ne prend pas, bien que le client les documente, et pourquoi.
+BODY_KEYS_LEFT_OUT = {
+    "update_campaign": {"autoReview": "turns adding a lead into a send; left out of create_campaign too",
+                        "autoReviewConditions": "goes with autoReview"},
 }
 # Ce que le client envoie quand l'appel ne le donne pas, sans que lemlist l'exige : pas un défaut déclaré, l'hôte
 # n'envoyant rien pour un argument absent.
@@ -126,13 +144,17 @@ CLASSES = {
         "pause_lead", "upload_lead_audio", "enrich", "enrich_lead", "create_contact_list", "manage_contact_list",
         "create_company_note", "create_inbox_label", "attach_inbox_labels", "remove_inbox_labels", "create_draft",
         "create_task", "ignore_tasks", "create_persona", "test_email_account", "start_lemwarm", "pause_lemwarm",
-        "create_deliverability_alert",
+        "create_deliverability_alert", "update_campaign", "update_ab_variant", "update_schedule", "update_lead",
+        "update_draft", "update_lemwarm_settings", "update_deliverability_alert",
     },
     "sensitive": {
         # Envoie, ou lance ce qui envoie, à une vraie personne.
         "start_campaign", "launch_lead", "resume_lead", "send_inbox_email", "send_linkedin_message",
         "send_whatsapp_message", "select_ab_winner", "create_ab_variant", "import_leads_from_crm",
         "create_watch_list", "push_external_signals",
+        # Une étape ajoutée ou changée atteint les leads d'une campagne en cours ; une étape api fait appeler à
+        # lemlist une adresse de l'appelant pour chaque lead.
+        "add_step", "update_step",
         # Désinscrit ou réinscrit.
         "add_unsubscribe", "delete_unsubscribe", "unsubscribe_variable", "resubscribe_variable",
         "bulk_unsubscribe_variables", "unsubscribe_contact", "resubscribe_contact",
@@ -144,6 +166,8 @@ CLASSES = {
         "add_webhook", "set_campaign_export_email",
     },
 }
+# Les brouillons : des écritures qui n'envoient rien, servies du côté lecture (`act: false`).
+DRAFTS = {"create_draft", "update_draft"}
 # Les lectures servies en POST (des statistiques, des recherches dans la base partagée).
 POST_READS = {"get_batch_campaign_stats", "search_people_database", "search_companies_database"}
 REQUEST = {"per": "request"}
@@ -197,6 +221,67 @@ VALUES_OF = {
     "get_crm_filters": {"type": "contact"},
     "get_watch_list_filters": {"type": "companyIsHiring"},
     "get_team_senders": {"state": "running"},
+    # Un corps entier : chaque clé déclarée, une valeur fictive.
+    "update_campaign": {"data": {
+        "name": "Q4 outreach (FR)", "sendUserIds": ["usr_example1", "usr_example2"], "stopOnEmailReplied": True,
+        "stopOnMeetingBooked": True, "stopOnLinkClicked": False, "stopOnLinkClickedFilter": "pricing",
+        "leadsPausedByInterest": False, "opportunityReplied": True, "opportunityClicked": False,
+        "autoLeadInterest": True, "disableTrackOpen": False, "disableTrackClick": False, "disableTrackReply": False,
+        "disableOutOfOffice": False, "sequenceSharing": False,
+        "aiFeatures": {"scoreReplies": True,
+                       "onInterestedReply": {"enabled": True, "pauseAllCampaignsForLead": True,
+                                             "pauseCampaignForCompany": False, "pauseAllCampaignsForCompany": False},
+                       "onNotInterestedReply": {"enabled": False}},
+        "tracking": {"trackOpens": True, "trackClicks": True, "trackReplies": True},
+        "onReplied": {"createNewTask": True, "campaignProgress": "pause", "propagateProgressToCompany": False,
+                      "disableOutOfOffice": False},
+        "onLinkClicked": {"createNewTask": False, "campaignProgress": "continue", "propagateProgressToCompany": False,
+                          "specificLinks": ["https://www.example.test/pricing"]},
+        "onMeetingBooked": {"campaignProgress": "stop", "propagateProgressToCompany": True},
+    }},
+    "add_step": {"step": {
+        "type": "linkedinSend", "index": 2, "delay": 1, "subject": "", "message": "Hello {{firstName}}",
+        "altMessage": "Hello, may we connect?", "altMessagePremium": "Hello, may we connect? (premium)",
+        "title": "Call back", "method": "POST", "url": "https://hooks.example.test/step",
+        "conditionKey": "hasLinkedinUrl", "delayType": "within", "campaignId": "cam_example2",
+        "leadAction": "pause", "images": ["https://img.example.test/a.png"],
+        "videos": ["https://img.example.test/a.mp4"], "skillName": "Sales", "endorseAnyFallback": True,
+        "recordMode": "manual",
+    }},
+    "update_step": {"data": {
+        "type": "linkedinSend", "delay": 1, "subject": "", "message": "Hello {{firstName}}",
+        "altMessage": "Hello, may we connect?", "altMessagePremium": "Hello, may we connect? (premium)",
+        "title": "Call back", "method": "PUT", "url": "https://hooks.example.test/step",
+        "conditionKey": "emailsOpened", "delayType": "waitUntil", "campaignId": "cam_example2",
+        "leadAction": "stop", "images": [], "videos": ["https://img.example.test/a.mp4"], "skillName": "Sales",
+        "endorseAnyFallback": False, "recordMode": "ai",
+    }},
+    "update_ab_variant": {"data": {
+        "subject": "A question", "message": "<p>Hello</p>", "altMessage": "Hello", "altMessagePremium": "Hello!",
+        "cc": ["cc@example.test"], "plainText": False,
+    }},
+    "update_schedule": {"data": {
+        "name": "Office hours", "timezone": "Europe/Paris", "start": "10:00", "end": "19:00",
+        "weekdays": [1, 2, 3, 4], "secondsToWait": 900, "public": False,
+    }},
+    "update_lead": {"data": {
+        "firstName": "Marie", "lastName": "Martin", "companyName": "Example", "jobTitle": "Head of Sales",
+        "preferredContactMethod": "email",
+    }},
+    "update_draft": {"data": {
+        "subject": "Next week", "cc": ["cc@example.test"], "content": "<p>Hello</p>",
+        "attachments": [{"name": "a.pdf"}], "replyToActivityId": "act_example2",
+    }},
+    "update_lemwarm_settings": {"data": {
+        "warmEmailMax": 30, "warmEmailRampup": 5, "internalCommunicationPercent": 20, "answerPercentage": 30,
+        "warmUsePlaintext": False, "warmDailyVarianceEnabled": True,
+    }},
+    "update_deliverability_alert": {"data": {
+        "threshold": 7, "comparisonOperator": "above", "periodDays": 3, "periodMode": "rolling",
+        "channelConfig": {"email": {"enabled": True, "addresses": ["ops@example.test"]},
+                          "inapp": {"enabled": True}, "webhook": {"enabled": False}, "slack": {"enabled": False}},
+        "scopeEntities": ["mbx_example1"], "enabled": True,
+    }},
 }
 
 
@@ -272,7 +357,9 @@ def _described(name: str, function: dict, arguments: dict) -> tuple:
         if argument in given:
             query[api] = given[argument] if argument in encoded else _in_query(given[argument])
     body = None
-    if "body" in call or "body" in call.get("constants", {}):
+    if body_argument(call) is not None:
+        body = given[body_argument(call)]
+    elif "body" in call or "body" in call.get("constants", {}):
         body = {**call.get("constants", {}).get("body", {}),
                 **{api: given[a] for api, a in call.get("body", {}).items() if a in given}}
     files = sorted(call.get("files", {}))
@@ -291,9 +378,9 @@ def _values(name: str, function: dict) -> dict:
     return {argument: values[argument] for argument in function["input"]["properties"]}
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.1.0"
     check(description, LEMLIST)
 
 
@@ -401,7 +488,7 @@ def test_reads_and_writes_are_classified_and_every_write_is_served_on_the_act_si
         if (method == "DELETE" and name != "remove_inbox_labels") or name.startswith(
                 ("send_", "delete_", "unsubscribe", "resubscribe")):
             assert function["class"] == "sensitive", name
-        assert function.get("act", function["class"] != "read") == (name != "create_draft" and acts), name
+        assert function.get("act", function["class"] != "read") == (name not in DRAFTS and acts), name
 
 
 def test_each_call_costs_one_request_and_nothing_is_paginated():
@@ -434,3 +521,110 @@ def test_the_typescript_output_and_the_python_table():
     table = python.declared([checked])["lemlist"]
     assert set(table) == set(_functions())
     assert DECLARED.get("lemlist") == table, "oto/connectors/declared.py is out of date: run `python -m fabrique`"
+
+
+def _declared_keys(schema: dict) -> set[str]:
+    return set(schema["properties"])
+
+
+def test_the_whole_body_functions_are_those_the_client_sends_a_dict_argument_as_is():
+    """`call.body` nomme l'argument que la méthode du client passe tel quel en `json=`, et seulement là."""
+    functions = _functions()
+    assert {n: body_argument(f["call"]) for n, f in functions.items() if body_argument(f["call"])} == WHOLE_BODY
+    for name, argument in WHOLE_BODY.items():
+        source = inspect.getsource(getattr(LemlistClient, name))
+        assert re.search(rf"json={argument}\)", source), name
+        assert "constants" not in functions[name]["call"] and "files" not in functions[name]["call"], name
+
+
+def test_each_whole_body_is_sent_by_the_client_as_given_key_by_key():
+    """Pour chaque fonction à corps entier : l'objet complet, puis chaque clé seule, puis l'objet vide quand le schéma
+    l'admet, partent du client exactement comme l'hôte les envoie : le corps est l'objet donné, rien d'ajouté, de
+    renommé ni de retiré. Toutes les clés déclarées sont essayées."""
+    functions = _functions()
+    for name, argument in WHOLE_BODY.items():
+        function = functions[name]
+        schema = function["input"]["properties"][argument]
+        full = _values(name, function)
+        assert set(full[argument]) == _declared_keys(schema), name
+        required = set(schema.get("required", []))
+        shapes = [full[argument]] + [
+            {k: v for k, v in full[argument].items() if k == key or k in required} for key in full[argument]]
+        if not required and not schema.get("minProperties"):
+            shapes.append({})
+        for body in shapes:
+            arguments = {**full, argument: body}
+            jsonschema.validate(arguments, function["input"])
+            sent = _sent_by_the_client(name, copy.deepcopy(arguments))
+            assert sent["json"] == body, (name, body)
+            assert _client_view(function, sent) == _described(name, function, arguments), (name, body)
+
+
+def test_each_whole_body_is_a_strict_object_with_the_keys_the_client_documents():
+    """Chaque clé que le client nomme dans sa documentation (entre accents graves) est une clé du corps, sauf celles
+    que `BODY_KEYS_LEFT_OUT` écarte avec leur motif ; `update_step` prend le vocabulaire d'`add_step`, sans
+    `index`."""
+    functions = _functions()
+    for name, argument in WHOLE_BODY.items():
+        schema = functions[name]["input"]["properties"][argument]
+        assert schema["type"] == "object" and schema["additionalProperties"] is False, name
+        assert argument in functions[name]["input"]["required"], name
+        documented = set(re.findall(r"`([A-Za-z]+)`", inspect.getdoc(getattr(LemlistClient, name))))
+        documented -= {"STEP_TYPES", *LemlistClient.STEP_TYPES}
+        left_out = set(BODY_KEYS_LEFT_OUT.get(name, {}))
+        assert documented - left_out <= _declared_keys(schema), (name, documented - left_out - _declared_keys(schema))
+        assert not left_out & _declared_keys(schema), name
+    assert set(BODY_KEYS_LEFT_OUT) <= set(WHOLE_BODY)
+    add, update = (functions[n]["input"]["properties"][WHOLE_BODY[n]] for n in ("add_step", "update_step"))
+    assert _declared_keys(add) - {"index"} == _declared_keys(update)
+    assert {k: v for k, v in add["properties"].items() if k != "index"} == update["properties"]
+
+
+def _refused_by_the_client(name: str, arguments: dict) -> bool:
+    """La méthode du client lève `ValueError` avant tout envoi ; sans réseau, une requête envoyée se compte."""
+    sent = []
+    with mock.patch.object(lemlist_client.requests, "request", lambda *a, **k: sent.append(a) or _Answer()), \
+            mock.patch.object(lemlist_client.time, "sleep", lambda _s: None):
+        try:
+            getattr(LemlistClient(api_key="k"), name)(**arguments)
+        except ValueError:
+            return not sent
+    return False
+
+
+def test_what_the_client_checks_locally_the_schema_refuses_first():
+    """Le client refuse localement un type d'étape, une condition, une heure, un jour ou un fuseau hors de son
+    vocabulaire : le schéma prend le sien, si bien qu'aucune entrée qu'il valide n'est refusée par le client."""
+    functions = _functions()
+    for name in ("add_step", "update_step"):
+        step = functions[name]["input"]["properties"][WHOLE_BODY[name]]["properties"]
+        assert step["type"]["enum"] == list(LemlistClient.STEP_TYPES), name
+        assert step["conditionKey"]["enum"] == list(LemlistClient.CONDITION_KEYS), name
+        assert "type" in functions[name]["input"]["properties"][WHOLE_BODY[name]]["required"], name
+        base = {"sequence_id": "seq_example1", "step_id": "stp_example1"}
+        for refused in ({"type": "linkedinInMail"}, {"type": "conditional", "conditionKey": "customLeadInfo"}, {}):
+            arguments = {k: v for k, v in base.items() if k in functions[name]["input"]["properties"]}
+            arguments[WHOLE_BODY[name]] = refused
+            assert not jsonschema.Draft202012Validator(functions[name]["input"]).is_valid(arguments), (name, refused)
+            assert _refused_by_the_client(name, arguments), (name, refused)
+    schedule = functions["update_schedule"]["input"]
+    for refused in ({"start": "9:00"}, {"end": "24:00"}, {"weekdays": [0]}, {"weekdays": [8]},
+                    {"timezone": "Paris"}):
+        arguments = {"schedule_id": "skd_example1", "data": refused}
+        assert not jsonschema.Draft202012Validator(schedule).is_valid(arguments), refused
+        assert _refused_by_the_client("update_schedule", arguments), refused
+
+
+def test_the_free_key_bodies_stay_out_the_client_sends_any_key():
+    """`create_lead`, `upsert_contact` et `upsert_company` envoient tel quel un dictionnaire dont toute clé hors des
+    champs de lemlist est une variable du lead ou un champ personnalisé : un objet strict la refuserait, et c'est
+    l'usage même de `create_lead` (la personnalisation d'un message). La règle 20 ne les dit pas : ils restent au
+    client."""
+    for name, (argument, _why) in FREE_KEYS.items():
+        assert name not in _functions(), name
+        parameters = inspect.signature(getattr(LemlistClient, name)).parameters
+        given = {a: VALUES.get(a, "cam_example1") for a, p in parameters.items()
+                 if a not in ("self", argument) and p.default is inspect.Parameter.empty}
+        free = {"email": "marie@example.test", "posteRecrute": "Head of Sales"}
+        sent = _sent_by_the_client(name, {**given, argument: free})
+        assert sent["json"] == free, name

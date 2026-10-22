@@ -10,13 +10,24 @@
 #
 # Read and act. Reads stay on the read side, the stats and database searches served in POST included. Every call
 # that changes something is served on the act side (class write): pausing a campaign or a lead, creating a campaign,
-# a schedule, a list, a label, a task, a persona, an alert, enriching (it spends lemlist credits). A draft is a write
-# that stays on the read side (act false): it sends nothing. Ask for a confirmation (class sensitive) the calls that
+# a schedule, a list, a label, a task, a persona, an alert, enriching (it spends lemlist credits). A draft, written or
+# changed, is a write that stays on the read side (act false): it sends nothing. Ask for a confirmation (class sensitive) the calls that
 # send or start sending to a real person (start_campaign, launch_lead, resume_lead, the three inbox sends, picking an
 # A/B winner, creating an A/B variant), import leads into a campaign (an auto-review campaign launches them), push a
 # signal into a watch list or create one (a watch list can push people into a campaign on its own), unsubscribe or
 # resubscribe anything, delete anything, subscribe a webhook (lemlist posts its events to an address of the caller's)
-# and have an export emailed to an address.
+# and have an export emailed to an address. Adding a step to a sequence or changing one is sensitive too: the leads of
+# a running campaign receive it, and an api step has lemlist call an address of the caller's for each lead.
+#
+# Whole bodies (format rule 20, call.body naming one argument): nine methods send a dict argument as the whole JSON
+# body, as is: update_campaign, add_step, update_step, update_ab_variant, update_schedule, update_lead, update_draft,
+# update_lemwarm_settings, update_deliverability_alert. The argument is a strict object whose keys are lemlist's
+# (developer.lemlist.com, OpenAPI v2, read on 2026-10-22) and the client's docstrings. Where the client checks a
+# vocabulary locally, the schema takes the client's: the step types and the condition keys of add_step and update_step
+# (lemlist also documents a linkedinInMail step and a customLeadInfo condition, which the client refuses, and the
+# customField, customOperator and customValue keys that go with that condition), the HH:mm hours, weekdays 1 to 7 and
+# IANA time zone of update_schedule. update_campaign leaves out autoReview and autoReviewConditions, as create_campaign
+# does: they turn adding a lead into a send.
 #
 # A campaign created by the API is born running, not as a draft (measured by the client on 2026-08-31): nothing
 # sends until a sender, a step and a launched lead exist, and pause_campaign right after creating it keeps it quiet.
@@ -49,10 +60,11 @@
 # marks the account. A 5xx is not retryable: a send or a launch may have gone through.
 #
 # Not described here, left to the hand-written client:
-# - bodies that are an argument itself: update_campaign, add_step, update_step, update_ab_variant, update_schedule,
-#   update_lead, update_draft, update_task and update_watch_list (the id added to the dict), update_lemwarm_settings,
-#   update_deliverability_alert, upsert_contact, upsert_company, create_lead and add_lead (the email taken out of the
-#   dict into the path);
+# - bodies with free top-level keys: create_lead (any key besides lemlist's fields is a custom variable of the lead,
+#   which is how lemlist personalizes a message), upsert_contact and upsert_company (any other key is a custom field of
+#   the CRM): rule 20 takes a strict object only, and the fixed fields alone would drop what the client sends;
+# - bodies made from an argument: update_task and update_watch_list (the id added to the dict), add_lead (the email
+#   taken out of the dict into the path);
 # - a bare array as body: bulk_enrich;
 # - query parameters with free keys (the lead variables): add_lead_variables, update_lead_variables,
 #   delete_lead_variables;
@@ -75,7 +87,7 @@ connector:
   name: lemlist
   label: lemlist
   namespace: lemlist
-  version: 1.0.0
+  version: 1.1.0
   api_version: v1 and v2 routes
   base_url: https://api.lemlist.com/api
   auth:
@@ -238,6 +250,107 @@ functions:
       body: { name: name }
     cost: *request
 
+  - name: update_campaign
+    class: write
+    description: >-
+      Change the settings of a campaign: only the keys given in data change.
+      Its name, its senders (sendUserIds replaces the sender pool), the stop
+      rules, the tracking, the AI handling of replies, and what happens to a
+      lead on a reply, a click or a booked meeting. Auto-review is not set
+      here: it turns adding a lead into a send.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id, data]
+      properties:
+        campaign_id: *campaign_id
+        data:
+          type: object
+          additionalProperties: false
+          description: "The settings to change, under lemlist's names; the keys left out keep their value."
+          properties:
+            name: { type: string, minLength: 1, description: "Campaign name." }
+            sendUserIds:
+              type: array
+              items: *user_id
+              description: >-
+                The senders (usr_…), replacing the sender pool. Refused on a
+                campaign whose sender is chosen per lead (contact owner, lead
+                importer, custom field); every channel the sequence reaches
+                needs a sender that can use it.
+            stopOnEmailReplied: { type: boolean, description: "Stop the campaign for a lead who replies by email." }
+            stopOnMeetingBooked: { type: boolean, description: "Stop the campaign for a lead who books a meeting." }
+            stopOnLinkClicked: { type: boolean, description: "Stop the campaign for a lead who clicks a link." }
+            stopOnLinkClickedFilter: { type: string, description: "Which link clicks stop the campaign." }
+            leadsPausedByInterest: { type: boolean, description: "Pause leads by their interest." }
+            opportunityReplied: { type: boolean, description: "Create an opportunity when a lead replies." }
+            opportunityClicked: { type: boolean, description: "Create an opportunity when a lead clicks a link." }
+            autoLeadInterest: { type: boolean, description: "Detect lead interest automatically." }
+            disableTrackOpen: { type: boolean, description: "Do not track email opens." }
+            disableTrackClick: { type: boolean, description: "Do not track link clicks." }
+            disableTrackReply: { type: boolean, description: "Do not track email replies." }
+            disableOutOfOffice: { type: boolean, description: "Do not detect out-of-office answers." }
+            sequenceSharing: { type: boolean, description: "Share the sequence." }
+            aiFeatures:
+              type: object
+              additionalProperties: false
+              description: "AI handling of replies; the flags left out keep their value."
+              properties:
+                scoreReplies: { type: boolean, description: "Score the replies." }
+                onInterestedReply: &reply_action
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    enabled: { type: boolean }
+                    pauseAllCampaignsForLead: { type: boolean, description: "Pause every campaign of the lead." }
+                    pauseCampaignForCompany: { type: boolean, description: "Pause this campaign for the other leads of the company." }
+                    pauseAllCampaignsForCompany: { type: boolean, description: "Pause every campaign for the leads of the company." }
+                onNotInterestedReply: *reply_action
+            tracking:
+              type: object
+              additionalProperties: false
+              properties:
+                trackOpens: { type: boolean }
+                trackClicks: { type: boolean }
+                trackReplies: { type: boolean }
+            onReplied:
+              type: object
+              additionalProperties: false
+              description: "What happens when a lead replies."
+              properties:
+                createNewTask: { type: boolean }
+                campaignProgress: &campaign_progress { type: string, enum: [continue, pause, stop], description: "What happens to the lead in the campaign." }
+                propagateProgressToCompany: { type: boolean, description: "The same for the other leads of the company." }
+                disableOutOfOffice: { type: boolean }
+            onLinkClicked:
+              type: object
+              additionalProperties: false
+              description: "What happens when a lead clicks a tracked link."
+              properties:
+                createNewTask: { type: boolean }
+                campaignProgress: *campaign_progress
+                propagateProgressToCompany: { type: boolean, description: "The same for the other leads of the company." }
+                specificLinks: { type: array, items: { type: string }, description: "Only these links trigger it; empty, every link." }
+            onMeetingBooked:
+              type: object
+              additionalProperties: false
+              description: "What happens when a lead books a meeting."
+              properties:
+                campaignProgress: *campaign_progress
+                propagateProgressToCompany: { type: boolean, description: "The same for the other leads of the company." }
+    examples:
+      - title: Rename a campaign
+        input: { campaign_id: cam_example1, data: { name: Q4 outreach (FR) } }
+      - title: Stop on a reply, two senders
+        input: { campaign_id: cam_example1, data: { stopOnEmailReplied: true, sendUserIds: [usr_example1, usr_example2] } }
+      - title: Pause the lead and create a task on a reply
+        input: { campaign_id: cam_example1, data: { onReplied: { campaignProgress: pause, createNewTask: true } } }
+    call:
+      method: PATCH
+      path: "/campaigns/{campaign_id}"
+      body: data
+    cost: *request
+
   - name: get_campaign_statutes
     class: read
     description: >-
@@ -297,6 +410,122 @@ functions:
     call: { method: DELETE, path: "/sequences/{sequence_id}/steps/{step_id}" }
     cost: *request
 
+  - name: add_step
+    class: sensitive
+    description: >-
+      Add a step, or a condition, to a sequence (get_sequences gives the
+      sequence id). type is required; the other keys depend on it: subject
+      and message for an email, message for a LinkedIn message, WhatsApp or
+      SMS, title for a manual task, method and url for an api step (lemlist
+      calls that address for each lead), conditionKey and delayType for a
+      condition, campaignId for a move to another campaign. On a campaign
+      leads have entered, the new step reaches them: it sends to real people.
+    input:
+      type: object
+      additionalProperties: false
+      required: [sequence_id, step]
+      properties:
+        sequence_id: *sequence_id
+        step:
+          type: object
+          additionalProperties: false
+          required: [type]
+          description: "The step, under lemlist's names."
+          properties:
+            type: &step_type
+              type: string
+              enum: [email, manual, phone, api, linkedinVisit, linkedinInvite, linkedinSend, linkedinVoiceNote,
+                     linkedinFollow, linkedinLikeLastPost, linkedinCommentLastPost, linkedinEndorse,
+                     linkedinWithdrawInvitation, sendToAnotherCampaign, conditional, whatsappMessage, sms]
+              description: "The kind of step; on an update, it must be the step's own kind."
+            index: { type: integer, minimum: -1, description: "Position in the sequence; left out or past the end, the step is added last." }
+            delay: &step_delay { type: integer, description: "Days before the step (lemlist: 0 for the first step, 1 after)." }
+            subject: &step_subject { type: string, description: "Email subject; empty on a follow-up, the email replies in the thread of the previous one." }
+            message: &step_message { type: string, description: "The content: email body (HTML), LinkedIn, WhatsApp or SMS message, manual or phone task notes." }
+            altMessage: &step_alt_message { type: string, description: "The LinkedIn note sent instead of message: the premium invitation note (linkedinInvite), the note to a lead out of the network (linkedinSend, linkedinVoiceNote)." }
+            altMessagePremium: &step_alt_premium { type: string, description: "linkedinSend only: the out-of-network note for a Premium or Sales Navigator account." }
+            title: &step_title { type: string, description: "Title of a manual task." }
+            method: &step_method { type: string, enum: [GET, POST, PUT, DELETE, PATCH], description: "HTTP method of an api step." }
+            url: &step_url { type: string, description: "Address an api step calls, http:// or https://." }
+            conditionKey: &step_condition_key
+              type: string
+              enum: [hasEmailAddress, hasLinkedinUrl, hasPhoneNumber, hasScore, emailsOpened, emailsClicked,
+                     emailsUnsubscribed, meetingBooked, linkedinInviteAccepted, linkedinOpened, aircallDone,
+                     linkedinNetworkCheck, hasWhatsappAccount]
+              description: "What a conditional step tests."
+            delayType: &step_delay_type { type: string, enum: [within, waitUntil], description: "How a conditional step waits." }
+            campaignId: &step_campaign_id { type: string, minLength: 1, description: "sendToAnotherCampaign: the campaign the lead moves to (cam_…), not archived." }
+            leadAction: &step_lead_action { type: string, enum: [continue, pause, stop], description: "sendToAnotherCampaign: what happens to the lead in this campaign once moved." }
+            images: &step_images { type: array, items: { type: string, format: uri }, description: "linkedinInvite or linkedinSend: public HTTPS addresses of images lemlist downloads and hosts (png, jpeg, gif)." }
+            videos: &step_videos { type: array, items: { type: string, format: uri }, description: "linkedinInvite or linkedinSend: public HTTPS addresses of videos lemlist downloads and hosts (mp4, mov)." }
+            skillName: &step_skill_name { type: string, description: "linkedinEndorse: the skill endorsed on the lead's profile." }
+            endorseAnyFallback: &step_endorse_any { type: boolean, description: "linkedinEndorse: endorse any skill when the named one is missing." }
+            recordMode: &step_record_mode { type: string, enum: [manual, ai], description: "linkedinVoiceNote: recorded by a person in the lemlist app, or generated by lemlist." }
+    examples:
+      - title: A follow-up email two days later
+        input: { sequence_id: seq_example1, step: { type: email, subject: "", message: "<p>Hello {{firstName}},</p>", delay: 2 } }
+      - title: A condition on an accepted invitation
+        input: { sequence_id: seq_example1, step: { type: conditional, conditionKey: linkedinInviteAccepted, delayType: waitUntil, delay: 1 } }
+    confirm:
+      summary: "Add a step to lemlist sequence {sequence_id}: the leads of a running campaign reach it."
+    call:
+      method: POST
+      path: "/sequences/{sequence_id}/steps"
+      body: step
+    cost: *request
+
+  - name: update_step
+    class: sensitive
+    description: >-
+      Change a step of a sequence: only the keys given in data change. type
+      is required and must be the step's own kind: it says the step's shape,
+      it does not convert it. images and videos replace what the step
+      carries ([] clears them). It changes what the leads going through the
+      step receive, and where an api step calls.
+    input:
+      type: object
+      additionalProperties: false
+      required: [sequence_id, step_id, data]
+      properties:
+        sequence_id: *sequence_id
+        step_id: *step_id
+        data:
+          type: object
+          additionalProperties: false
+          required: [type]
+          description: "The keys to change, under lemlist's names, with the step's type."
+          properties:
+            type: *step_type
+            delay: *step_delay
+            subject: *step_subject
+            message: *step_message
+            altMessage: *step_alt_message
+            altMessagePremium: *step_alt_premium
+            title: *step_title
+            method: *step_method
+            url: *step_url
+            conditionKey: *step_condition_key
+            delayType: *step_delay_type
+            campaignId: *step_campaign_id
+            leadAction: *step_lead_action
+            images: *step_images
+            videos: *step_videos
+            skillName: *step_skill_name
+            endorseAnyFallback: *step_endorse_any
+            recordMode: *step_record_mode
+    examples:
+      - title: A new subject for an email step
+        input: { sequence_id: seq_example1, step_id: stp_example1, data: { type: email, subject: "Next week, {{firstName}}?" } }
+      - title: Clear the images of a LinkedIn message
+        input: { sequence_id: seq_example1, step_id: stp_example1, data: { type: linkedinSend, images: [] } }
+    confirm:
+      summary: "Change step {step_id} of lemlist sequence {sequence_id}: the leads going through it receive the new version."
+    call:
+      method: PATCH
+      path: "/sequences/{sequence_id}/steps/{step_id}"
+      body: data
+    cost: *request
+
   - name: create_ab_variant
     class: sensitive
     description: >-
@@ -332,6 +561,38 @@ functions:
       - title: Variant B of a step
         input: { sequence_id: seq_example1, step_id: stp_example1 }
     call: { method: GET, path: "/sequences/{sequence_id}/steps/{step_id}/ab-test" }
+    cost: *request
+
+  - name: update_ab_variant
+    class: write
+    description: >-
+      Change variant B of an email step's A/B test: only the keys given in
+      data change.
+    input:
+      type: object
+      additionalProperties: false
+      required: [sequence_id, step_id, data]
+      properties:
+        sequence_id: *sequence_id
+        step_id: *step_id
+        data:
+          type: object
+          additionalProperties: false
+          description: "The keys of variant B to change, under lemlist's names."
+          properties:
+            subject: { type: string, maxLength: 400, description: "Subject of B; empty, B replies in the thread of the previous email." }
+            message: { type: string, description: "Body of B (HTML)." }
+            altMessage: { type: string, description: "B's LinkedIn note, as altMessage of the step." }
+            altMessagePremium: { type: string, description: "linkedinSend only: B's premium out-of-network note." }
+            cc: { type: array, items: { type: string, minLength: 3, personal: true } }
+            plainText: { type: boolean, description: "Send B as plain text." }
+    examples:
+      - title: A new subject for variant B
+        input: { sequence_id: seq_example1, step_id: stp_example1, data: { subject: "A question about {{companyName}}" } }
+    call:
+      method: PATCH
+      path: "/sequences/{sequence_id}/steps/{step_id}/ab-test"
+      body: data
     cost: *request
 
   - name: delete_ab_variant
@@ -437,7 +698,7 @@ functions:
         timezone: *timezone
         start: &hour { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", description: "HH:mm, 24 h." }
         end: *hour
-        weekdays:
+        weekdays: &weekdays
           type: array
           minItems: 1
           uniqueItems: true
@@ -452,6 +713,38 @@ functions:
       method: POST
       path: /schedules
       body: { name: name, timezone: timezone, start: start, end: end, weekdays: weekdays, secondsToWait: seconds_to_wait, public: public }
+    cost: *request
+
+  - name: update_schedule
+    class: write
+    description: >-
+      Change a schedule: only the keys given in data change, with the
+      vocabulary of create_schedule. Every campaign that uses it follows.
+    input:
+      type: object
+      additionalProperties: false
+      required: [schedule_id, data]
+      properties:
+        schedule_id: *schedule_id
+        data:
+          type: object
+          additionalProperties: false
+          description: "The keys to change, under lemlist's names."
+          properties:
+            name: { type: string, minLength: 1 }
+            timezone: *timezone
+            start: *hour
+            end: *hour
+            weekdays: *weekdays
+            secondsToWait: { type: integer, minimum: 0, description: "Seconds between two sends." }
+            public: { type: boolean, description: "Shown to the team as a template." }
+    examples:
+      - title: Later hours on Monday to Thursday
+        input: { schedule_id: skd_example1, data: { start: "10:00", end: "19:00", weekdays: [1, 2, 3, 4] } }
+    call:
+      method: PATCH
+      path: "/schedules/{schedule_id}"
+      body: data
     cost: *request
 
   - name: delete_schedule
@@ -592,6 +885,37 @@ functions:
       method: GET
       path: "/campaigns/{campaign_id}/leads/"
       query: { state: state, limit: limit }
+    cost: *request
+
+  - name: update_lead
+    class: write
+    description: >-
+      Change the fields of a lead in a campaign: only the keys given in data
+      change. Its custom variables are not changed here.
+    input:
+      type: object
+      additionalProperties: false
+      required: [campaign_id, lead_id, data]
+      properties:
+        campaign_id: *campaign_id
+        lead_id: *lead_id
+        data:
+          type: object
+          additionalProperties: false
+          description: "The fields to change, under lemlist's names."
+          properties:
+            firstName: { type: string, personal: true }
+            lastName: { type: string, personal: true }
+            companyName: { type: string, description: "The lead's company, renamed in place; without one, the lead is linked to a company of that name." }
+            jobTitle: { type: string }
+            preferredContactMethod: { type: string, description: "email or linkedIn." }
+    examples:
+      - title: A new job title
+        input: { campaign_id: cam_example1, lead_id: lea_example1, data: { jobTitle: Head of Sales } }
+    call:
+      method: PATCH
+      path: "/campaigns/{campaign_id}/leads/{lead_id}"
+      body: data
     cost: *request
 
   - name: pause_lead
@@ -1550,6 +1874,40 @@ functions:
         sourceMetadata: source_metadata
     cost: *request
 
+  - name: update_draft
+    class: write
+    act: false
+    description: >-
+      Change a draft: only the keys given in data change. A draft sends
+      nothing: a person sends it from the lemlist inbox.
+    input:
+      type: object
+      additionalProperties: false
+      required: [contact_id, draft_id, draft_owner, data]
+      properties:
+        contact_id: *contact_id
+        draft_id: *draft_id
+        draft_owner: *user_id
+        data:
+          type: object
+          additionalProperties: false
+          description: "The keys to change, under lemlist's names."
+          properties:
+            subject: { type: string }
+            cc: { type: array, items: { type: string, minLength: 3, personal: true } }
+            content: { type: string, description: "The content, 30 KB at most." }
+            attachments: { type: array, items: { type: object } }
+            replyToActivityId: *reply_to
+    examples:
+      - title: A new content
+        input: { contact_id: ctc_example1, draft_id: drf_example1, draft_owner: usr_example1, data: { content: "<p>Hello Marie, see you on Tuesday.</p>" } }
+    call:
+      method: PATCH
+      path: "/inbox/{contact_id}/drafts/{draft_id}"
+      query: { draftOwner: draft_owner }
+      body: data
+    cost: *request
+
   - name: delete_draft
     class: sensitive
     description: Delete a draft.
@@ -2323,6 +2681,38 @@ functions:
     call: { method: GET, path: "/lemwarm/{user_mailbox_id}/settings" }
     cost: *request
 
+  - name: update_lemwarm_settings
+    class: write
+    description: >-
+      Change the lemwarm settings of a mailbox: only the keys given in data
+      change, one at least.
+    input:
+      type: object
+      additionalProperties: false
+      required: [user_mailbox_id, data]
+      properties:
+        user_mailbox_id: *mailbox_id
+        data:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          description: "The settings to change, under lemlist's names."
+          properties:
+            warmEmailMax: { type: integer, minimum: 0, maximum: 40, description: "Warm-up emails a day at most (lemlist enforces 1 to 40 for most teams)." }
+            warmEmailRampup: { type: integer, minimum: 0, maximum: 40, description: "Daily increase of the warm-up emails (lemlist enforces 1 to 40 for most teams)." }
+            internalCommunicationPercent: { type: integer, minimum: 0, maximum: 100, description: "Share of warm-up emails sent inside the team, in percent." }
+            answerPercentage: { type: integer, minimum: 0, maximum: 100, description: "Share of warm-up emails answered, in percent." }
+            warmUsePlaintext: { type: boolean, description: "Warm-up emails in plain text." }
+            warmDailyVarianceEnabled: { type: boolean, description: "A random daily variance on the warm-up target." }
+    examples:
+      - title: Thirty emails a day, five more each day
+        input: { user_mailbox_id: mbx_example1, data: { warmEmailMax: 30, warmEmailRampup: 5 } }
+    call:
+      method: PATCH
+      path: "/lemwarm/{user_mailbox_id}/settings"
+      body: data
+    cost: *request
+
   - name: start_lemwarm
     class: write
     description: >-
@@ -2423,6 +2813,54 @@ functions:
         scopeEntities: scope_entities
         channelConfig: channel_config
         recheckDelayHours: recheck_delay_hours
+    cost: *request
+
+  - name: update_deliverability_alert
+    class: write
+    description: >-
+      Change a deliverability alert: only the keys given in data change. Its
+      widget, metric, severity and scope do not change: create another
+      alert for that.
+    input:
+      type: object
+      additionalProperties: false
+      required: [alert_id, data]
+      properties:
+        alert_id: *alert_id
+        data:
+          type: object
+          additionalProperties: false
+          description: "The keys to change, under lemlist's names."
+          properties:
+            threshold: { type: number, minimum: 0, maximum: 100 }
+            comparisonOperator: { type: string, enum: [equal, below, above] }
+            periodDays: { type: integer, minimum: 1, maximum: 30 }
+            periodMode: { type: string, enum: [rolling, consecutive] }
+            channelConfig:
+              type: object
+              additionalProperties: false
+              description: "The channels notified when the alert fires; one at least enabled."
+              properties:
+                email:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    enabled: { type: boolean }
+                    addresses: { type: array, items: { type: string, minLength: 3, personal: true }, description: "Required when email is enabled, one at least." }
+                inapp: { type: object, additionalProperties: false, properties: { enabled: { type: boolean } } }
+                webhook: { type: object, additionalProperties: false, properties: { enabled: { type: boolean, description: "Needs a webhook subscribed to deliverabilityAlertTriggered." } } }
+                slack: { type: object, additionalProperties: false, properties: { enabled: { type: boolean, description: "Needs Slack connected to the team." } } }
+            scopeEntities: { type: array, items: { type: string, minLength: 1 }, description: "The mailboxes or domains, for an alert scoped to them." }
+            enabled: { type: boolean, description: "Pause or resume the alert." }
+    examples:
+      - title: A threshold of 7, in the app
+        input: { alert_id: alr_example1, data: { threshold: 7, channelConfig: { inapp: { enabled: true } } } }
+      - title: Pause an alert
+        input: { alert_id: alr_example1, data: { enabled: false } }
+    call:
+      method: PATCH
+      path: "/deliverability/alerts/{alert_id}"
+      body: data
     cost: *request
 
   - name: delete_deliverability_alert
