@@ -7,8 +7,8 @@ pas dire :
 1. chaque argument d'entrée va à un seul endroit de `call` (chemin, query, corps,
    en-tête ou partie fichier), chaque `{param}` du chemin et chaque valeur de `query`,
    `body`, `headers` et `files` nomme un argument déclaré, un argument du chemin est requis, aucun
-   argument n'est sans place, et le `request_param` d'une pagination est un
-   argument ;
+   argument n'est sans place (l'argument qui forme le corps entier, règle 20, a la sienne), et le
+   `request_param` d'une pagination est un argument ;
 2. chaque référence de `auth` (`key`, `token`, `username`, `password`, `client_id`,
    `client_secret`) nomme un champ de `credential` ; en `basic`, `username` est facultatif
    (absent, l'identifiant est vide), et nomme un champ quand il est déclaré ;
@@ -110,7 +110,16 @@ pas dire :
    (`strip_sample_foreign_address`, le message dit où, jamais la valeur) ; chaque chemin de `strip` y désigne une
    clé, dans au moins un élément, relatif à `items` et à travers les listes comme à l'exécution
    (`strip_path_absent`). L'exemple ne sort ni en TypeScript ni en Python : ni contrat de réponse, ni validation à
-   l'exécution, ni documentation, ni source de types.
+   l'exécution, ni documentation, ni source de types ;
+20. le corps entier (`call.body` qui nomme un argument au lieu d'une table) : l'argument est déclaré
+   (`body_argument_unknown`) ; c'est un objet strict, `type: object`, `additionalProperties: false`, des
+   `properties` déclarées, au moins une, sans `patternProperties` (`body_argument_not_strict`) : jamais un sac libre ;
+   il est requis (`body_argument_optional`) ; la méthode envoie un corps, jamais `GET` (`body_argument_method`) ;
+   il ne va nulle part ailleurs, ni chemin, ni query, ni en-tête, ni partie fichier (`body_argument_elsewhere`) ;
+   `encode` ne le nomme pas (`body_argument_encoded`) ; rien d'autre n'entre au corps, ni constante de corps ni
+   partie fichier (`body_argument_not_alone`) ; la fonction n'est pas paginée (`body_argument_paginated`). Ce que
+   l'hôte envoie est l'objet validé, tel quel, en JSON. Les codes sont ceux des cas communs
+   (`connectors/_cases/body.yaml`).
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -134,6 +143,8 @@ PATH_PARAM = re.compile(r"\{([^{}]*)\}")
 DEFAULT_TIMEOUT_S = 30
 AUTH_REFERENCES = ("key", "token", "username", "password", "client_id", "client_secret")
 PLACES = ("query", "body", "headers", "files")
+# Les méthodes qui n'envoient pas de corps : l'argument qui forme le corps entier n'y a pas de place (règle 20).
+NO_BODY_METHODS = ("GET",)
 # Les méthodes qui envoient un corps multipart.
 FILE_METHODS = ("POST", "PUT", "PATCH")
 # Ce qui précède l'identité d'un compte dans une adresse : le schéma et l'hôte (ou une adresse libre en tête), puis `/`.
@@ -142,6 +153,65 @@ AFTER_HOST = re.compile(r"^(https://[^/{}]+|\{[a-z][a-z0-9_]*\})/")
 
 class DescriptionError(ValueError):
     """Une description refusée : le message dit le fichier, la fonction et la règle."""
+
+
+def body_argument(call: dict) -> str | None:
+    """L'argument qui forme le corps entier (`call.body` en texte, règle 20), ou `None` pour un corps en table."""
+    body = call.get("body")
+    return body if isinstance(body, str) else None
+
+
+def argument_table(call: dict, kind: str) -> dict:
+    """La table d'une place de `call` (`query`, `body`, `headers`, `files`) : nom côté API → argument ; vide quand la place
+    est absente, ou quand le corps est un argument entier (`body_argument`), qui n'a pas de nom côté API."""
+    table = call.get(kind)
+    return table if isinstance(table, dict) else {}
+
+
+# Les refus de la règle 20, les mêmes des deux côtés (cas communs `connectors/_cases/body.yaml`), dans l'ordre où ils
+# se jugent.
+BODY_REFUSALS = ("body_argument_unknown", "body_argument_not_strict", "body_argument_optional", "body_argument_method",
+                 "body_argument_elsewhere", "body_argument_encoded", "body_argument_not_alone", "body_argument_paginated")
+
+
+def strict_object(schema: object) -> bool:
+    """Un objet strict : `type: object`, `additionalProperties: false`, au moins une propriété déclarée, aucune clé
+    admise par motif (`patternProperties` rouvrirait l'objet)."""
+    return (isinstance(schema, dict) and schema.get("type") == "object" and schema.get("additionalProperties") is False
+            and isinstance(schema.get("properties"), dict) and len(schema["properties"]) >= 1
+            and "patternProperties" not in schema)
+
+
+def body_argument_refusal(function: dict) -> tuple[str, str] | None:
+    """Le premier défaut d'un corps formé par un argument entier, `(code, raison)`, ou `None` : la règle 20, hors de
+    toute description, que les cas communs rejouent."""
+    call = function["call"]
+    argument = body_argument(call)
+    if argument is None:
+        return None
+    properties = function["input"]["properties"]
+    if argument not in properties:
+        return ("body_argument_unknown", "is not an input argument")
+    if not strict_object(properties[argument]):
+        return ("body_argument_not_strict",
+                "must be a strict object (type: object, additionalProperties: false, at least one declared property, "
+                "no patternProperties): the body is what the agent may send, never a free bag")
+    if argument not in function["input"].get("required", []):
+        return ("body_argument_optional", "must be required: the whole body is never absent")
+    if call["method"] in NO_BODY_METHODS:
+        return ("body_argument_method", f"needs a method that sends a body, not {call['method']}")
+    elsewhere = PATH_PARAM.findall(call["path"])
+    for kind in ("query", "headers", "files"):
+        elsewhere += argument_table(call, kind).values()
+    if argument in elsewhere:
+        return ("body_argument_elsewhere", "is the whole body, so it goes nowhere else (path, query, headers, files)")
+    if argument in (call.get("encode") or {}):
+        return ("body_argument_encoded", "is sent as the JSON object it is, never encoded")
+    if "body" in (call.get("constants") or {}) or "files" in call:
+        return ("body_argument_not_alone", "is the whole body: no body constant nor file part joins it")
+    if "pagination" in function:
+        return ("body_argument_paginated", "a function whose body is one argument is not paginated")
+    return None
 
 
 @dataclass(frozen=True)
@@ -202,12 +272,19 @@ def check_arguments(function: dict, where: str) -> None:
             )
         placed[argument] = at
 
+    whole = body_argument(call)
+    refusal = body_argument_refusal(function)
+    if refusal is not None:
+        code, reason = refusal
+        raise DescriptionError(f"{where}: function {name}: call.body {whole!r}: {code}: {reason}")
+    if whole is not None:
+        place(whole, "the whole body")
     for argument in PATH_PARAM.findall(call["path"]):
         place(argument, "the path")
         if argument not in required:
             raise DescriptionError(f"{where}: function {name}: path argument {argument!r} must be required")
     for kind in PLACES:
-        for api_name, argument in (call.get(kind) or {}).items():
+        for api_name, argument in argument_table(call, kind).items():
             place(argument, f"{kind} {api_name!r}")
     pagination = function.get("pagination")
     unplaced = declared - set(placed)
@@ -260,7 +337,7 @@ def check_constants(connector: dict, function: dict, where: str) -> None:
     constants = call.get("constants") or {}
     for kind in ("query", "body"):
         for api_name in constants.get(kind) or {}:
-            if api_name in (call.get(kind) or {}):
+            if api_name in argument_table(call, kind):
                 raise DescriptionError(
                     f"{where}: function {name}: {kind} {api_name!r} is both a constant and an argument"
                 )
@@ -415,7 +492,7 @@ def check_files(function: dict, where: str) -> None:
         raise DescriptionError(f"{where}: function {name}: call.files needs a method that sends a body ({', '.join(FILE_METHODS)})")
     if "pagination" in function:
         raise DescriptionError(f"{where}: function {name}: a function that sends files is not paginated: a file is sent once")
-    texts = set(call.get("body") or {}) | set((call.get("constants") or {}).get("body") or {})
+    texts = set(argument_table(call, "body")) | set((call.get("constants") or {}).get("body") or {})
     for part, argument in files.items():
         if part in texts:
             raise DescriptionError(f"{where}: function {name}: multipart part {part!r} is both a file and a body value")
@@ -894,7 +971,7 @@ def check_account_identity(data: dict, where: str) -> None:
         if identity in PATH_PARAM.findall(call["path"]):
             raise DescriptionError(f"{where}: function {name}: the path cites the account identity {{{identity}}}")
         for kind in PLACES:
-            mapping = call.get(kind) or {}
+            mapping = argument_table(call, kind)
             api_names = {n.lower() for n in mapping} if kind == "headers" else set(mapping)
             if identity in api_names or identity in mapping.values():
                 raise DescriptionError(

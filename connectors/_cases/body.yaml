@@ -1,0 +1,400 @@
+# Common cases of the whole body: `call.body` that names one input argument, a strict object, instead of a map, with the
+# semantics of docs/conception/format-de-description.md, « Le bloc functions », « Le corps entier » (rule 20 of the
+# fabrique).
+#
+# Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the functions the
+# cases carry into one description, checked with the schema and the rules of every description (rule 20 included), then
+# converts it as it converts a description: ts/src/body-cases.ts for the host package
+# (`@otomata_tech/connectors/body-cases`), whose engine builds each request. tests/test_body_cases.py plays the cases
+# against a reference written in the test: the Python lib sends no request of a description. A function shared by
+# several cases is written once, with a YAML anchor; the same name is always the same function.
+#
+# A case (`cases`): the arguments of a call (`input`, valid against the function input) and the request the host sends:
+# its path, its query (name and value pairs, in the order of `call.query`), the headers the arguments set (names in
+# lower case) and its JSON body, which is the object given, exactly.
+#
+# A rejected input (`rejected`): arguments the input schema of a case function refuses, so that nothing is sent.
+#
+# A refused function (`refused`): a function, valid against the description schema, that rule 20 refuses with this code,
+# and no other rule. The codes, the same on both sides (ts/src/body-cases.ts), in the order they are judged:
+# body_argument_unknown, body_argument_not_strict, body_argument_optional, body_argument_method,
+# body_argument_elsewhere, body_argument_encoded, body_argument_not_alone, body_argument_paginated.
+connector:
+  name: body_cases
+  label: Body cases
+  namespace: body_cases
+  version: 1.0.0
+  api_version: v1
+  base_url: https://api.example.test/v1
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  modes: [byo_org]
+  errors:
+    - { status: 429, code: rate_limited, retryable: true, message: "Rate limit reached: retry later." }
+
+cases:
+  # --- The object is the body, whole and as given -------------------------------------------------------------------
+  - name: whole_object
+    function: &create_lead
+      name: create_lead
+      class: write
+      description: Add a lead to a campaign; the lead is the whole body.
+      input:
+        type: object
+        additionalProperties: false
+        required: [campaign_id, lead]
+        properties:
+          campaign_id: { type: string }
+          lead:
+            type: object
+            additionalProperties: false
+            required: [email]
+            properties:
+              email: { type: string, personal: true }
+              first_name: { type: string }
+              company: { type: [string, "null"] }
+              tags: { type: array, items: { type: string } }
+              # A property of the object may be a map of its own: only the argument itself must be strict.
+              variables: { type: object, additionalProperties: { type: string } }
+      examples: [{ title: One lead, input: { campaign_id: cam-1, lead: { email: ada@example.test } } }]
+      call: { method: POST, path: "/campaigns/{campaign_id}/leads", body: lead }
+    input:
+      campaign_id: cam-1
+      lead: { email: ada@example.test, first_name: Ada, tags: [vip, "2026"], variables: { size: "10-50", city: Lyon } }
+    request:
+      path: /campaigns/cam-1/leads
+      query: []
+      headers: {}
+      body: { email: ada@example.test, first_name: Ada, tags: [vip, "2026"], variables: { size: "10-50", city: Lyon } }
+
+  - name: absent_properties_are_not_sent
+    function: *create_lead
+    input: { campaign_id: cam-1, lead: { email: ada@example.test } }
+    request:
+      path: /campaigns/cam-1/leads
+      query: []
+      headers: {}
+      body: { email: ada@example.test }
+
+  - name: null_is_sent
+    function: *create_lead
+    input: { campaign_id: cam-1, lead: { email: ada@example.test, company: null } }
+    request:
+      path: /campaigns/cam-1/leads
+      query: []
+      headers: {}
+      body: { email: ada@example.test, company: null }
+
+  - name: path_argument_encoded
+    function: *create_lead
+    input: { campaign_id: "cam 1/b", lead: { email: ada@example.test } }
+    request:
+      path: /campaigns/cam%201%2Fb/leads
+      query: []
+      headers: {}
+      body: { email: ada@example.test }
+
+  # --- The other arguments keep their places -------------------------------------------------------------------------
+  - name: with_query_and_header
+    function: &update_campaign
+      name: update_campaign
+      class: write
+      description: Change the settings of a campaign; the changes are the whole body.
+      input:
+        type: object
+        additionalProperties: false
+        required: [campaign_id, changes]
+        properties:
+          campaign_id: { type: string }
+          dry_run: { type: boolean }
+          request_key: { type: string }
+          changes:
+            type: object
+            additionalProperties: false
+            properties:
+              name: { type: string }
+              paused: { type: boolean }
+              daily_limit: { type: integer, minimum: 1 }
+      examples: [{ title: Pause a campaign, input: { campaign_id: cam-1, changes: { paused: true } } }]
+      call:
+        method: PATCH
+        path: "/campaigns/{campaign_id}"
+        query: { dryRun: dry_run }
+        headers: { Idempotency-Key: request_key }
+        body: changes
+    input: { campaign_id: cam-1, dry_run: true, request_key: k-1, changes: { name: Spring, daily_limit: 40 } }
+    request:
+      path: /campaigns/cam-1
+      query: [[dryRun, "true"]]
+      headers: { idempotency-key: k-1 }
+      body: { name: Spring, daily_limit: 40 }
+
+  - name: optional_arguments_absent
+    function: *update_campaign
+    input: { campaign_id: cam-1, changes: { paused: false } }
+    request:
+      path: /campaigns/cam-1
+      query: []
+      headers: {}
+      body: { paused: false }
+
+  - name: empty_object_is_sent
+    function: *update_campaign
+    input: { campaign_id: cam-1, changes: {} }
+    request:
+      path: /campaigns/cam-1
+      query: []
+      headers: {}
+      body: {}
+
+  # --- A DELETE carries its body -------------------------------------------------------------------------------------
+  - name: delete_with_body
+    function:
+      name: remove_leads
+      class: sensitive
+      description: Remove leads from a campaign; the selection is the whole body.
+      input:
+        type: object
+        additionalProperties: false
+        required: [campaign_id, selection]
+        properties:
+          campaign_id: { type: string }
+          selection:
+            type: object
+            additionalProperties: false
+            required: [ids]
+            properties:
+              ids: { type: array, minItems: 1, items: { type: string } }
+      examples: [{ title: Two leads, input: { campaign_id: cam-1, selection: { ids: [l-1, l-2] } } }]
+      call: { method: DELETE, path: "/campaigns/{campaign_id}/leads", body: selection }
+      confirm: { summary: "Remove the leads {selection} from campaign {campaign_id}." }
+    input: { campaign_id: cam-1, selection: { ids: [l-1, l-2] } }
+    request:
+      path: /campaigns/cam-1/leads
+      query: []
+      headers: {}
+      body: { ids: [l-1, l-2] }
+
+rejected:
+  - name: unknown_property_in_the_object
+    function: create_lead
+    input: { campaign_id: cam-1, lead: { email: ada@example.test, phone: "+33100000000" } }
+  - name: required_property_missing
+    function: create_lead
+    input: { campaign_id: cam-1, lead: { first_name: Ada } }
+  - name: object_absent
+    function: create_lead
+    input: { campaign_id: cam-1 }
+  - name: object_is_a_text
+    function: create_lead
+    input: { campaign_id: cam-1, lead: ada@example.test }
+  - name: property_out_of_bounds
+    function: update_campaign
+    input: { campaign_id: cam-1, changes: { daily_limit: 0 } }
+
+refused:
+  - name: unknown_argument
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input: &note_input
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note: &note
+            type: object
+            additionalProperties: false
+            required: [text]
+            properties: { text: { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: /notes, body: notes }
+    refusal: body_argument_unknown
+
+  - name: free_bag
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties: { note: { type: object } }
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: open_object
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties: { note: { type: object, additionalProperties: true, properties: { text: { type: string } } } }
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: no_declared_property
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties: { note: { type: object, additionalProperties: false, properties: {} } }
+      examples: [{ title: An empty note, input: { note: {} } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: keys_by_pattern
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note:
+            type: object
+            additionalProperties: false
+            properties: { text: { type: string } }
+            patternProperties: { "^x_": { type: string } }
+      examples: [{ title: A note, input: { note: { text: Hello, x_any: Hi } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: not_an_object
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties: { note: { type: string } }
+      examples: [{ title: A note, input: { note: Hello } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: nullable_object
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note]
+        properties:
+          note: { type: [object, "null"], additionalProperties: false, properties: { text: { type: string } } }
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_not_strict
+
+  - name: optional_argument
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input:
+        type: object
+        additionalProperties: false
+        properties: { note: *note }
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: /notes, body: note }
+    refusal: body_argument_optional
+
+  - name: get_sends_no_body
+    function:
+      name: find_notes
+      class: read
+      description: Find notes.
+      input: *note_input
+      examples: [{ title: Notes, input: { note: { text: Hello } } }]
+      call: { method: GET, path: /notes, body: note }
+    refusal: body_argument_method
+
+  - name: also_in_the_path
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input: *note_input
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: "/notes/{note}", body: note }
+    refusal: body_argument_elsewhere
+
+  - name: also_in_the_query
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input: *note_input
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: /notes, query: { note: note }, body: note }
+    refusal: body_argument_elsewhere
+
+  - name: encoded
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input: *note_input
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: /notes, body: note, encode: { note: json } }
+    refusal: body_argument_encoded
+
+  - name: with_a_body_constant
+    function:
+      name: add_note
+      class: write
+      description: Add a note.
+      input: *note_input
+      examples: [{ title: A note, input: { note: { text: Hello } } }]
+      call: { method: POST, path: /notes, body: note, constants: { body: { source: api } } }
+    refusal: body_argument_not_alone
+
+  - name: with_a_file_part
+    function:
+      name: add_note
+      class: write
+      description: Add a note with a file.
+      input:
+        type: object
+        additionalProperties: false
+        required: [note, file]
+        properties:
+          note: *note
+          file: { type: string, format: uuid }
+      examples: [{ title: A note, input: { note: { text: Hello }, file: 00000000-0000-4000-8000-000000000000 } }]
+      call: { method: POST, path: /notes, body: note, files: { file: file } }
+    refusal: body_argument_not_alone
+
+  - name: paginated
+    function:
+      name: search_notes
+      class: read
+      description: Search notes, one page at a time.
+      input:
+        type: object
+        additionalProperties: false
+        required: [filter]
+        properties:
+          filter: { type: object, additionalProperties: false, properties: { text: { type: string } } }
+          cursor: { type: string }
+      examples: [{ title: Notes, input: { filter: { text: Hello } } }]
+      call: { method: POST, path: /notes/search, query: { cursor: cursor }, body: filter }
+      pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 2 }
+    refusal: body_argument_paginated

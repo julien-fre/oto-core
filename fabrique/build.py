@@ -4,7 +4,7 @@ from __future__ import annotations
 import pathlib
 from dataclasses import dataclass
 
-from . import auth_cases, cases, error_cases, file_cases, python, strip_cases
+from . import auth_cases, body_cases, cases, error_cases, file_cases, python, strip_cases
 from .descriptions import CONNECTORS, REPO, load_all
 from .typescript import GENERATED_MARK, Module, connector_module, index_source
 
@@ -20,7 +20,7 @@ class Result:
 
 def generate(root: pathlib.Path = CONNECTORS) -> Result:
     """Toutes les descriptions et les cas communs (coût, fichier rendu, retrait de la sortie, authentification, table
-    d'erreurs), contrôlés d'abord : un seul fautif, et rien
+    d'erreurs, corps entier), contrôlés d'abord : un seul fautif, et rien
     n'est généré."""
     descriptions = load_all(root)
     modules = [connector_module(description) for description in descriptions]
@@ -34,6 +34,8 @@ def generate(root: pathlib.Path = CONNECTORS) -> Result:
     files[auth_cases.OUTPUT_NAME] = auth_cases.typescript_source(auth_cases.load(root / auth_cases.CASES.relative_to(CONNECTORS)))
     files[error_cases.OUTPUT_NAME] = error_cases.typescript_source(
         error_cases.load(root / error_cases.CASES.relative_to(CONNECTORS)))
+    files[body_cases.OUTPUT_NAME] = body_cases.typescript_source(
+        body_cases.load(root / body_cases.CASES.relative_to(CONNECTORS)))
     return Result(modules=modules, files=files, python=python.python_source(descriptions))
 
 

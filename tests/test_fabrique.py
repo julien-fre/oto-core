@@ -13,7 +13,7 @@ import re
 import pytest
 import yaml
 
-from fabrique import python
+from fabrique import body_cases, python
 from fabrique.build import generate, stale
 from fabrique.descriptions import CONNECTORS, DescriptionError, check, served
 from fabrique.typescript import NotGenerated, connector_module, function_source, js_block
@@ -65,6 +65,57 @@ def test_argument_rule_refuses(mutate, message):
     mutate(description)
     with pytest.raises(DescriptionError, match=message):
         check(description, SELLSY)
+
+
+# --- Règle 20 : le corps entier, un argument objet strict -------------------------
+
+BODY_CASES = CONNECTORS / "body_cases" / "connector.yaml"
+
+
+def _create_lead() -> dict:
+    """La fonction des cas communs dont le corps entier est l'argument `lead` (`connectors/_cases/body.yaml`)."""
+    loaded = body_cases.load()
+    return copy.deepcopy(next(f for f in loaded.description.data["functions"] if f["name"] == "create_lead"))
+
+
+def _whole_body() -> dict:
+    return body_cases.alone(body_cases.load(), _create_lead())
+
+
+def test_whole_body_is_the_place_of_its_argument():
+    """L'argument du corps entier a sa place (règle 1) : la description passe, sans « go nowhere »."""
+    check(_whole_body(), BODY_CASES)
+
+
+def test_whole_body_leaves_the_other_arguments_to_place():
+    description = _whole_body()
+    description["functions"][0]["input"]["properties"]["note"] = {"type": "string"}
+    with pytest.raises(DescriptionError, match=r"argument\(s\) note go nowhere in call"):
+        check(description, BODY_CASES)
+
+
+@pytest.mark.parametrize("body", ["Lead", 3, ["lead"], ""], ids=["not_an_identifier", "number", "list", "empty"])
+def test_whole_body_is_named_by_an_identifier(body):
+    description = _whole_body()
+    description["functions"][0]["call"]["body"] = body
+    with pytest.raises(DescriptionError, match="does not match the description schema at functions/0/call/body"):
+        check(description, BODY_CASES)
+
+
+def test_whole_body_beside_an_account_identity():
+    """La règle 8 lit le corps entier sans nom côté API : une fonction qui en porte un passe sous un compte rattaché."""
+    description = _load(LINKEDIN)
+    description["functions"].append(_create_lead())
+    check(description, LINKEDIN)
+    description["functions"][-1]["call"]["body"] = "account_id"
+    with pytest.raises(DescriptionError, match="call.body 'account_id': body_argument_unknown"):
+        check(description, LINKEDIN)
+
+
+def test_whole_body_is_generated_as_the_argument_name():
+    source = function_source("body_cases", _create_lead())
+    assert '    body: "lead",\n' in source
+    assert '"additionalProperties": false' in source
 
 
 # --- Règle 2 : une référence de auth nomme un champ de credential -----------------

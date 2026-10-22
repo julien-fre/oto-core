@@ -220,8 +220,13 @@ export type RequestSpec = {
   readonly pathParams: readonly string[]
   /** Les listes s'y encodent selon `Connector.queryArrays`. */
   readonly query: ArgumentMap
-  /** Corps JSON, quelle que soit la méthode : un `DELETE` peut en porter un ; avec `files`, les parties texte du corps multipart. */
-  readonly body: ArgumentMap
+  /**
+   * Corps JSON, quelle que soit la méthode : un `DELETE` peut en porter un ; avec `files`, les parties texte du corps
+   * multipart. Ou le nom d'un argument, un objet strict du schéma (`type: object`, `additionalProperties: false`, des
+   * propriétés déclarées), requis, qui forme le corps entier : l'hôte envoie l'objet validé tel quel, en JSON, sans
+   * constante de corps, sans fichier, sans pagination, jamais en `GET` (règle 20 de la fabrique).
+   */
+  readonly body: ArgumentMap | string
   readonly headers: ArgumentMap
   /**
    * Nom de partie → argument qui porte l'identifiant d'un fichier en transit de l'appelant (un texte). Présent, le corps

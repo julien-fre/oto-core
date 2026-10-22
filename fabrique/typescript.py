@@ -109,6 +109,8 @@ def _object(entries: list[tuple[str, str]], indent: int) -> str:
 
 
 def _request(call: dict) -> str:
+    """La requête : `body` est une table (nom côté API → argument), ou le nom de l'argument qui forme le corps entier
+    (règle 20), recopié tel quel en texte ; un hôte qui n'attend qu'une table le refuse à la déclaration."""
     entries = [
         ("method", js(call["method"])),
         ("path", js(call["path"])),
@@ -148,7 +150,12 @@ def _list(items: list[str], indent: int) -> str:
 
 
 def function_source(connector: str, function: dict) -> str:
-    """La définition d'une fonction, ou `NotGenerated`."""
+    """La définition d'une fonction, exportée sous son nom en camelCase, ou `NotGenerated`."""
+    return f"export const {camel(function['name'])} = {function_definition(connector, function)}\n"
+
+
+def function_definition(connector: str, function: dict) -> str:
+    """L'expression `defineFunction({...})` d'une fonction, ou `NotGenerated`."""
     if "handwritten" in function:
         raise NotGenerated("handwritten: the fabrique does not generate it")
     qualified = f"{connector}.{function['name']}"
@@ -199,7 +206,7 @@ def function_source(connector: str, function: dict) -> str:
         entries.append(("cost", _cost(function["cost"])))
     if "confirm" in function:
         entries.append(("confirm", "{ summary: " + js(function["confirm"]["summary"]) + " }"))
-    return f"export const {camel(function['name'])} = defineFunction({_object(entries, 0)})\n"
+    return f"defineFunction({_object(entries, 0)})"
 
 
 def _file(file: dict) -> str:

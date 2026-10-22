@@ -780,7 +780,10 @@
               "pattern": "^/[^\\s?#]*$"
             },
             "query": { "$ref": "#/$defs/argument_map" },
-            "body": { "description": "JSON body, whatever the method: a DELETE may carry one.", "$ref": "#/$defs/argument_map" },
+            "body": {
+              "description": "JSON body, whatever the method: a DELETE may carry one. A map of API-side names to input arguments, or the name of one input argument, a strict object (type: object, additionalProperties: false, properties declared) that is the whole body, sent as validated (rule 20 of the fabrique).",
+              "oneOf": [{ "$ref": "#/$defs/argument_map" }, { "$ref": "#/$defs/identifier" }]
+            },
             "headers": { "$ref": "#/$defs/argument_map" },
             "files": {
               "description": "Multipart part name to the input argument that carries the id of a transit file of the caller. When present, the body is sent as multipart/form-data: each body entry and body constant becomes a text part, each file a part with the file's own name and type. The host reads the file under the caller's identity and consumes it after a successful send.",
