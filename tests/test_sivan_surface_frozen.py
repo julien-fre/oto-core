@@ -27,12 +27,14 @@ EXPECTED_MEMBERS = {
     '_period': "(start: 'Any', end: 'Any', *, max_days: 'Optional[int]' = 31) -> 'Dict[str, str]'",
     '_post': "(self, path: 'str', body: 'Optional[Dict[str, Any]]' = None) -> 'Any'",
     '_statuses': "(values: 'Optional[Sequence[str]]') -> 'Optional[List[str]]'",
+    '_strip_days': "(timesheets: 'Any') -> 'Any'",
     'list_absences': "(self, start: 'str', end: 'str', *, status: 'Optional[Sequence[str]]' = None, salaries_ids: 'Optional[Sequence[int]]' = None) -> 'Any'",
     'list_badged_events': "(self, start: 'str', end: 'str', *, companies_ids: 'Optional[Sequence[int]]' = None, salaries_ids: 'Optional[Sequence[int]]' = None) -> 'Any'",
     'list_companies': "(self) -> 'Any'",
     'list_events': "(self, start: 'str', end: 'str', *, with_absence_type: 'Optional[bool]' = None, companies_ids: 'Optional[Sequence[int]]' = None, salaries_ids: 'Optional[Sequence[int]]' = None) -> 'Any'",
     'list_salaries': "(self, with_counter: 'Optional[bool]' = None, with_absences_counter: 'Optional[bool]' = None) -> 'Any'",
     'list_timesheets': "(self, start: 'str', end: 'str', *, salaries_ids: 'Optional[Sequence[int]]' = None) -> 'Any'",
+    'list_timesheets_summary': "(self, start: 'str', end: 'str', *, salaries_ids: 'Optional[Sequence[int]]' = None) -> 'Any'",
     'probe': "(self) -> 'Any'",
 }
 

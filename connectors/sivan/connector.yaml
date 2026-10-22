@@ -5,7 +5,7 @@ connector:
   name: sivan
   label: Sivan
   namespace: sivan
-  version: 1.0.0
+  version: 1.1.0
   api_version: external-1.0
   base_url: https://api2.sivan.io
   auth:
@@ -215,6 +215,50 @@ functions:
         start: start
         end: end
         salariesIds: salaries_ids
+    cost: { per: request }
+
+  - name: list_timesheets_summary
+    class: read
+    description: >-
+      Timesheet weekly totals per salary and contract over a window, WITHOUT the
+      per-day breakdown — the shape payroll needs across many contracts (far
+      smaller than list_timesheets). Same data and window rules; only each week's
+      days array (planned/done events) is dropped. Weekly aggregates
+      (contractWorkingTime, accountedWorkingTime, overtime…) are kept as-is; a
+      missing field stays missing. The period cannot exceed 31 days (inclusive).
+      salaries_ids, when non-empty, restricts to the listed salaries.
+    input:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      properties:
+        start: *day
+        end:
+          <<: *day
+          description: "Window end, date or ISO-8601; at most 31 days after start (inclusive)."
+        salaries_ids: *salary_id_list
+    examples:
+      - { title: Weekly totals for payroll, input: { start: "2026-10-01", end: "2026-10-31" } }
+    call:
+      method: POST
+      path: /api/external/timesheets
+      body:
+        start: start
+        end: end
+        salariesIds: salaries_ids
+    output:
+      strip: [weeks.days]
+      sample:
+        - weeks:
+            - weekNumber: "40"
+              year: "2026"
+              workingTime: 144000
+              accountedWorkingTime: 140400
+              days:
+                - date: "2026-10-05T00:00:00+02:00"
+                  workingTime: 28800
+                  eventsPlanned: []
+                  eventsDone: []
     cost: { per: request }
 
 exposure:

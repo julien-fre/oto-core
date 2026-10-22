@@ -112,6 +112,33 @@ def test_list_badged_events_path(capture, cli):
     assert capture["calls"] == [("POST", f"{BASE}/badged-events")]
 
 
+def _timesheet_with_days():
+    return [{
+        "salary": {"id": 42, "name": "x"},
+        "weeks": [{
+            "weekNumber": "40", "year": "2026",
+            "workingTime": 144000, "accountedWorkingTime": 140400,
+            "days": [{"date": "2026-10-05", "workingTime": 28800,
+                      "eventsPlanned": [], "eventsDone": []}],
+        }],
+    }]
+
+
+def test_summary_strips_days_keeps_weekly_totals(capture, cli):
+    capture["responses"] = [_Resp(200, body=_timesheet_with_days())]
+    out = cli.list_timesheets_summary("2026-10-01", "2026-10-31")
+    week = out[0]["weeks"][0]
+    assert "days" not in week
+    assert week["workingTime"] == 144000 and week["accountedWorkingTime"] == 140400
+    assert capture["calls"] == [("POST", f"{BASE}/timesheets")]
+
+
+def test_list_timesheets_keeps_days(capture, cli):
+    capture["responses"] = [_Resp(200, body=_timesheet_with_days())]
+    out = cli.list_timesheets("2026-10-01", "2026-10-31")
+    assert "days" in out[0]["weeks"][0]
+
+
 # --- validation -------------------------------------------------------------
 
 def test_period_over_31_days_is_refused(cli):

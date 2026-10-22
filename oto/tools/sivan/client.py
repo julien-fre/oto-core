@@ -237,6 +237,26 @@ class SivanClient:
         body["salariesIds"] = self._int_ids("salaries_ids", salaries_ids)
         return self._post("/absences", body)
 
+    @staticmethod
+    def _strip_days(timesheets: Any) -> Any:
+        """Drop each week's per-day breakdown, keeping the weekly aggregates.
+
+        The `days` array (eventsPlanned/eventsDone per day) is by far the
+        heaviest part of a timesheet; for payroll only the weekly totals matter
+        (workingTime, accountedWorkingTime and any overtime / paid-leave
+        aggregates carried at week level). Mutates and returns the parsed
+        response in place; nothing else is altered.
+        """
+        if not isinstance(timesheets, list):
+            return timesheets
+        for sheet in timesheets:
+            if not isinstance(sheet, dict):
+                continue
+            for week in sheet.get("weeks") or []:
+                if isinstance(week, dict):
+                    week.pop("days", None)
+        return timesheets
+
     def list_timesheets(self, start: str, end: str, *,
                         salaries_ids: Optional[Sequence[int]] = None) -> Any:
         """POST /api/external/timesheets — timesheet aggregates per salary/contract.
@@ -249,6 +269,18 @@ class SivanClient:
         body = self._period(start, end)
         body["salariesIds"] = self._int_ids("salaries_ids", salaries_ids)
         return self._post("/timesheets", body)
+
+    def list_timesheets_summary(self, start: str, end: str, *,
+                               salaries_ids: Optional[Sequence[int]] = None) -> Any:
+        """POST /api/external/timesheets, weekly totals only (no per-day detail).
+
+        Same call as `list_timesheets`, then drops each week's `days` array
+        (eventsPlanned/eventsDone) — far smaller, the shape payroll needs across
+        many contracts. Weekly aggregates (contractWorkingTime,
+        accountedWorkingTime, overtime…) are kept untouched; a missing field
+        stays missing (nothing is inferred). Period capped at 31 days.
+        """
+        return self._strip_days(self.list_timesheets(start, end, salaries_ids=salaries_ids))
 
 
 __all__ = [

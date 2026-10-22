@@ -245,11 +245,55 @@ export const listTimesheets = defineFunction({
   cost: { per: "request" },
 })
 
+export const listTimesheetsSummary = defineFunction({
+  name: "sivan.list_timesheets_summary",
+  connector: "sivan",
+  class: "read",
+  act: false,
+  description: "Timesheet weekly totals per salary and contract over a window, WITHOUT the per-day breakdown — the shape payroll needs across many contracts (far smaller than list_timesheets). Same data and window rules; only each week's days array (planned/done events) is dropped. Weekly aggregates (contractWorkingTime, accountedWorkingTime, overtime…) are kept as-is; a missing field stays missing. The period cannot exceed 31 days (inclusive). salaries_ids, when non-empty, restricts to the listed salaries.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["start", "end"],
+    "properties": {
+      "start": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Window start, date or ISO-8601 (2026-01-01, 2026-01-01T13:00:00+01:00)."
+      },
+      "end": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Window end, date or ISO-8601; at most 31 days after start (inclusive)."
+      },
+      "salaries_ids": {
+        "type": "array",
+        "items": {"type": "integer"},
+        "description": "When non-empty, only these salary ids (applied before generation)."
+      }
+    }
+  },
+  examples: [
+    { title: "Weekly totals for payroll", input: {"start": "2026-10-01", "end": "2026-10-31"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/api/external/timesheets",
+    pathParams: [],
+    query: {},
+    body: {"start": "start", "end": "end", "salariesIds": "salaries_ids"},
+    headers: {},
+  },
+  output: { strip: ["weeks.days"] },
+  cost: { per: "request" },
+})
+
 export const connector = defineConnector({
   name: "sivan",
   label: "Sivan",
   namespace: "sivan",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "external-1.0",
   baseUrl: "https://api2.sivan.io",
   auth: {"kind": "api_key", "in": "header", "name": "X-Api-Key", "key": "api_key"},
@@ -272,5 +316,6 @@ export const connector = defineConnector({
     listBadgedEvents,
     listAbsences,
     listTimesheets,
+    listTimesheetsSummary,
   ],
 })
