@@ -631,19 +631,21 @@
       "description": "The output of the function is a file: the host keeps it as a transit file of the caller (24 hours, the same for every file) and returns its id; the bytes and the third party's address never reach the agent. Exclusive of items, strip, projection and schema; never on a paginated or asynchronous function nor on the collect of a job (rule 17 of the fabrique).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["from", "types", "name"],
+      "required": ["from", "name"],
+      "if": { "properties": { "from": { "const": "json" } }, "required": ["from"] },
+      "else": { "required": ["types"] },
       "properties": {
         "from": {
-          "description": "Where the bytes are: body, the body of the answer; url, an address the JSON answer holds at path, downloaded at once; base64 or base64url, the bytes encoded in a field of the JSON answer at path.",
-          "enum": ["body", "url", "base64", "base64url"]
+          "description": "Where the bytes are: body, the body of the answer; url, an address the JSON answer holds at path, downloaded at once; base64 or base64url, the bytes encoded in a field of the JSON answer at path; json, the JSON answer itself, or its branch at path, written as JSON (application/json, no types; 4 MB at most, the default; the name a template that ends with .json).",
+          "enum": ["body", "url", "base64", "base64url", "json"]
         },
-        "path": { "description": "Dotted path of the address or of the encoded bytes in the JSON answer; required unless from: body, refused with it.", "$ref": "#/$defs/dotted_path" },
+        "path": { "description": "Dotted path of the address or of the encoded bytes in the JSON answer, required with url, base64 and base64url, refused with body; with json, the branch of the answer that is the file, the whole answer when absent.", "$ref": "#/$defs/dotted_path" },
         "auth": {
           "description": "from: url only. none (default): a signed address that receives no secret. account: the account's authentication, set only when the address has the origin of the resolved base URL; otherwise nothing is downloaded.",
           "enum": ["none", "account"]
         },
         "types": {
-          "description": "The extensions the function may return, each with the MIME types the third party may announce for it, the first being the type of the kept file. An announced type that is none of those of the retained extension, nor application/octet-stream or binary/octet-stream, nor absent, is refused.",
+          "description": "The extensions the function may return, each with the MIME types the third party may announce for it, the first being the type of the kept file. An announced type that is none of those of the retained extension, nor application/octet-stream or binary/octet-stream, nor absent, is refused. Required, except with from: json, which refuses it (its type is application/json).",
           "type": "object",
           "minProperties": 1,
           "propertyNames": { "pattern": "^[a-z0-9]{1,16}$" },
@@ -664,7 +666,7 @@
           }
         },
         "max_bytes": {
-          "description": "The largest file, in bytes: from 1 byte to 50 MB (52428800, the ceiling of a file at the host of oto 2). An empty file is refused.",
+          "description": "The largest file, in bytes: from 1 byte to 50 MB (52428800, the ceiling of a file at the host of oto 2), the default; with from: json, 4 MB at most (4194304, that of a JSON answer), the default. An empty file is refused.",
           "type": "integer",
           "minimum": 1,
           "maximum": 52428800,

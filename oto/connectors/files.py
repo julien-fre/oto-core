@@ -10,6 +10,9 @@ host package:
   without following any redirect, with no authentication (`auth: none`) or, under `auth: account`, by the client's
   session, to the origin of `base_url` only;
 - `base64`, `base64url`: the field at `path`, decoded strictly;
+- `json`: the JSON answer (4 MB at most), or its branch at `path`, written as JSON the way the host package writes it
+  (`JSON.stringify` of what `JSON.parse` reads: compact, UTF-8, a number as a double, the keys that are array indices
+  first), typed `application/json`, named by its template; an absent or empty branch refuses, never an empty file;
 
 then the name (header, field, template: the first with a declared extension) and the type (that of the extension; an
 announced type that is not one of its types, nor generic, nor absent, refuses). The timeout of the function holds end to
@@ -41,6 +44,8 @@ from .declared import DECLARED
 MAX_BYTES = 52_428_800
 # The largest JSON answer that carries an address: that of an ordinary JSON answer at the host of oto 2 (4 MB).
 JSON_LIMIT = 4 * 1024 * 1024
+# The one type of a file from: json, which declares no types.
+JSON_TYPES = {"json": ["application/json"]}
 CHUNK = 64 * 1024
 GENERIC_TYPES = ("application/octet-stream", "binary/octet-stream")
 NAME_LENGTH = 255
@@ -53,6 +58,9 @@ _DISPOSITION_PARAMETER = re.compile(r";\s*([!#$%&'*+.^_`|~0-9A-Za-z-]+)\s*=\s*(\
 _EXTENDED_VALUE = re.compile(r"^([A-Za-z0-9!#$%&+^_`{}~-]+)'[^']*'(.*)$")
 _BASE64 = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
 _BASE64URL = re.compile(r"^[A-Za-z0-9_-]*={0,2}$")
+# A key that JavaScript orders first in an object: an array index, 0 to 2**32 - 2, written without a leading zero.
+_ARRAY_INDEX = re.compile(r"^(0|[1-9][0-9]{0,9})$")
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 @dataclass(frozen=True)
@@ -116,6 +124,8 @@ def file_output(connector: str, function: str, *, answer: requests.Response, arg
     source = file["from"]
     if source == "body":
         return _from_response(file, args, answer, None, deadline)
+    if source == "json":
+        return _from_json(file, args, answer, deadline)
     data = _json_answer(answer, source, file["max_bytes"], deadline)
     if source == "url":
         return _from_url(file, args, data, session, base_url, deadline)
@@ -183,6 +193,88 @@ def _from_base64(file: dict, args: Mapping[str, Any], data: Any, source: str) ->
         raise FileOutputError("file_too_large", f"the file is over {file['max_bytes']} bytes")
     name, extension = _name(file, args, None, data)
     return FileOut(name=name, content=content, mime=file["types"][extension][0])
+
+
+def _from_json(file: dict, args: Mapping[str, Any], answer: requests.Response, deadline: _Deadline) -> FileOut:
+    """The JSON answer, or its branch at `path`, written again as JSON: an absent or empty branch is no file."""
+    body = _read(answer, JSON_LIMIT, deadline, "file_too_large", "the JSON answer is over 4 MB")
+    parsed, readable = None, True
+    try:
+        parsed = json.loads(body, parse_int=float, parse_constant=_not_json)
+    except (ValueError, RecursionError):
+        readable = False
+    if not readable:
+        raise FileOutputError("file_unreadable", "the answer is not JSON")
+    path = file.get("path")
+    value = parsed if path is None else value_at(parsed, path)
+    if value is None or value == "" or value == [] or value == {}:
+        raise FileOutputError("file_missing", "the third party answered without a file ("
+                              + ("the answer" if path is None else path) + " is empty)")
+    content = _js_json(value).encode("utf-8")
+    if len(content) > file["max_bytes"]:
+        raise FileOutputError("file_too_large", f"the file is over {file['max_bytes']} bytes")
+    name, extension = _name(file, args, None, None)
+    return FileOut(name=name, content=content, mime=JSON_TYPES[extension][0])
+
+
+# --- JSON as the host package writes it ----------------------------------------------------------------------------
+
+
+def _not_json(constant: str) -> Any:
+    """`NaN`, `Infinity` and `-Infinity` are not JSON: `JSON.parse` refuses them, so does the lib."""
+    raise ValueError(f"{constant} is not JSON")
+
+
+def _js_json(value: Any) -> str:
+    """`JSON.stringify(value)` of a value `JSON.parse` would read: no whitespace, the keys that are array indices first
+    in ascending order then the others in their order, a number as JavaScript writes a double, a lone surrogate
+    escaped. A number is a float here (`parse_int=float`): JavaScript has no other."""
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, float):
+        return _js_number(value)
+    if isinstance(value, str):
+        return _js_string(value)
+    if isinstance(value, list):
+        return "[" + ",".join(_js_json(item) for item in value) + "]"
+    indices = sorted((key for key in value if _ARRAY_INDEX.match(key) and int(key) < 2**32 - 1), key=int)
+    first = set(indices)
+    others = [key for key in value if key not in first]
+    return "{" + ",".join(_js_string(key) + ":" + _js_json(value[key]) for key in indices + others) + "}"
+
+
+def _js_string(text: str) -> str:
+    return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", json.dumps(text, ensure_ascii=False))
+
+
+def _js_number(number: float) -> str:
+    """A double as `Number.prototype.toString` writes it: the shortest digits that read back the same (those of
+    `repr`), in plain notation from 1e-6 up to 1e21, in exponent notation beyond; `null` when not finite."""
+    if number != number or number in (float("inf"), float("-inf")):
+        return "null"
+    if number == 0:
+        return "0"
+    mantissa, _, exponent = repr(abs(number)).partition("e")
+    whole, _, fraction = mantissa.partition(".")
+    figures = whole + fraction
+    digits = figures.lstrip("0")
+    point = len(whole) + int(exponent or 0) - (len(figures) - len(digits))
+    digits = digits.rstrip("0")
+    count = len(digits)
+    sign = "-" if number < 0 else ""
+    if count <= point <= 21:
+        return sign + digits + "0" * (point - count)
+    if 0 < point <= 21:
+        return sign + digits[:point] + "." + digits[point:]
+    if -6 < point <= 0:
+        return sign + "0." + "0" * -point + digits
+    power = point - 1
+    head = digits[0] + ("." + digits[1:] if count > 1 else "")
+    return f"{sign}{head}e{'+' if power >= 0 else '-'}{abs(power)}"
 
 
 # --- Reading -------------------------------------------------------------------------------------------------------
@@ -288,7 +380,7 @@ def _same_origin(address: str, base_url: str) -> bool:
 
 def _name(file: dict, args: Mapping[str, Any], headers: Optional[Mapping[str, str]], data: Any) -> tuple[str, str]:
     """The first name whose extension is declared: the header, the field, then the template, which always gives one."""
-    naming, types = file["name"], file["types"]
+    naming, types = file["name"], _types(file)
     candidates: list[str] = []
     if "header" in naming and headers is not None:
         value = headers.get(naming["header"])
@@ -304,6 +396,10 @@ def _name(file: dict, args: Mapping[str, Any], headers: Optional[Mapping[str, st
         if name is not None and _extension(name) in types:
             return name, _extension(name)
     raise ValueError(f"the name template {naming['template']!r} does not end with a declared extension")
+
+
+def _types(file: dict) -> dict:
+    return JSON_TYPES if file["from"] == "json" else file["types"]
 
 
 def _mime(file: dict, extension: str, announced: Optional[str]) -> str:

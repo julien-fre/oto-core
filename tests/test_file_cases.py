@@ -57,10 +57,13 @@ def test_file_case(case, caplog):
             assert address not in str(error) and address not in repr(error.args)
     else:
         result, transport = _play(case)
-        assert {"name": result.name, "mime": result.mime, "size": len(result.content)} == case["file"]
+        expected = {key: value for key, value in case["file"].items() if key != "text"}
+        assert {"name": result.name, "mime": result.mime, "size": len(result.content)} == expected
         source = case["function"]["output"]["file"]["from"]
         if source in ("body", "url"):
             assert result.content == files_fake.body_of(case["answer"] if source == "body" else case["download"])
+        if "text" in case["file"]:
+            assert result.content == case["file"]["text"].encode("utf-8")
     for address in _addresses(case["answer"].get("json")):
         assert all(address not in record.getMessage() for record in caplog.records)
 
@@ -73,3 +76,9 @@ def test_an_address_refused_before_the_download_is_never_downloaded(case):
         file_output(CONNECTOR, case["function"]["name"], answer=files_fake.answer(case["answer"]), args=case["args"],
                     session=files_fake.session(transport), base_url=BASE_URL)
     assert transport.requests == []
+
+
+def test_every_json_case_says_its_bytes():
+    for case in LOADED.cases:
+        if case["function"]["output"]["file"]["from"] == "json" and "file" in case:
+            assert "text" in case["file"], case["name"]

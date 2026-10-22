@@ -29,6 +29,8 @@ DECLARED = {
         "get_attachment": {"file": {"from": "base64", "path": "data", "types": {"pdf": ["application/pdf"]},
                                     "name": {"path": "filename", "template": "attachment-{id}.pdf"}, "max_bytes": 16},
                            "timeout_s": 30},
+        "get_report": {"file": {"from": "json", "name": {"template": "report-{id}.json"}, "max_bytes": 4194304},
+                       "timeout_s": 30},
         "list_calls": {"cost": {"per": "request"}},
     }
 }
@@ -183,6 +185,58 @@ def test_the_timeout_of_the_function_holds_end_to_end(monkeypatch):
         _call("get_call_recording", _json({"recording": SIGNED}), AUDIO)
     assert "30 s" in str(raised.value)
     assert "s3cr3t" not in str(raised.value) and raised.value.__context__ is None
+
+
+# --- Un fichier JSON ------------------------------------------------------------------------------------------------
+
+
+def test_a_json_answer_beyond_4_mb_refuses_before_reading():
+    response = files_fake.answer({"status": 200, "headers": {"Content-Type": "application/json",
+                                                             "Content-Length": str(4 * 1024 * 1024 + 1)}, "text": "{}"})
+    with pytest.raises(FileOutputError) as raised:
+        file_output("demo", "get_report", answer=response, args={"id": "x-1"}, session=requests.Session(), base_url=BASE_URL)
+    assert raised.value.code == "file_too_large"
+    assert response.raw._fp.read_bytes == 0
+
+
+def test_a_json_answer_beyond_4_mb_stops_at_the_first_byte_too_many():
+    text = '{"a":"' + "x" * (5 * 1024 * 1024) + '"}'
+    response = files_fake.answer({"status": 200, "headers": {"Content-Type": "application/json"}, "text": text})
+    with pytest.raises(FileOutputError) as raised:
+        file_output("demo", "get_report", answer=response, args={"id": "x-1"}, session=requests.Session(), base_url=BASE_URL)
+    assert raised.value.code == "file_too_large"
+    assert response.raw._fp.read_bytes < len(text)
+
+
+def test_a_json_file_written_larger_than_its_answer_is_bounded_once_written():
+    # 1.5e16 is written 15000000000000000 by the host: the bound holds on the bytes of the file, not of the answer.
+    text = "[" + ",".join(["1.5e16"] * 300_000) + "]"
+    assert len(text) < 4 * 1024 * 1024 < len("[" + ",".join(["15000000000000000"] * 300_000) + "]")
+    with pytest.raises(FileOutputError) as raised:
+        _call("get_report", {"status": 200, "headers": {"Content-Type": "application/json"}, "text": text})
+    assert raised.value.code == "file_too_large"
+
+
+def test_a_json_file_says_no_address_of_its_answer_in_a_refusal():
+    with pytest.raises(FileOutputError) as raised:
+        _call("get_report", {"status": 200, "headers": {"Content-Type": "application/json"}, "text": '{"u":"' + SIGNED + '",}'})
+    assert raised.value.code == "file_unreadable"
+    assert "s3cr3t" not in str(raised.value) and raised.value.__context__ is None
+
+
+def test_a_json_file_too_deep_to_read_is_unreadable():
+    with pytest.raises(FileOutputError) as raised:
+        _call("get_report", {"status": 200, "headers": {"Content-Type": "application/json"}, "text": "[" * 100_000 + "]" * 100_000})
+    assert raised.value.code == "file_unreadable"
+
+
+@pytest.mark.parametrize("number, written", [
+    (0.1, "0.1"), (1e21, "1e+21"), (1e20, "100000000000000000000"), (123456789012345680000.0, "123456789012345680000"),
+    (1e-6, "0.000001"), (1e-7, "1e-7"), (-1.5e-10, "-1.5e-10"), (2.0 ** 60, "1152921504606847000"), (5e-324, "5e-324"),
+    (1.7976931348623157e308, "1.7976931348623157e+308"), (-0.0, "0"), (float("inf"), "null"), (float("nan"), "null"),
+])
+def test_a_number_is_written_as_javascript_writes_a_double(number, written):
+    assert files._js_number(number) == written
 
 
 # --- Ce que file_output exige ---------------------------------------------------------------------------------------

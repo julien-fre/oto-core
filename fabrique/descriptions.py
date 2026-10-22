@@ -91,14 +91,18 @@ pas dire :
    d'entrée, avant l'appel, jamais comptée pour rien, et un poids ne vaut que pour une
    valeur admise ;
 17. le fichier rendu (`output.file`) : il exclut `items`, `strip`, `projection` et
-   `schema` (un fichier est toute la sortie), une pagination, `async` et le rôle de
-   relève d'un travail asynchrone ; `path` est exigé hors `from: body` et refusé avec
-   lui, `name.path` aussi (un corps binaire n'a pas de JSON) ; `auth` ne vaut qu'avec
-   `from: url`, `name.header` qu'avec `body` ou `url` ; le gabarit du nom ne cite que des
+   `schema` (`file_output_not_alone` : un fichier est toute la sortie), une pagination, `async` et le rôle de
+   relève d'un travail asynchrone ; `path` est exigé avec `url`, `base64` et `base64url`, refusé avec
+   `body`, `name.path` aussi (un corps binaire n'a pas de JSON) ; `auth` ne vaut qu'avec
+   `from: url` (`file_auth_not_url`), `name.header` qu'avec `body` ou `url` ; le gabarit du nom ne cite que des
    arguments requis de l'entrée et finit par une extension déclarée ; aucun type
    déclaré n'est un type qu'un navigateur rend en page ou exécute (HTML, SVG, XML,
-   JavaScript) ; `expect` est refusé avec `from: body`. La forme (extensions, types
-   MIME sans paramètre, `max_bytes` de 1 octet à 50 Mo) est celle du schéma ;
+   JavaScript) ; `expect` est refusé avec `from: body`. `from: json` (la réponse JSON, ou sa branche au chemin
+   facultatif `path`, écrite en JSON) a son type, `application/json` : `types` est refusé (`file_json_types`) ; son
+   nom est le gabarit seul, qui finit par `.json` (`file_json_name`) ; `max_bytes` va jusqu'à 4 Mo, 4 194 304
+   octets, le défaut (`file_json_max_bytes`). Les codes sont ceux des cas communs (`connectors/_cases/file.yaml`),
+   jugés avant les autres refus de la règle, dans cet ordre. La forme (extensions, types MIME sans paramètre,
+   `max_bytes` de 1 octet à 50 Mo, `types` exigé hors `from: json`) est celle du schéma ;
 18. retirer de la sortie (`output.strip`) : chaque entrée est un chemin, des clés non vides séparées par des points
    (`strip_path_malformed`), déclaré une fois (`strip_path_twice`), jamais sous un autre chemin de la liste, qui le
    retire déjà en entier (`strip_path_overlaps`). Le schéma dit déjà la forme et le doublon ; la règle les redit
@@ -515,6 +519,12 @@ EXTENSION_AT_END = re.compile(r"\.([a-z0-9]{1,16})$")
 
 # Le plafond d'un fichier rendu, et son défaut : 50 Mo, celui d'un fichier chez l'hôte d'oto 2 (le `default` du schéma).
 DEFAULT_MAX_BYTES = 52_428_800
+# Le plafond d'un fichier `from: json`, et son défaut : 4 Mo, celui d'une réponse JSON chez l'hôte d'oto 2.
+JSON_MAX_BYTES = 4_194_304
+# Les refus de la règle 17 qui portent un code, les mêmes des deux côtés (cas communs `connectors/_cases/file.yaml`), dans
+# l'ordre où ils se jugent.
+FILE_DECLARATION_REFUSALS = ("file_output_not_alone", "file_auth_not_url", "file_json_types", "file_json_name",
+                             "file_json_max_bytes")
 
 
 def output_file(function: dict) -> dict | None:
@@ -527,17 +537,42 @@ def output_file(function: dict) -> dict | None:
     resolved: dict = {"from": file["from"]}
     if "path" in file:
         resolved["path"] = file["path"]
-    if file["from"] == "url":
+    if file["from"] == "url" or "auth" in file:
         resolved["auth"] = file.get("auth", "none")
-    resolved["types"] = file["types"]
+    if "types" in file:
+        resolved["types"] = file["types"]
     resolved["name"] = {key: file["name"][key] for key in ("header", "path", "template") if key in file["name"]}
-    resolved["max_bytes"] = file.get("max_bytes", DEFAULT_MAX_BYTES)
+    resolved["max_bytes"] = file.get("max_bytes", JSON_MAX_BYTES if file["from"] == "json" else DEFAULT_MAX_BYTES)
     return resolved
 
 
 def page_or_script(mime: str) -> bool:
     """Un type qu'un navigateur rend en page ou exécute : HTML, SVG, tout XML, JavaScript."""
     return mime in PAGE_OR_SCRIPT_TYPES or mime.endswith("+xml") or mime.endswith("/xml")
+
+
+def output_file_refusal(function: dict) -> tuple[str, str] | None:
+    """Le premier refus à code d'un fichier rendu, `(code, raison)`, ou `None` : la part de la règle 17 que les cas
+    communs rejouent, hors de toute description."""
+    output = function.get("output") or {}
+    file = output.get("file")
+    if file is None:
+        return None
+    if any(key in output for key in NOT_WITH_FILE):
+        return ("file_output_not_alone", "excludes items, strip, projection and schema: the file is the whole output")
+    source = file["from"]
+    if "auth" in file and source != "url":
+        return ("file_auth_not_url", "auth is only for from: url: nothing else is downloaded")
+    if source != "json":
+        return None
+    if "types" in file:
+        return ("file_json_types", "types is refused with from: json, whose type is application/json")
+    naming = file["name"]
+    if set(naming) != {"template"} or not naming["template"].endswith(".json"):
+        return ("file_json_name", "the name of a JSON file is its template alone, which ends with .json")
+    if file.get("max_bytes", JSON_MAX_BYTES) > JSON_MAX_BYTES:
+        return ("file_json_max_bytes", f"max_bytes is {JSON_MAX_BYTES} at most with from: json, that of a JSON answer")
+    return None
 
 
 def check_output_file(data: dict, function: dict, where: str) -> None:
@@ -548,8 +583,10 @@ def check_output_file(data: dict, function: dict, where: str) -> None:
         return
     name = function["name"]
     at = f"{where}: function {name}: output.file"
-    if any(key in function["output"] for key in NOT_WITH_FILE):
-        raise DescriptionError(f"{at} excludes items, strip, projection and schema: the file is the whole output")
+    refusal = output_file_refusal(function)
+    if refusal is not None:
+        code, reason = refusal
+        raise DescriptionError(f"{at}: {code}: {reason}")
     if "pagination" in function:
         raise DescriptionError(f"{where}: function {name}: a function that renders a file is not paginated: one call, one file")
     if "async" in function:
@@ -560,12 +597,10 @@ def check_output_file(data: dict, function: dict, where: str) -> None:
             f"{where}: function {name}: renders a file and collects the asynchronous job of {submitter!r}: a collect answers JSON"
         )
     source = file["from"]
-    if source != "body" and "path" not in file:
-        raise DescriptionError(f"{at}.path is required unless from: body: it points at the address or the encoded bytes")
+    if source not in ("body", "json") and "path" not in file:
+        raise DescriptionError(f"{at}.path is required unless from: body or json: it points at the address or the encoded bytes")
     if source == "body" and "path" in file:
         raise DescriptionError(f"{at}.path is refused with from: body, whose bytes are the whole answer")
-    if "auth" in file and source != "url":
-        raise DescriptionError(f"{at}.auth is only for from: url: nothing else is downloaded")
     naming = file["name"]
     if "header" in naming and source not in ("body", "url"):
         raise DescriptionError(f"{at}.name.header is only for from: body or url: a base64 field has no headers of its own")
@@ -576,6 +611,8 @@ def check_output_file(data: dict, function: dict, where: str) -> None:
     for argument in PATH_PARAM.findall(template):
         if argument not in required:
             raise DescriptionError(f"{at}.name.template cites {argument!r}, which is not a required input argument")
+    if source == "json":
+        return
     end = EXTENSION_AT_END.search(template)
     if end is None or end.group(1) not in file["types"]:
         declared = ", ".join(f".{extension}" for extension in file["types"])

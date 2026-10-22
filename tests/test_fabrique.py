@@ -1218,16 +1218,17 @@ def _paginated_file(d):
 
 @pytest.mark.parametrize("mutate, message", [
     (lambda d: _rendered(d)["output"].update(schema={"type": "object", "additionalProperties": False, "properties": {"id": {"type": "integer"}}}),
-     "output.file excludes items, strip, projection and schema"),
-    (lambda d: _rendered(d)["output"].update(items="data"), "output.file excludes items"),
-    (lambda d: _rendered(d)["output"].update(strip=["a"]), "output.file excludes items"),
-    (lambda d: _rendered(d)["output"].update(projection=["a"]), "output.file excludes items"),
+     "output.file: file_output_not_alone: excludes items, strip, projection and schema"),
+    (lambda d: _rendered(d)["output"].update(items="data"), "output.file: file_output_not_alone: excludes items"),
+    (lambda d: _rendered(d)["output"].update(strip=["a"]), "output.file: file_output_not_alone: excludes items"),
+    (lambda d: _rendered(d)["output"].update(projection=["a"]), "output.file: file_output_not_alone: excludes items"),
     (_paginated_file, "a function that renders a file is not paginated"),
     (lambda d: _rendered(d, path=None), "output.file.path is required unless from: body"),
     (lambda d: _rendered(d, **{"from": "base64", "path": None}), "output.file.path is required unless from: body"),
     (lambda d: _rendered(d, **{"from": "body"}), "output.file.path is refused with from: body"),
-    (lambda d: _rendered(d, **{"from": "body", "path": None, "auth": "none"}), "output.file.auth is only for from: url"),
-    (lambda d: _rendered(d, **{"from": "base64", "auth": "account"}), "output.file.auth is only for from: url"),
+    (lambda d: _rendered(d, **{"from": "body", "path": None, "auth": "none"}),
+     "output.file: file_auth_not_url: auth is only for from: url"),
+    (lambda d: _rendered(d, **{"from": "base64", "auth": "account"}), "output.file: file_auth_not_url: auth is only for from: url"),
     (lambda d: _rendered(d, **{"from": "base64", "name": {"header": "Content-Disposition", "template": "e-{id}.pdf"}}),
      "output.file.name.header is only for from: body or url"),
     (lambda d: _rendered(d, **{"from": "base64url", "name": {"header": "X-Name", "template": "e-{id}.pdf"}}),
@@ -1256,8 +1257,35 @@ def _paginated_file(d):
     (lambda d: _rendered(d, **{"from": "body", "path": None}).update(
         expect=[{"kind": "non_empty", "refusal": "estimate_not_found", "path": "id"}]),
      "expect is refused with output.file from: body, which has no JSON"),
+    (lambda d: _rendered(d, **{"from": "json", "path": None, "types": None, "auth": "none",
+                               "name": {"template": "estimate-{id}.json"}}),
+     "output.file: file_auth_not_url: auth is only for from: url"),
+    (lambda d: _rendered(d, **{"from": "json", "name": {"template": "estimate-{id}.json"}}),
+     "output.file: file_json_types: types is refused with from: json, whose type is application/json"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{id}.pdf"}}),
+     "output.file: file_json_name: the name of a JSON file is its template alone, which ends with .json"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{id}.JSON"}}),
+     "output.file: file_json_name"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None,
+                               "name": {"header": "Content-Disposition", "template": "estimate-{id}.json"}}),
+     "output.file: file_json_name"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"path": "name", "template": "estimate-{id}.json"}}),
+     "output.file: file_json_name"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{id}.json"},
+                               "max_bytes": 4194305}),
+     "output.file: file_json_max_bytes: max_bytes is 4194304 at most with from: json"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{nope}.json"}}),
+     "output.file.name.template cites 'nope', which is not a required input argument"),
+    (lambda d: _rendered(d, **{"from": "json", "types": None, "name": {"template": "estimate-{id}.json"}})["output"].update(
+        strip=["a"]),
+     "output.file: file_output_not_alone"),
+    (lambda d: _rendered(d, **{"from": "json", "path": None, "name": {"template": "estimate-{id}.json"}}),
+     "output.file: file_json_types"),
 ], ids=["with_schema", "with_items", "with_strip", "with_projection", "paginated", "url_without_path",
-        "base64_without_path", "body_with_path", "auth_with_body", "auth_with_base64", "header_with_base64",
+        "base64_without_path", "body_with_path", "auth_with_body", "auth_with_base64", "json_with_auth", "json_with_types",
+        "json_template_pdf", "json_template_upper_case", "json_named_by_header", "json_named_by_field",
+        "json_max_bytes_beyond_4_mb", "json_template_unknown_argument", "json_with_strip", "json_types_without_path",
+        "header_with_base64",
         "header_with_base64url", "name_path_with_body", "template_optional_argument", "template_unknown_argument",
         "template_undeclared_extension", "template_without_extension", "template_extension_from_argument",
         "type_html", "type_svg", "type_xml", "type_text_xml", "type_xhtml", "type_javascript", "type_application_javascript",
@@ -1283,6 +1311,56 @@ def test_file_output_is_neither_asynchronous_nor_a_collect(role, message):
         check(description, AMPLITUDE)
 
 
+@pytest.mark.parametrize("role, message", [
+    ("request_cohort_download", "a function that renders a file is not asynchronous"),
+    ("get_cohort_download_status", "collects the asynchronous job of 'request_cohort_download'"),
+], ids=["asynchronous", "collect"])
+def test_a_json_file_is_neither_asynchronous_nor_a_collect(role, message):
+    description = _load(AMPLITUDE)
+    function = _fn(description, role)
+    argument = function["input"]["required"][0] if function["input"].get("required") else None
+    template = f"cohort-{{{argument}}}.json" if argument else "cohort.json"
+    function["output"] = {"file": {"from": "json", "name": {"template": template}}}
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, AMPLITUDE)
+
+
+def test_a_paginated_function_renders_no_json_file():
+    description = _load(SELLSY)
+    description["functions"][0]["output"] = {"file": {"from": "json", "name": {"template": "estimates.json"}}}
+    with pytest.raises(DescriptionError, match="a function that renders a file is not paginated"):
+        check(description, SELLSY)
+
+
+def test_a_json_file_is_carried_without_types_with_its_4_mb_default():
+    from fabrique import python
+
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "json", "path": None, "types": None, "name": {"template": "estimate-{id}.json"}})
+    checked = check(description, SELLSY)
+    source = function_source("sellsy", _get_estimate(checked.data))
+    assert '  output: { file: { from: "json", name: { template: "estimate-{id}.json" }, maxBytes: 4194304 } },\n' in source
+    assert python.declared([checked])["sellsy"]["get_estimate"]["file"] == {
+        "from": "json", "name": {"template": "estimate-{id}.json"}, "max_bytes": 4194304}
+
+
+def test_a_json_file_carries_its_path_its_bound_and_admits_expect():
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "json", "path": "data.result", "types": None, "max_bytes": 4194304,
+                              "name": {"template": "estimate-{id}.json"}})
+    _get_estimate(description)["expect"] = [{"kind": "non_empty", "refusal": "estimate_not_found", "path": "id"}]
+    source = function_source("sellsy", _get_estimate(check(description, SELLSY).data))
+    assert ('  output: { file: { from: "json", path: "data.result", name: { template: "estimate-{id}.json" }, '
+            'maxBytes: 4194304 } },\n') in source
+
+
+def test_a_json_file_needs_no_types_but_every_other_file_does():
+    description = _load(SELLSY)
+    _rendered(description, **{"from": "body", "path": None, "types": None})
+    with pytest.raises(DescriptionError, match="does not match the description schema"):
+        check(description, SELLSY)
+
+
 # --- Les cas communs du fichier rendu ----------------------------------------------------------
 
 FILE_REFUSALS = {"file_missing", "file_download_refused", "file_too_large", "file_type_refused", "file_unreadable",
@@ -1295,15 +1373,20 @@ def test_file_cases_cover_the_format():
     loaded = file_cases.load()
     functions = [case["function"] for case in loaded.cases]
     files = [f["output"]["file"] for f in functions]
-    assert {f["from"] for f in files} == {"body", "url", "base64", "base64url"}
+    assert {f["from"] for f in files} == {"body", "url", "base64", "base64url", "json"}
     assert {f.get("auth", "none") for f in files if f["from"] == "url"} == {"none", "account"}
     assert {case["refusal"] for case in loaded.cases if "refusal" in case} == FILE_REFUSALS
     assert file_cases.REFUSALS == tuple(sorted(FILE_REFUSALS))
+    assert {r["refusal"] for r in loaded.refused} == set(file_cases.DECLARATION_REFUSALS)
+    assert file_cases.DECLARATION_REFUSALS == ("file_output_not_alone", "file_auth_not_url", "file_json_types",
+                                               "file_json_name", "file_json_max_bytes")
     names = {case["name"] for case in loaded.cases}
     for expected in ("name_by_filename_star", "name_by_filename", "name_by_field", "name_by_template",
                      "undeclared_extension_falls_to_template", "content_length_beyond", "body_beyond_without_content_length",
                      "html_under_200_refused", "octet_stream_admitted", "url_absent", "url_empty", "url_http",
-                     "url_foreign_origin_under_account", "download_403", "base64_unreadable"):
+                     "url_foreign_origin_under_account", "download_403", "base64_unreadable", "json_whole_answer",
+                     "json_branch_at_path", "json_path_absent", "json_path_empty_text", "json_beyond_the_bound",
+                     "json_numbers_as_the_host_writes_them"):
         assert expected in names, expected
 
 
@@ -1321,6 +1404,10 @@ def _file_case(data, name):
     return next(case for case in data["cases"] if case["name"] == name)
 
 
+def _refused_file(data, name):
+    return next(r for r in data["refused"] if r["name"] == name)["function"]["output"]["file"]
+
+
 @pytest.mark.parametrize("mutate, message", [
     (lambda d: _file_case(d, "name_by_template")["function"]["output"]["file"].update(path="x"),
      "output.file.path is refused with from: body"),
@@ -1330,7 +1417,26 @@ def _file_case(data, name):
     (lambda d: _file_case(d, "name_by_template").update(download={"status": 200, "headers": {}, "text": "x"}),
      "only a function with from: url downloads"),
     (lambda d: _file_case(d, "name_by_template")["function"].pop("output"), "a case function renders a file"),
-], ids=["rule_17", "unknown_refusal", "no_outcome", "no_answer", "download_without_url", "no_file"])
+    (lambda d: _file_case(d, "json_whole_answer")["file"].pop("text"), "the file of a function with from: json says its bytes"),
+    (lambda d: _file_case(d, "json_whole_answer")["file"].update(size=3), "file.size is not the size of file.text"),
+    (lambda d: next(r for r in d["refused"] if r["name"] == "json_with_types").update(refusal="file_json_name"),
+     "refused function json_with_types: the fabrique answers file_json_types, the file says file_json_name"),
+    (lambda d: next(r for r in d["refused"] if r["name"] == "json_with_types")["function"]["output"]["file"].pop("types"),
+     "refused function json_with_types is accepted by the fabrique"),
+    (lambda d: next(r for r in d["refused"] if r["name"] == "json_with_types")["function"].update(name="Bad Name"),
+     "refused function json_with_types must match the description schema"),
+    (lambda d: _refused_file(d, "json_with_types").update(name={"template": "report-{nope}.json"}) or
+     _refused_file(d, "json_with_types").pop("types"),
+     "refused function json_with_types is refused by another rule than the coded ones of 17"),
+    (lambda d: next(r for r in d["refused"] if r["name"] == "json_with_types")["function"].update(
+        call={"method": "GET", "path": "/reports/{id}/{nope}"}),
+     "refused function json_with_types is refused by another rule than the coded ones of 17"),
+    (lambda d: d.update(refused=[r for r in d["refused"] if r["refusal"] != "file_json_max_bytes"]),
+     "no refused function for file_json_max_bytes"),
+], ids=["rule_17", "unknown_refusal", "no_outcome", "no_answer", "download_without_url", "no_file", "json_without_text",
+        "json_size_not_text", "refused_other_code", "refused_accepted", "refused_off_schema", "refused_by_another_rule",
+        "refused_first_by_another_rule",
+        "refused_code_missing"])
 def test_a_file_case_is_checked_like_a_description(tmp_path, mutate, message):
     from fabrique import file_cases
 

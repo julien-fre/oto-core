@@ -9,15 +9,23 @@
 # fake fetch). A function shared by several cases is written once, with a YAML anchor; the same name is always the same
 # function.
 #
-# A case:
+# A case (`cases`):
 # - args: the arguments of the call, valid against the function's input;
 # - answer: the answer of the API call, {status, headers, text | json}; `text` is the body as bytes (UTF-8), for
-#   from: body; `json` is the JSON body, for from: url, base64 and base64url;
+#   from: body; `json` is the JSON body, for from: url, base64 and base64url; from: json takes either, `text` when the
+#   exact bytes of the answer matter (numbers, whitespace, a key twice, escapes);
 # - download: for from: url, the answer of the download of the address, when the address is downloaded at all;
-# - file {name, mime, size}: the file given, its MIME type that of its extension (the first declared), its size in bytes;
+# - file {name, mime, size, text}: the file given, its MIME type that of its extension (the first declared, or
+#   application/json for from: json), its size in bytes, and, required for from: json, its bytes as UTF-8 text: the
+#   JSON answer, or its branch at `path` (a dotted path, a list index as a number, never crossing a list), as
+#   JSON.stringify writes what JSON.parse reads;
 #   or refusal: one of the six named refusals, the same on both sides — file_missing, file_download_refused,
 #   file_too_large, file_type_refused, file_unreadable, file_foreign_origin.
 # Every host name resolves to a public address: a guard by resolution is the job of each side's own tests.
+#
+# A refused function (`refused`): a function, valid against the description schema, that rule 17 refuses with this
+# code, and no other rule. The codes, the same on both sides (ts/src/file-cases.ts), in the order they are judged:
+# file_output_not_alone, file_auth_not_url, file_json_types, file_json_name, file_json_max_bytes.
 connector:
   name: file_cases
   label: File cases
@@ -410,3 +418,337 @@ cases:
     args: { id: p-1 }
     answer: { status: 200, headers: { Content-Type: application/json }, json: { part: { data: "" } } }
     refusal: file_missing
+
+  # --- from: json ---------------------------------------------------------------------------------------------------
+  - name: json_whole_answer
+    function: &get_report
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One report, input: { id: rep-1 } }]
+      call: { method: GET, path: "/reports/{id}" }
+      output:
+        file:
+          from: json
+          name: { template: "report-{id}.json" }
+          max_bytes: 128
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { id: rep-1, total: 3, done: true, tags: [a, b] } }
+    file: { name: report-rep-1.json, mime: application/json, size: 53, text: '{"id":"rep-1","total":3,"done":true,"tags":["a","b"]}' }
+
+  - name: json_written_compact
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json; charset=utf-8 }, text: "{ \"id\": \"rep-1\",\n  \"lines\": [ 1, 2 ] }\n" }
+    file: { name: report-rep-1.json, mime: application/json, size: 28, text: '{"id":"rep-1","lines":[1,2]}' }
+
+  - name: json_whole_answer_a_list
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: [1, 2] }
+    file: { name: report-rep-1.json, mime: application/json, size: 5, text: '[1,2]' }
+
+  - name: json_numbers_as_the_host_writes_them
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, text: '{"a":1.0,"b":1e-7,"c":1.5e16,"d":-0.0,"e":12345678901234567890,"f":1E2,"g":0.5}' }
+    file: { name: report-rep-1.json, mime: application/json, size: 85, text: '{"a":1,"b":1e-7,"c":15000000000000000,"d":0,"e":12345678901234567000,"f":100,"g":0.5}' }
+
+  - name: json_index_keys_first
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, text: '{"b":1,"10":2,"2":3,"a":4,"01":5}' }
+    file: { name: report-rep-1.json, mime: application/json, size: 33, text: '{"2":3,"10":2,"b":1,"a":4,"01":5}' }
+
+  - name: json_duplicate_key_last_wins
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, text: '{"a":1,"b":2,"a":3}' }
+    file: { name: report-rep-1.json, mime: application/json, size: 13, text: '{"a":3,"b":2}' }
+
+  - name: json_escapes_as_the_host
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, text: '{"t":"a\"b\\c\/\n\u0001é😀\ud800"}' }
+    file: { name: report-rep-1.json, mime: application/json, size: 36, text: '{"t":"a\"b\\c/\n\u0001é😀\ud800"}' }
+
+  - name: json_whole_answer_null
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, text: "null" }
+    refusal: file_missing
+
+  - name: json_whole_answer_empty_object
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: {} }
+    refusal: file_missing
+
+  - name: json_not_json
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: text/html }, text: "<html>Sign in</html>" }
+    refusal: file_unreadable
+
+  - name: json_nan_is_not_json
+    function: *get_report
+    args: { id: rep-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, text: '{"a":NaN}' }
+    refusal: file_unreadable
+
+  - name: json_branch_at_path
+    function: &get_transcript
+      name: get_transcript
+      class: read
+      description: Get the transcript of one recording as a JSON file.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: integer } } }
+      examples: [{ title: One transcript, input: { id: 7 } }]
+      call: { method: GET, path: "/transcripts/{id}" }
+      output:
+        file:
+          from: json
+          path: data.result
+          name: { template: "transcript-{id}.json" }
+          max_bytes: 32
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { model: m-1, data: { result: { text: Hello, lang: en } } } }
+    file: { name: transcript-7.json, mime: application/json, size: 28, text: '{"text":"Hello","lang":"en"}' }
+
+  - name: json_branch_a_text
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: Hello } } }
+    file: { name: transcript-7.json, mime: application/json, size: 7, text: '"Hello"' }
+
+  - name: json_branch_zero_is_a_file
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: 0 } } }
+    file: { name: transcript-7.json, mime: application/json, size: 1, text: "0" }
+
+  - name: json_branch_false_is_a_file
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: false } } }
+    file: { name: transcript-7.json, mime: application/json, size: 5, text: "false" }
+
+  - name: json_non_ascii_counted_in_bytes
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: { text: réunion } } } }
+    file: { name: transcript-7.json, mime: application/json, size: 19, text: '{"text":"réunion"}' }
+
+  - name: json_exactly_at_the_bound
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: { text: "012345678901234567890" } } } }
+    file: { name: transcript-7.json, mime: application/json, size: 32, text: '{"text":"012345678901234567890"}' }
+
+  - name: json_beyond_the_bound
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: { text: "0123456789012345678901" } } } }
+    refusal: file_too_large
+
+  - name: json_bound_on_the_branch_not_the_answer
+    function: *get_transcript
+    args: { id: 7 }
+    answer:
+      status: 200
+      headers: { Content-Type: application/json }
+      json: { model: "a model whose name alone is longer than the bound", data: { result: { text: Hi } } }
+    file: { name: transcript-7.json, mime: application/json, size: 13, text: '{"text":"Hi"}' }
+
+  - name: json_path_absent
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { model: m-1, data: {} } }
+    refusal: file_missing
+
+  - name: json_path_through_a_text
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: done } }
+    refusal: file_missing
+
+  - name: json_path_null
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: null } } }
+    refusal: file_missing
+
+  - name: json_path_empty_text
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: "" } } }
+    refusal: file_missing
+
+  - name: json_path_empty_list
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: [] } } }
+    refusal: file_missing
+
+  - name: json_path_empty_object
+    function: *get_transcript
+    args: { id: 7 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { data: { result: {} } } }
+    refusal: file_missing
+
+  - name: json_path_with_a_list_index
+    function:
+      name: get_page
+      class: read
+      description: Get the second page of one document as a JSON file.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One document, input: { id: d-1 } }]
+      call: { method: GET, path: "/documents/{id}" }
+      output:
+        file:
+          from: json
+          path: pages.1
+          name: { template: "page-{id}.json" }
+    args: { id: d-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { pages: [{ text: one }, { text: two }] } }
+    file: { name: page-d-1.json, mime: application/json, size: 14, text: '{"text":"two"}' }
+
+  - name: json_path_does_not_cross_a_list
+    function:
+      name: get_page_texts
+      class: read
+      description: Get the texts of the pages of one document as a JSON file.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One document, input: { id: d-1 } }]
+      call: { method: GET, path: "/documents/{id}/texts" }
+      output:
+        file:
+          from: json
+          path: pages.text
+          name: { template: "texts-{id}.json" }
+    args: { id: d-1 }
+    answer: { status: 200, headers: { Content-Type: application/json }, json: { pages: [{ text: one }, { text: two }] } }
+    refusal: file_missing
+
+refused:
+  - name: json_with_strip
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: &report_input { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: &report_examples [{ title: One report, input: { id: rep-1 } }]
+      call: &report_call { method: GET, path: "/reports/{id}" }
+      output:
+        strip: [secret]
+        file: { from: json, name: { template: "report-{id}.json" } }
+    refusal: file_output_not_alone
+
+  - name: json_with_items
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: *report_input
+      examples: *report_examples
+      call: *report_call
+      output:
+        items: data
+        file: { from: json, name: { template: "report-{id}.json" } }
+    refusal: file_output_not_alone
+
+  - name: json_with_auth
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: *report_input
+      examples: *report_examples
+      call: *report_call
+      output:
+        file: { from: json, auth: account, name: { template: "report-{id}.json" } }
+    refusal: file_auth_not_url
+
+  - name: body_with_auth
+    function:
+      name: get_recording
+      class: read
+      description: Get the audio of one recording as a file.
+      input: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string } } }
+      examples: [{ title: One recording, input: { id: r-1 } }]
+      call: { method: GET, path: "/recordings/{id}/download" }
+      output:
+        file: { from: body, auth: none, types: { mp3: [audio/mpeg] }, name: { template: "recording-{id}.mp3" } }
+    refusal: file_auth_not_url
+
+  - name: json_auth_judged_before_types
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: *report_input
+      examples: *report_examples
+      call: *report_call
+      output:
+        file: { from: json, auth: none, types: { json: [application/json] }, name: { template: "report-{id}.json" } }
+    refusal: file_auth_not_url
+
+  - name: json_with_types
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: *report_input
+      examples: *report_examples
+      call: *report_call
+      output:
+        file: { from: json, types: { json: [application/json] }, name: { template: "report-{id}.json" } }
+    refusal: file_json_types
+
+  - name: json_named_by_header
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: *report_input
+      examples: *report_examples
+      call: *report_call
+      output:
+        file: { from: json, name: { header: Content-Disposition, template: "report-{id}.json" } }
+    refusal: file_json_name
+
+  - name: json_named_by_field
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: *report_input
+      examples: *report_examples
+      call: *report_call
+      output:
+        file: { from: json, name: { path: filename, template: "report-{id}.json" } }
+    refusal: file_json_name
+
+  - name: json_template_not_json
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: *report_input
+      examples: *report_examples
+      call: *report_call
+      output:
+        file: { from: json, name: { template: "report-{id}.txt" } }
+    refusal: file_json_name
+
+  - name: json_max_bytes_beyond_4_mb
+    function:
+      name: get_report
+      class: read
+      description: Get one report as a JSON file.
+      input: *report_input
+      examples: *report_examples
+      call: *report_call
+      output:
+        file: { from: json, name: { template: "report-{id}.json" }, max_bytes: 4194305 }
+    refusal: file_json_max_bytes
