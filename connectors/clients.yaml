@@ -137,7 +137,6 @@ without_description:
   signwell: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   silae: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   sirene: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  slack: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   snitcher: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   spott: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   stripe: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }

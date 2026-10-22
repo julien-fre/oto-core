@@ -34,6 +34,7 @@ import * as pennylaneFirm from "./pennylane_firm"
 import * as sellsy from "./sellsy"
 import * as serper from "./serper"
 import * as sivan from "./sivan"
+import * as slack from "./slack"
 import * as threecx from "./threecx"
 import * as typeform from "./typeform"
 import * as wttjAts from "./wttj_ats"
@@ -75,6 +76,7 @@ export { pennylaneFirm }
 export { sellsy }
 export { serper }
 export { sivan }
+export { slack }
 export { threecx }
 export { typeform }
 export { wttjAts }
@@ -119,6 +121,7 @@ export const connectors: readonly Connector[] = [
   sellsy.connector,
   serper.connector,
   sivan.connector,
+  slack.connector,
   threecx.connector,
   typeform.connector,
   wttjAts.connector,
