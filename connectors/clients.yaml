@@ -33,7 +33,8 @@ described_by:
   google/calendar: google_calendar
   google/sheets: google_sheets
   # La description microsoft couvre les fichiers (SharePoint, OneDrive) d'une personne connectée : le consentement, ses
-  # droits, le transport commun et la surface fichiers. Courrier, agenda, Teams, OneNote et annuaire ne sont pas décrits.
+  # droits, le transport commun et la surface fichiers. Courrier, agenda, Teams, OneNote, annuaire et cellules d'un
+  # classeur Excel ne sont pas décrits.
   microsoft/files.py: microsoft
   microsoft/auth.py: microsoft
   microsoft/scopes.py: microsoft

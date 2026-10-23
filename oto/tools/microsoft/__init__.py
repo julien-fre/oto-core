@@ -1,5 +1,6 @@
 """Microsoft 365 via Microsoft Graph, on behalf of a signed-in person (OAuth 2.0
-delegated access): files (SharePoint, OneDrive), Outlook mail and calendar, Teams,
+delegated access): files (SharePoint, OneDrive) and the cells of their Excel workbooks,
+Outlook mail and calendar, Teams,
 OneNote, and the organization's directory (read; licences, accounts enabled and group
 members written).
 
@@ -14,6 +15,7 @@ from .files import FilesClient
 from .mail import MailClient
 from .onenote import OneNoteClient
 from .teams import TeamsClient
+from .workbook import WorkbookClient
 
 __all__ = ["auth", "scopes", "FilesClient", "MailClient", "CalendarClient", "TeamsClient",
-           "OneNoteClient", "DirectoryClient", "Grant", "MicrosoftAuthError", "MicrosoftGrantExpired"]
+           "OneNoteClient", "DirectoryClient", "WorkbookClient", "Grant", "MicrosoftAuthError", "MicrosoftGrantExpired"]
