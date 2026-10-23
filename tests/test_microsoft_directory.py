@@ -1,5 +1,6 @@
-"""DirectoryClient — verrouille le contrat HTTP de la lecture de l'annuaire : champs
-demandés, pagination à 999, connexions sur demande, nature d'un groupe, site d'équipe."""
+"""DirectoryClient — verrouille le contrat HTTP de l'annuaire : champs demandés,
+pagination à 999, connexions sur demande, nature d'un groupe, site d'équipe ; et ses trois
+seules écritures (licences, compte activé, membres d'un groupe)."""
 import pytest
 
 from oto.tools.common import UpstreamHTTPError
@@ -83,3 +84,42 @@ def test_sites_par_recherche_sans_top(calls, client):
 ])
 def test_nature_d_un_groupe(groupe, nature):
     assert group_kind(groupe) == nature
+
+
+def test_licences_ajoutees_et_retirees_en_un_appel(calls, client):
+    client.assign_licenses("jane@contoso.com", add=["sku-a"], remove=["sku-b"])
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"] == f"{G}/users/jane%40contoso.com/assignLicense"
+    assert calls[0]["json"] == {"addLicenses": [{"skuId": "sku-a", "disabledPlans": []}],
+                                "removeLicenses": ["sku-b"]}
+
+
+@pytest.mark.parametrize("add,remove,motif", [
+    ((), (), "at least one"), (["a"], ["a"], "both added and removed")])
+def test_licences_refusees_avant_l_appel(calls, client, add, remove, motif):
+    with pytest.raises(ValueError, match=motif):
+        client.assign_licenses("u1", add=add, remove=remove)
+    assert not calls
+
+
+def test_compte_desactive(calls, client):
+    calls.responses.append(_Resp(None, 204))
+    assert client.set_account_enabled("u1", False) == "u1"
+    assert (calls[0]["method"], calls[0]["url"]) == ("PATCH", f"{G}/users/u1")
+    assert calls[0]["json"] == {"accountEnabled": False}
+
+
+def test_membre_ajoute_par_son_id_puis_retire(calls, client):
+    calls.responses.extend([_Resp(None, 204), _Resp(None, 204)])
+    client.add_group_member("g1", "u1")
+    client.remove_group_member("g1", "u1")
+    assert (calls[0]["method"], calls[0]["url"]) == ("POST", f"{G}/groups/g1/members/$ref")
+    assert calls[0]["json"] == {"@odata.id": f"{G}/directoryObjects/u1"}
+    assert (calls[1]["method"], calls[1]["url"]) == ("DELETE",
+                                                     f"{G}/groups/g1/members/u1/$ref")
+
+
+def test_le_lieu_d_usage_est_lu():
+    from oto.tools.microsoft.directory import _USER_FIELDS
+
+    assert "usageLocation" in _USER_FIELDS

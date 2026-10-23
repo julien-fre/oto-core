@@ -1,6 +1,7 @@
 """Microsoft 365 via Microsoft Graph, on behalf of a signed-in person (OAuth 2.0
 delegated access): files (SharePoint, OneDrive), Outlook mail and calendar, Teams,
-OneNote, and the organization's directory (read).
+OneNote, and the organization's directory (read; licences, accounts enabled and group
+members written).
 
 `auth` signs the person in, `scopes` names the permissions of each surface, and one
 client per surface spends the access token."""

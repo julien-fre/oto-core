@@ -34,4 +34,10 @@ def test_admin_a_part():
     every_user = (scopes.IDENTITY + scopes.FILES + scopes.MAIL + scopes.CALENDAR
                   + scopes.TEAMS + scopes.NOTES)
     assert not set(scopes.TEAMS_ADMIN) & set(every_user)
-    assert not {scopes.GRAPH + "Directory.Read.All", scopes.GRAPH + "AuditLog.Read.All"} & set(every_user)
+    assert not set(scopes.DIRECTORY) & set(every_user)
+    # L'écriture de l'annuaire est bornée : licences, compte activé, membres — jamais
+    # créer ou supprimer un compte, ni un mot de passe.
+    ecritures = {s.removeprefix(scopes.GRAPH) for s in scopes.DIRECTORY if "Write" in s
+                 or "EnableDisable" in s}
+    assert ecritures == {"LicenseAssignment.ReadWrite.All", "User.EnableDisableAccount.All",
+                         "GroupMember.ReadWrite.All"}

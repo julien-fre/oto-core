@@ -26,10 +26,13 @@ TEAMS = (GRAPH + "Team.ReadBasic.All", GRAPH + "Channel.ReadBasic.All",
 #: OneNote: the person's notebooks and those she can reach in groups and SharePoint
 #: sites — read, create and change pages. No admin consent.
 NOTES = (GRAPH + "Notes.ReadWrite.All",)
-#: The organization's directory, READ: users and licences, groups and members, sign-ins,
-#: SharePoint sites. Requires a tenant administrator's consent.
+#: The organization's directory: READ users and licences, groups and members, sign-ins,
+#: SharePoint sites; WRITE only licence assignment, enabling or disabling an account and
+#: group membership (no account created or deleted, no password). Requires a tenant
+#: administrator's consent; the person's own Microsoft role still bounds each call.
 DIRECTORY = (GRAPH + "Directory.Read.All", GRAPH + "AuditLog.Read.All",
-             GRAPH + "Sites.Read.All")
+             GRAPH + "Sites.Read.All", GRAPH + "LicenseAssignment.ReadWrite.All",
+             GRAPH + "User.EnableDisableAccount.All", GRAPH + "GroupMember.ReadWrite.All")
 #: Reading channel messages: requires a tenant administrator's consent.
 TEAMS_ADMIN = (GRAPH + "ChannelMessage.Read.All",)
 #: On refresh, ask for everything already consented (`.default`) rather than a list:

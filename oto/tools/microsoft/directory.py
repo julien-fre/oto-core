@@ -1,6 +1,8 @@
-"""Microsoft Graph client — an organization's directory, READ by a signed-in person
+"""Microsoft Graph client — an organization's directory, used by a signed-in person
 (delegated access, scope `scopes.DIRECTORY`): its users and their licences, its
-subscriptions, its groups and their members, its SharePoint sites. Nothing here writes.
+subscriptions, its groups and their members, its SharePoint sites. It WRITES only three
+things: a user's licences, whether an account is enabled, a group's members — never an
+account created or deleted, never a password.
 
 ## Protocol facts that shape a caller
 
@@ -23,20 +25,30 @@ subscriptions, its groups and their members, its SharePoint sites. Nothing here 
   SharePoint itself (SharePoint groups, sharing links) are not listed here.
 - `list_sites` searches the sites the person can see (`search=*`), not every site of
   the tenant.
+- **Writing needs a Microsoft role** on top of the consent: License Administrator (or
+  User Administrator) for licences, User Administrator for enabling an account (a
+  Privileged Authentication Administrator for an administrator's account), Groups
+  Administrator or the group's owner for its members. Graph answers 403 otherwise.
+- ⚠️ **A licence needs a usage location** on the user (`usageLocation`): without one,
+  `assignLicense` answers 400 — it is set in the admin centre.
+- ⚠️ **Distribution lists and mail-enabled security groups are Exchange's**: Graph
+  refuses to change their members (400); only security and Microsoft 365 groups are
+  changed here. A group membership is added by the member's object `id`, not an address.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from ..common import UpstreamHTTPError
-from ._transport import GraphBase, segment
+from ._transport import BASE_URL, GraphBase, segment
 
 #: Graph's `$top` ceiling on directory objects.
 DIRECTORY_PAGE_SIZE = 999
 
 _USER_FIELDS = ("id", "displayName", "givenName", "surname", "mail", "userPrincipalName",
                 "accountEnabled", "userType", "jobTitle", "department", "officeLocation",
-                "city", "companyName", "employeeId", "createdDateTime", "assignedLicenses")
+                "city", "companyName", "employeeId", "createdDateTime", "assignedLicenses",
+                "usageLocation")
 _GROUP_FIELDS = ("id", "displayName", "description", "mail", "mailEnabled",
                  "securityEnabled", "groupTypes", "visibility", "createdDateTime",
                  "resourceProvisioningOptions")
@@ -151,3 +163,39 @@ class DirectoryClient(GraphBase):
         them), `id`, `displayName`, `webUrl`, `createdDateTime`."""
         return self._paged("/sites", {"search": query or "*"}, limit=limit,
                            page_size=None)
+
+    # ── Writes ─────────────────────────────────────────────────────────────────────
+
+    def assign_licenses(self, user: str, *, add: Sequence[str] = (),
+                        remove: Sequence[str] = ()) -> Dict[str, Any]:
+        """POST /users/{id}/assignLicense — adds the `add` subscriptions (`skuId`, every
+        service plan enabled) and removes the `remove` ones, in one call. Returns the
+        user as Graph answers it."""
+        add, remove = list(add), list(remove)
+        if not add and not remove:
+            raise ValueError("assign_licenses needs at least one licence to add or remove")
+        if set(add) & set(remove):
+            raise ValueError("a licence cannot be both added and removed")
+        return self._json("POST", f"/users/{segment(user, 'user')}/assignLicense", json={
+            "addLicenses": [{"skuId": s, "disabledPlans": []} for s in add],
+            "removeLicenses": remove})
+
+    def set_account_enabled(self, user: str, enabled: bool) -> str:
+        """PATCH /users/{id} `accountEnabled` — a disabled account can no longer sign in
+        (its data, licences and groups stay). Returns the user given."""
+        self._json("PATCH", f"/users/{segment(user, 'user')}",
+                   json={"accountEnabled": bool(enabled)})
+        return user
+
+    def add_group_member(self, group_id: str, member_id: str) -> str:
+        """POST /groups/{id}/members/$ref — `member_id` is the member's object id."""
+        self._json("POST", f"/groups/{segment(group_id, 'group_id')}/members/$ref",
+                   json={"@odata.id": f"{BASE_URL}/directoryObjects/"
+                                      f"{segment(member_id, 'member_id')}"})
+        return member_id
+
+    def remove_group_member(self, group_id: str, member_id: str) -> str:
+        """DELETE /groups/{id}/members/{member}/$ref — the object itself stays."""
+        self._json("DELETE", f"/groups/{segment(group_id, 'group_id')}/members/"
+                             f"{segment(member_id, 'member_id')}/$ref")
+        return member_id
