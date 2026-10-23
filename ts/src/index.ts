@@ -4,6 +4,7 @@ import * as aircall from "./aircall"
 import * as allo from "./allo"
 import * as amplitude from "./amplitude"
 import * as apollo from "./apollo"
+import * as brevo from "./brevo"
 import * as claap from "./claap"
 import * as elevenlabs from "./elevenlabs"
 import * as fod from "./fod"
@@ -49,6 +50,7 @@ export { aircall }
 export { allo }
 export { amplitude }
 export { apollo }
+export { brevo }
 export { claap }
 export { elevenlabs }
 export { fod }
@@ -97,6 +99,7 @@ export const connectors: readonly Connector[] = [
   allo.connector,
   amplitude.connector,
   apollo.connector,
+  brevo.connector,
   claap.connector,
   elevenlabs.connector,
   fod.connector,

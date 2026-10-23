@@ -76,7 +76,6 @@ without_description:
   bls: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   boamp: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   bodacc: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  brevo: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   brightdata: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   clay: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   clearbit: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
