@@ -2,6 +2,10 @@
 Attio CRM API Client.
 
 Requires: requests
+
+No address that opens content without a login leaves the client: the call
+recordings drop `video_url` (a signed download link), the workspace members
+drop `avatar_url`.
 """
 
 import re
@@ -14,6 +18,24 @@ from ..common.credentials import require
 from ..common.errors import UpstreamHTTPError
 
 _HTTP_TIMEOUT = (10, 60)  # (connect, read) — never wait indefinitely
+
+# No address that opens content without a login leaves the client: a call
+# recording's `video_url` is a signed download link (one hour) that opens the
+# video to anyone holding it; a workspace member's `avatar_url` opens the
+# picture to anyone.
+VIDEO_ADDRESS_FIELDS = ("video_url",)
+AVATAR_ADDRESS_FIELDS = ("avatar_url",)
+
+
+def _without_addresses(answer: Any, fields: tuple) -> Any:
+    """The answer whose `data` (one object, or each one of a list) lost `fields`."""
+    if isinstance(answer, dict):
+        data = answer.get("data")
+        for item in data if isinstance(data, list) else [data]:
+            if isinstance(item, dict):
+                for name in fields:
+                    item.pop(name, None)
+    return answer
 
 
 @dataclass
@@ -481,12 +503,13 @@ class AttioWorkspaceMembers:
         self.client = client
 
     def list(self) -> Dict[str, Any]:
-        """List all workspace members."""
-        return self.client._request("GET", "workspace_members")
+        """List all workspace members, without their avatar address."""
+        return _without_addresses(self.client._request("GET", "workspace_members"), AVATAR_ADDRESS_FIELDS)
 
     def get(self, workspace_member_id: str) -> Dict[str, Any]:
-        """Get a single workspace member by ID."""
-        return self.client._request("GET", f"workspace_members/{workspace_member_id}")
+        """Get a single workspace member by ID, without its avatar address."""
+        return _without_addresses(self.client._request("GET", f"workspace_members/{workspace_member_id}"),
+                                  AVATAR_ADDRESS_FIELDS)
 
 
 class AttioComments:
@@ -615,12 +638,16 @@ class AttioCallRecordings:
         self.client = client
 
     def list(self, meeting_id: str) -> Dict[str, Any]:
-        """List recordings for a meeting."""
-        return self.client._request("GET", f"meetings/{meeting_id}/call_recordings")
+        """List recordings for a meeting, without any video address."""
+        return _without_addresses(self.client._request("GET", f"meetings/{meeting_id}/call_recordings"),
+                                  VIDEO_ADDRESS_FIELDS)
 
     def get(self, meeting_id: str, call_recording_id: str) -> Dict[str, Any]:
-        """Get a single call recording."""
-        return self.client._request("GET", f"meetings/{meeting_id}/call_recordings/{call_recording_id}")
+        """Get a single call recording, without its video address (a signed
+        download link, valid one hour, that opens the video to anyone holding it)."""
+        return _without_addresses(
+            self.client._request("GET", f"meetings/{meeting_id}/call_recordings/{call_recording_id}"),
+            VIDEO_ADDRESS_FIELDS)
 
     def transcript(self, meeting_id: str, call_recording_id: str) -> Dict[str, Any]:
         """Get the transcript for a call recording."""

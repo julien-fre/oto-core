@@ -5,6 +5,7 @@ import * as allo from "./allo"
 import * as amplemarket from "./amplemarket"
 import * as amplitude from "./amplitude"
 import * as apollo from "./apollo"
+import * as attio from "./attio"
 import * as brevo from "./brevo"
 import * as claap from "./claap"
 import * as elevenlabs from "./elevenlabs"
@@ -53,6 +54,7 @@ export { allo }
 export { amplemarket }
 export { amplitude }
 export { apollo }
+export { attio }
 export { brevo }
 export { claap }
 export { elevenlabs }
@@ -104,6 +106,7 @@ export const connectors: readonly Connector[] = [
   amplemarket.connector,
   amplitude.connector,
   apollo.connector,
+  attio.connector,
   brevo.connector,
   claap.connector,
   elevenlabs.connector,

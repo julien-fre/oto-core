@@ -1,0 +1,735 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Attio REST API v2 (https://docs.attio.com/rest-api, OpenAPI 3.1.0 https://api.attio.com/openapi/api, read on
+# 2026-10-24). The values come from the Python client, oto.tools.attio, which this description follows: one request per
+# method to api.attio.com/v2, the access token as a Bearer token, JSON bodies. tests/test_attio_description.py reads the
+# client to keep both equal.
+#
+# Names. The client groups its methods by resource (client.notes.list, client.attributes.options…): each function is
+# one method, named by its verb and its resource (list_notes, list_attribute_options), with the arguments the method
+# names. The records of every object share one resource (AttioResource, built for an object): the object is the
+# argument `object`, a slug or an id, standard (companies, people, deals) or custom, as oto 1 serves it.
+#
+# Not described, and why (the methods stay in the client):
+# - the writes whose body the client wraps in {"data": {...}}, around its arguments: create_record, update_record (and
+#   its PUT that overwrites a multiselect), merge_records, create_note, create_task, update_task, create_list,
+#   update_list, create_entry, update_entry, create_comment, create_attribute_option, create_attribute_status. A body
+#   key is an argument; the format places no argument inside another key ("data.values"), as for hubspot. Some also
+#   add values (format, author, assignees, a slug made from the name, a deadline completed to midnight) or a second
+#   request (the first workspace member as the default assignee of a task).
+# - list_threads: the client sends parent_object, parent_record_id and list_id, where Attio reads object, record_id
+#   and list; Attio swallows unknown parameters, then refuses a thread list without a filter (400). Only entry_id is
+#   Attio's name, and it needs list.
+# - the query argument of search_records: the client rewrites it into a filter on the name ({"name": {"$contains":
+#   query}}); the agent writes that filter itself.
+# create_attribute is described: its body is {"data": definition}, one argument under one key.
+#
+# Read and act. Listing, reading and querying (records/query and entries/query are POST, still reads) stay on the read
+# side. Creating an attribute is a write, served on the act side: Attio has no DELETE on an attribute (it can be
+# archived in the app). Every delete is sensitive, with a confirmation: a record, a note, a task, a list entry, a
+# comment (a thread's first comment deletes the whole thread).
+#
+# No address that opens content without a login reaches the agent: a call recording's video_url, a signed download
+# link valid one hour, and a workspace member's avatar_url, a public picture, are stripped (output.strip), and the
+# client strips them the same way. web_url links open the Attio app, behind its login: kept. No webhook nor secret in
+# the client.
+#
+# Personal data: the record filters (an email, a name, a phone number as a filter value) are personal.
+#
+# Pagination. Notes, tasks, records and entries page by limit and offset, which the format does not page: the agent
+# advances offset itself (no total count; a page shorter than limit is the last). Meetings page by cursor
+# (pagination.next_cursor, null on the last page). The client defaults (limit 50, offset 0 on records/query,
+# entries/query and threads) are not declared: the host sends nothing, Attio applies its own (500 on records/query and
+# entries/query). The transcript and the call recordings of a meeting are read at their first page only: the client
+# takes no cursor.
+#
+# Rate: 100 requests per second for reads, 25 for writes (Attio's rate limiting guide); the lower is declared, which
+# every function accepts. The client does not pace.
+#
+# Errors (the client raises UpstreamHTTPError with Attio's JSON body: status_code, type, code, message, path). The 401
+# says an invalid or revoked token: it marks the account credential_rejected. The 403 says a scope the token lacks, or a
+# plan limit (code billing_error): not a refused key. The 429 and the 5xx are retryable, as oto 1 says ("retry after a
+# short pause", "retry later"); a 5xx on create_attribute may have created it.
+#
+# Probe: list_objects, a read without argument, with data non-empty (every workspace has its standard objects). oto 1
+# probes GET /v2/self, which no method of the client reads; a token without the object_configuration:read scope fails
+# this probe.
+connector:
+  name: attio
+  label: Attio
+  namespace: attio
+  version: 1.0.0
+  api_version: v2
+  base_url: https://api.attio.com/v2
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: Access token, secret: true }
+  # An access token made by a workspace admin (Workspace settings, Developers), with its scopes. No platform key.
+  modes: [byo_user, byo_org]
+  timeout_s: 60
+  rate_limit: { requests: 25, seconds: 1 }
+  probe: { function: list_objects, non_empty: [data] }
+  errors:
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Attio rejected the request: its message names the field (validation_type, filter_error, value_not_found, uniqueness_conflict…). Check the slugs with list_attributes." }
+    - { status: 401, code: key_refused, retryable: false, marks_account: credential_rejected,
+        message: "Attio rejected the access token: invalid or revoked. A token is made in Attio, Workspace settings, Developers." }
+    - { status: 403, code: forbidden, retryable: false,
+        message: "Attio refused this call for this token: a scope it lacks (records, notes, tasks, lists, comments, meetings, call recordings and the schema each have theirs), or a limit of the workspace's plan." }
+    - { status: 404, code: not_found, retryable: false,
+        message: "Not found in Attio: wrong id or slug, or out of this token's reach." }
+    - { status: 409, code: conflict, retryable: false,
+        message: "Attio refused a duplicate: the slug or the unique value is already taken." }
+    - { status: 429, code: rate_limited, retryable: true,
+        message: "Attio rate limit reached (100 reads, 25 writes per second): wait a moment, then retry." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
+        message: "Attio is temporarily unavailable: try again later. An attribute being created may have been created: list the attributes before creating it again." }
+
+functions:
+  # --- Records, of any object --------------------------------------------------------
+
+  - name: list_records
+    class: read
+    description: >-
+      List the records of an object (companies, people, deals, or a custom
+      object, by slug or id), with their attribute values. sort is a list of
+      {attribute, direction asc or desc} (field picks a part of a composite
+      value: last_name of a name). A page holds limit records (500 by default
+      at Attio); advance offset for the next page, until a page is shorter than
+      limit. To filter, use search_records.
+    input:
+      type: object
+      additionalProperties: false
+      required: [object]
+      properties:
+        object: &object { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "An object slug (companies, people, deals) or id, from list_objects." }
+        limit: &limit { type: integer, minimum: 1, description: "Records per page, 500 by default at Attio." }
+        offset: &offset { type: integer, minimum: 0, description: "Records skipped before the page, 0 by default." }
+        sort: &sorts
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [direction]
+            properties:
+              attribute: { type: string, minLength: 1, description: "Slug or id of the attribute to sort by." }
+              field: { type: string, minLength: 1, description: "Part of a composite value (last_name of a name)." }
+              path: { type: array, minItems: 1, description: "Instead of attribute, a path through record references." }
+              direction: { type: string, enum: [asc, desc] }
+    examples:
+      - { title: The first companies, input: { object: companies, limit: 50 } }
+      - { title: The latest people, input: { object: people, sort: [{ attribute: created_at, direction: desc }], limit: 20 } }
+    call:
+      method: POST
+      path: "/objects/{object}/records/query"
+      body: { limit: limit, offset: offset, sorts: sort }
+    cost: &request { per: request }
+
+  - name: get_record
+    class: read
+    description: One record of an object, with every attribute value and its web_url in the Attio app.
+    input:
+      type: object
+      additionalProperties: false
+      required: [object, record_id]
+      properties:
+        object: *object
+        record_id: &record_id { type: string, pattern: &uuid "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", description: "A record id (a UUID), from list_records or search_records." }
+    examples:
+      - { title: A company, input: { object: companies, record_id: 0f1e2d3c-4b5a-4968-8776-655443322110 } }
+    call: { method: GET, path: "/objects/{object}/records/{record_id}" }
+    cost: *request
+
+  - name: search_records
+    class: read
+    description: >-
+      Records of an object that match an Attio filter: {attribute slug: value}
+      for equality ({"email_addresses": "ada@acme.example"}, the check before
+      creating a person; {"domains": "acme.example"}), or with an operator
+      ({"name": {"$contains": "acme"}}, $eq, $starts_with, $lt, $gte…),
+      combined with $and, $or, $not. A page holds limit records (500 by
+      default at Attio).
+    input:
+      type: object
+      additionalProperties: false
+      required: [object, filters]
+      properties:
+        object: *object
+        filters: &filter { type: object, minProperties: 1, personal: true, description: "An Attio filter object." }
+        limit: *limit
+    examples:
+      - { title: A person by email, input: { object: people, filters: { email_addresses: ada@acme.example } } }
+      - { title: Companies whose name contains a word, input: { object: companies, filters: { name: { $contains: acme } }, limit: 20 } }
+    call:
+      method: POST
+      path: "/objects/{object}/records/query"
+      body: { limit: limit, filter: filters }
+    cost: *request
+
+  - name: delete_record
+    class: sensitive
+    description: Delete a record of an object, for good, with its entries in lists.
+    input:
+      type: object
+      additionalProperties: false
+      required: [object, record_id]
+      properties:
+        object: *object
+        record_id: *record_id
+    examples:
+      - { title: Delete a company, input: { object: companies, record_id: 0f1e2d3c-4b5a-4968-8776-655443322110 } }
+    call: { method: DELETE, path: "/objects/{object}/records/{record_id}" }
+    confirm:
+      summary: "Delete Attio record {record_id} of {object}: it cannot be restored."
+    cost: *request
+
+  # --- Notes ---------------------------------------------------------------------------
+
+  - name: list_notes
+    class: read
+    description: >-
+      List notes, oldest first: Attio has no sort and no date filter here.
+      parent_object and parent_record_id together restrict to the notes of one
+      record, the cheaper way to the recent ones. A page holds limit notes, 10
+      by default, at most 50; advance offset until a page is shorter than
+      limit. The content of a note comes with get_note.
+    input:
+      type: object
+      additionalProperties: false
+      dependentRequired: { parent_object: [parent_record_id], parent_record_id: [parent_object] }
+      properties:
+        parent_object: &parent_object { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "The object slug or id of the parent record (with parent_record_id)." }
+        parent_record_id: { type: string, pattern: *uuid, description: "The parent record id (with parent_object)." }
+        limit: { type: integer, minimum: 1, maximum: 50, description: "Notes per page, 10 by default, at most 50." }
+        offset: { type: integer, minimum: 0, description: "Notes skipped before the page." }
+    examples:
+      - { title: The notes of a company, input: { parent_object: companies, parent_record_id: 0f1e2d3c-4b5a-4968-8776-655443322110 } }
+      - { title: A page of 50 notes, input: { limit: 50, offset: 100 } }
+    call:
+      method: GET
+      path: /notes
+      query: { parent_object: parent_object, parent_record_id: parent_record_id, limit: limit, offset: offset }
+    cost: *request
+
+  - name: get_note
+    class: read
+    description: One note, with its title, its content in plain text and markdown, its parent record and its creator.
+    input:
+      type: object
+      additionalProperties: false
+      required: [note_id]
+      properties:
+        note_id: &note_id { type: string, pattern: *uuid, description: "A note id (a UUID), from list_notes." }
+    examples:
+      - { title: A note, input: { note_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d } }
+    call: { method: GET, path: "/notes/{note_id}" }
+    cost: *request
+
+  - name: delete_note
+    class: sensitive
+    description: Delete a note, for good. Attio does not edit a note's content.
+    input:
+      type: object
+      additionalProperties: false
+      required: [note_id]
+      properties:
+        note_id: *note_id
+    examples:
+      - { title: Delete a note, input: { note_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d } }
+    call: { method: DELETE, path: "/notes/{note_id}" }
+    confirm:
+      summary: "Delete Attio note {note_id}: it cannot be restored."
+    cost: *request
+
+  # --- Tasks ---------------------------------------------------------------------------
+
+  - name: list_tasks
+    class: read
+    description: >-
+      List tasks: content, deadline, completion, assignees, linked records.
+      completed filters on completion. sort: created_at:asc (Attio's default,
+      oldest first), created_at:desc (newest first, the way to read recent
+      tasks: there is no date filter), completed_at:asc or completed_at:desc.
+      A page holds limit tasks, 500 by default, at most 1000; advance offset
+      for the next page.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        completed: { type: boolean, description: "true: completed tasks only; false: open tasks only." }
+        limit: { type: integer, minimum: 1, maximum: 1000, description: "Tasks per page, 500 by default, at most 1000." }
+        offset: { type: integer, minimum: 0, description: "Tasks skipped before the page." }
+        sort: { type: string, enum: ["created_at:asc", "created_at:desc", "completed_at:asc", "completed_at:desc"] }
+    examples:
+      - { title: The newest open tasks, input: { completed: false, sort: "created_at:desc", limit: 50 } }
+    call:
+      method: GET
+      path: /tasks
+      query: { is_completed: completed, limit: limit, offset: offset, sort: sort }
+    cost: *request
+
+  - name: get_task
+    class: read
+    description: One task, with its content, deadline, completion, assignees and linked records.
+    input:
+      type: object
+      additionalProperties: false
+      required: [task_id]
+      properties:
+        task_id: &task_id { type: string, pattern: *uuid, description: "A task id (a UUID), from list_tasks." }
+    examples:
+      - { title: A task, input: { task_id: 2b3c4d5e-6f70-4b8c-9d0e-1f2a3b4c5d6e } }
+    call: { method: GET, path: "/tasks/{task_id}" }
+    cost: *request
+
+  - name: delete_task
+    class: sensitive
+    description: Delete a task, for good.
+    input:
+      type: object
+      additionalProperties: false
+      required: [task_id]
+      properties:
+        task_id: *task_id
+    examples:
+      - { title: Delete a task, input: { task_id: 2b3c4d5e-6f70-4b8c-9d0e-1f2a3b4c5d6e } }
+    call: { method: DELETE, path: "/tasks/{task_id}" }
+    confirm:
+      summary: "Delete Attio task {task_id}: it cannot be restored."
+    cost: *request
+
+  # --- Lists and their entries ---------------------------------------------------------
+
+  - name: list_lists
+    class: read
+    description: List the lists this token can reach (saved collections of records of one object, a pipeline), with their id, api_slug and parent object.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: The lists, input: {} }
+    call: { method: GET, path: /lists }
+    cost: *request
+
+  - name: get_list
+    class: read
+    description: One list, by id or api_slug, with its parent object and its access settings.
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug]
+      properties:
+        list_id_or_slug: &list { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "A list id or api_slug, from list_lists." }
+    examples:
+      - { title: A list, input: { list_id_or_slug: sales_pipeline } }
+    call: { method: GET, path: "/lists/{list_id_or_slug}" }
+    cost: *request
+
+  - name: list_list_views
+    class: read
+    description: The saved views of a list (a table or a kanban, and their filters).
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug]
+      properties:
+        list_id_or_slug: *list
+    examples:
+      - { title: The views of a list, input: { list_id_or_slug: sales_pipeline } }
+    call: { method: GET, path: "/lists/{list_id_or_slug}/views" }
+    cost: *request
+
+  - name: query_entries
+    class: read
+    description: >-
+      The entries of a list: each one a record in the list, with the list's
+      own attribute values (a stage, an owner). filter is an Attio filter on
+      the entry's attributes ({"stage": "Won"}), or on its parent record
+      through path. sorts is a list of {attribute, direction asc or desc}. A
+      page holds limit entries (500 by default at Attio); advance offset for
+      the next page.
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug]
+      properties:
+        list_id_or_slug: *list
+        filter: *filter
+        sorts: *sorts
+        limit: { type: integer, minimum: 1, description: "Entries per page, 500 by default at Attio." }
+        offset: { type: integer, minimum: 0, description: "Entries skipped before the page." }
+    examples:
+      - { title: The entries of a list, input: { list_id_or_slug: sales_pipeline, limit: 100 } }
+      - { title: Won deals newest first, input: { list_id_or_slug: sales_pipeline, filter: { stage: Won }, sorts: [{ attribute: created_at, direction: desc }] } }
+    call:
+      method: POST
+      path: "/lists/{list_id_or_slug}/entries/query"
+      body: { limit: limit, offset: offset, filter: filter, sorts: sorts }
+    cost: *request
+
+  - name: get_entry
+    class: read
+    description: One entry of a list, with its parent record and the list's attribute values.
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug, entry_id]
+      properties:
+        list_id_or_slug: *list
+        entry_id: &entry_id { type: string, pattern: *uuid, description: "An entry id (a UUID), from query_entries." }
+    examples:
+      - { title: An entry, input: { list_id_or_slug: sales_pipeline, entry_id: 3c4d5e6f-7081-4c9d-8e1f-2a3b4c5d6e7f } }
+    call: { method: GET, path: "/lists/{list_id_or_slug}/entries/{entry_id}" }
+    cost: *request
+
+  - name: delete_entry
+    class: sensitive
+    description: Remove an entry from its list, with the list's values on it; the record itself stays.
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug, entry_id]
+      properties:
+        list_id_or_slug: *list
+        entry_id: *entry_id
+    examples:
+      - { title: Remove an entry, input: { list_id_or_slug: sales_pipeline, entry_id: 3c4d5e6f-7081-4c9d-8e1f-2a3b4c5d6e7f } }
+    call: { method: DELETE, path: "/lists/{list_id_or_slug}/entries/{entry_id}" }
+    confirm:
+      summary: "Remove entry {entry_id} from Attio list {list_id_or_slug}: its list values are lost."
+    cost: *request
+
+  # --- Workspace members ---------------------------------------------------------------
+
+  - name: list_workspace_members
+    class: read
+    description: >-
+      List the people with access to the workspace: id, name, email, access
+      level. An id is what a task's assignee and a comment's author take. The
+      address of an avatar picture is never given.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: The workspace members, input: {} }
+    call: { method: GET, path: /workspace_members }
+    output:
+      strip: [data.avatar_url]
+      sample: { data: [&sample_member { id: { workspace_id: w-0, workspace_member_id: m-0 }, first_name: Ada, last_name: Lovelace, avatar_url: "https://img.example.test/a.png", email_address: ada@acme.example, access_level: admin }] }
+    cost: *request
+
+  - name: get_workspace_member
+    class: read
+    description: One workspace member, by id. The address of an avatar picture is never given.
+    input:
+      type: object
+      additionalProperties: false
+      required: [workspace_member_id]
+      properties:
+        workspace_member_id: { type: string, pattern: *uuid, description: "A workspace member id (a UUID), from list_workspace_members." }
+    examples:
+      - { title: A workspace member, input: { workspace_member_id: 4d5e6f70-8192-4dae-9f20-3b4c5d6e7f80 } }
+    call: { method: GET, path: "/workspace_members/{workspace_member_id}" }
+    output:
+      strip: [data.avatar_url]
+      sample: { data: *sample_member }
+    cost: *request
+
+  # --- Comments and threads ------------------------------------------------------------
+
+  - name: get_comment
+    class: read
+    description: One comment, with its thread, its author, its content and the record or entry it is on.
+    input:
+      type: object
+      additionalProperties: false
+      required: [comment_id]
+      properties:
+        comment_id: &comment_id { type: string, pattern: *uuid, description: "A comment id (a UUID), from get_thread." }
+    examples:
+      - { title: A comment, input: { comment_id: 5e6f7081-92a3-4ebf-8031-4c5d6e7f8091 } }
+    call: { method: GET, path: "/comments/{comment_id}" }
+    cost: *request
+
+  - name: delete_comment
+    class: sensitive
+    description: Delete a comment, for good; deleting the first comment of a thread deletes the whole thread.
+    input:
+      type: object
+      additionalProperties: false
+      required: [comment_id]
+      properties:
+        comment_id: *comment_id
+    examples:
+      - { title: Delete a comment, input: { comment_id: 5e6f7081-92a3-4ebf-8031-4c5d6e7f8091 } }
+    call: { method: DELETE, path: "/comments/{comment_id}" }
+    confirm:
+      summary: "Delete Attio comment {comment_id}: if it opens its thread, the whole thread goes."
+    cost: *request
+
+  - name: get_thread
+    class: read
+    description: One thread of comments, with its comments in order.
+    input:
+      type: object
+      additionalProperties: false
+      required: [thread_id]
+      properties:
+        thread_id: { type: string, pattern: *uuid, description: "A thread id (a UUID), from a comment." }
+    examples:
+      - { title: A thread, input: { thread_id: 6f708192-a3b4-4fc0-9142-5d6e7f8091a2 } }
+    call: { method: GET, path: "/threads/{thread_id}" }
+    cost: *request
+
+  # --- Meetings and call recordings ----------------------------------------------------
+
+  - name: list_meetings
+    class: read
+    description: >-
+      List the meetings synced into Attio: title, start, end, participants,
+      linked records. The only date window of Attio's lists: ends_from
+      (meetings ending from this ISO 8601 timestamp, inclusive) and
+      starts_before (starting before it, exclusive). sort: start_asc (default)
+      or start_desc. A page holds limit meetings, 50 by default, at most 200;
+      pagination.next_cursor, passed back as cursor, gives the next one.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        limit: { type: integer, minimum: 1, maximum: 200, description: "Meetings per page, 50 by default, at most 200." }
+        cursor: { type: string, minLength: 1, description: "pagination.next_cursor of the previous page." }
+        sort: { type: string, enum: [start_asc, start_desc] }
+        ends_from: { type: string, minLength: 1, description: "Meetings that end at or after this ISO 8601 timestamp." }
+        starts_before: { type: string, minLength: 1, description: "Meetings that start before this ISO 8601 timestamp." }
+    examples:
+      - { title: This week's meetings, input: { ends_from: "2026-10-19T00:00:00Z", starts_before: "2026-10-26T00:00:00Z" } }
+      - { title: The latest meetings, input: { sort: start_desc, limit: 20 } }
+    call:
+      method: GET
+      path: /meetings
+      query: { limit: limit, cursor: cursor, sort: sort, ends_from: ends_from, starts_before: starts_before }
+    pagination: { kind: cursor, request_param: cursor, next: pagination.next_cursor, max_pages: 10 }
+    output: { items: data }
+    cost: *request
+
+  - name: get_meeting
+    class: read
+    description: One meeting, with its participants and linked records.
+    input:
+      type: object
+      additionalProperties: false
+      required: [meeting_id]
+      properties:
+        meeting_id: &meeting_id { type: string, pattern: *uuid, description: "A meeting id (a UUID), from list_meetings." }
+    examples:
+      - { title: A meeting, input: { meeting_id: 708192a3-b4c5-40d1-a253-6e7f8091a2b3 } }
+    call: { method: GET, path: "/meetings/{meeting_id}" }
+    cost: *request
+
+  - name: list_call_recordings
+    class: read
+    description: >-
+      The call recordings of a meeting, first page: id, status (processing,
+      completed, failed), creator. The transcript comes with
+      get_call_recording_transcript. A video address is never given.
+    input:
+      type: object
+      additionalProperties: false
+      required: [meeting_id]
+      properties:
+        meeting_id: *meeting_id
+    examples:
+      - { title: The recordings of a meeting, input: { meeting_id: 708192a3-b4c5-40d1-a253-6e7f8091a2b3 } }
+    call: { method: GET, path: "/meetings/{meeting_id}/call_recordings" }
+    # Attio's reference gives no video_url in a list; stripped all the same, as get_call_recording.
+    output:
+      strip: [data.video_url]
+      sample: { data: [&sample_recording { id: { workspace_id: w-0, meeting_id: mt-0, call_recording_id: cr-0 }, status: completed, video_url: "https://video.example.test/cr-0.mp4" }], pagination: { next_cursor: null } }
+    cost: *request
+
+  - name: get_call_recording
+    class: read
+    description: >-
+      One call recording of a meeting: status, creator, its web_url in the
+      Attio app. The short-lived video download address is never given:
+      anyone holding it sees the video.
+    input:
+      type: object
+      additionalProperties: false
+      required: [meeting_id, call_recording_id]
+      properties:
+        meeting_id: *meeting_id
+        call_recording_id: &call_recording_id { type: string, pattern: *uuid, description: "A call recording id (a UUID), from list_call_recordings." }
+    examples:
+      - { title: A recording, input: { meeting_id: 708192a3-b4c5-40d1-a253-6e7f8091a2b3, call_recording_id: 8192a3b4-c5d6-41e2-b364-7f8091a2b3c4 } }
+    call: { method: GET, path: "/meetings/{meeting_id}/call_recordings/{call_recording_id}" }
+    # A signed address, valid one hour, that opens the video without a login: it never reaches the agent.
+    output:
+      strip: [data.video_url]
+      sample: { data: *sample_recording }
+    cost: *request
+
+  - name: get_call_recording_transcript
+    class: read
+    description: >-
+      The transcript of a call recording, first page: segments with speech,
+      start and end times in seconds and the speaker's name, and the raw
+      transcript as text.
+    input:
+      type: object
+      additionalProperties: false
+      required: [meeting_id, call_recording_id]
+      properties:
+        meeting_id: *meeting_id
+        call_recording_id: *call_recording_id
+    examples:
+      - { title: A transcript, input: { meeting_id: 708192a3-b4c5-40d1-a253-6e7f8091a2b3, call_recording_id: 8192a3b4-c5d6-41e2-b364-7f8091a2b3c4 } }
+    call: { method: GET, path: "/meetings/{meeting_id}/call_recordings/{call_recording_id}/transcript" }
+    cost: *request
+
+  # --- Schema: objects and attributes --------------------------------------------------
+
+  - name: list_objects
+    class: read
+    description: List the objects of the workspace, standard (companies, people, deals) and custom, with their id and api_slug. Read it before writing to a custom object, never guess its slug.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: The objects, input: {} }
+    call: { method: GET, path: /objects }
+    cost: *request
+
+  - name: get_object
+    class: read
+    description: One object, by id or api_slug, with its singular and plural nouns.
+    input:
+      type: object
+      additionalProperties: false
+      required: [object_id_or_slug]
+      properties:
+        object_id_or_slug: &object_id_or_slug { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "An object id or api_slug, from list_objects." }
+    examples:
+      - { title: The people object, input: { object_id_or_slug: people } }
+    call: { method: GET, path: "/objects/{object_id_or_slug}" }
+    cost: *request
+
+  - name: list_object_views
+    class: read
+    description: The saved views of an object (a table or a kanban, and their filters).
+    input:
+      type: object
+      additionalProperties: false
+      required: [object_id_or_slug]
+      properties:
+        object_id_or_slug: *object_id_or_slug
+    examples:
+      - { title: The views of companies, input: { object_id_or_slug: companies } }
+    call: { method: GET, path: "/objects/{object_id_or_slug}/views" }
+    cost: *request
+
+  - name: list_attributes
+    class: read
+    description: >-
+      The attributes of an object (target objects) or of a list (target
+      lists): title, api_slug, type, whether required, unique, multiselect,
+      and their config. The api_slug is the key of a value in a record or an
+      entry, and of a filter.
+    input:
+      type: object
+      additionalProperties: false
+      required: [target, identifier]
+      properties:
+        target: &target { type: string, enum: [objects, lists], description: "objects for an object's attributes, lists for a list's." }
+        identifier: &identifier { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "The object or list id or slug." }
+    examples:
+      - { title: The attributes of people, input: { target: objects, identifier: people } }
+      - { title: The attributes of a list, input: { target: lists, identifier: sales_pipeline } }
+    call: { method: GET, path: "/{target}/{identifier}/attributes" }
+    cost: *request
+
+  - name: get_attribute
+    class: read
+    description: One attribute of an object or a list, by id or api_slug.
+    input:
+      type: object
+      additionalProperties: false
+      required: [target, identifier, attribute]
+      properties:
+        target: *target
+        identifier: *identifier
+        attribute: &attribute { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "The attribute id or api_slug, from list_attributes." }
+    examples:
+      - { title: The stage of a list, input: { target: lists, identifier: sales_pipeline, attribute: stage } }
+    call: { method: GET, path: "/{target}/{identifier}/attributes/{attribute}" }
+    cost: *request
+
+  - name: list_attribute_options
+    class: read
+    description: The options of a select attribute, with their id and title.
+    input:
+      type: object
+      additionalProperties: false
+      required: [target, identifier, attribute]
+      properties:
+        target: *target
+        identifier: *identifier
+        attribute: *attribute
+    examples:
+      - { title: The options of a select, input: { target: objects, identifier: companies, attribute: categories } }
+    call: { method: GET, path: "/{target}/{identifier}/attributes/{attribute}/options" }
+    cost: *request
+
+  - name: list_attribute_statuses
+    class: read
+    description: The statuses of a status attribute (the stages of a deal or a pipeline), with their id and title.
+    input:
+      type: object
+      additionalProperties: false
+      required: [target, identifier, attribute]
+      properties:
+        target: *target
+        identifier: *identifier
+        attribute: *attribute
+    examples:
+      - { title: The stages of deals, input: { target: objects, identifier: deals, attribute: stage } }
+    call: { method: GET, path: "/{target}/{identifier}/attributes/{attribute}/statuses" }
+    cost: *request
+
+  - name: create_attribute
+    class: write
+    description: >-
+      Add an attribute to an object or a list. definition gives title,
+      description (or null), api_slug (snake case), type (text, number,
+      checkbox, currency, date, timestamp, rating, status, select,
+      record-reference, actor-reference, location, domain, email-address,
+      phone-number), is_required, is_unique, is_multiselect and config (empty
+      {} for most types; currency and record-reference have theirs). Attio has
+      no delete for an attribute: it can only be archived, in the app.
+    input:
+      type: object
+      additionalProperties: false
+      required: [target, identifier, definition]
+      properties:
+        target: *target
+        identifier: *identifier
+        definition:
+          type: object
+          additionalProperties: false
+          required: [title, description, api_slug, type, is_required, is_unique, is_multiselect, config]
+          properties:
+            title: { type: string, minLength: 1 }
+            description: { type: [string, "null"] }
+            api_slug: { type: string, pattern: "^[a-z][a-z0-9_]*$" }
+            type: { type: string, enum: [text, number, checkbox, currency, date, timestamp, rating, status, select, record-reference, actor-reference, location, domain, email-address, phone-number] }
+            is_required: { type: boolean }
+            is_unique: { type: boolean }
+            is_multiselect: { type: boolean }
+            config: { type: object, description: "Per type: currency {default_currency_code, display_type}, record_reference {allowed_objects}; {} otherwise." }
+            default_value: { type: [object, "null"], description: "{type: static, template: [values]} or {type: dynamic, template}." }
+            relationship: { type: [object, "null"], description: "record-reference only: the reverse attribute {object, title, api_slug, is_multiselect}." }
+    examples:
+      - title: A text attribute on companies
+        input:
+          target: objects
+          identifier: companies
+          definition: { title: Source, description: null, api_slug: source, type: text, is_required: false, is_unique: false, is_multiselect: false, config: {} }
+    call:
+      method: POST
+      path: "/{target}/{identifier}/attributes"
+      body: { data: definition }
+    cost: *request
