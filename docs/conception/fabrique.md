@@ -1,7 +1,7 @@
 # La fabrique
 
 - **Statut** : proposé
-- **Dernière révision** : 2026-10-23
+- **Dernière révision** : 2026-10-24
 
 ## Résumé
 
@@ -173,8 +173,8 @@ Le double ne reste qu'aux connecteurs pas encore basculés, et il s'éteint au p
 
 ## Écart avec le code
 
-- Écrits : le générateur (`fabrique/`), la sortie TypeScript commitée (`ts/src/`, quarante-cinq connecteurs) et son contrat (`ts/src/types.ts`), leurs tests (`tests/test_fabrique.py`, `ts/test/`) et le contrôle en CI. Les vingt et une règles hors schéma JSON sont vérifiées.
-- Les 1060 fonctions sont générées.
+- Écrits : le générateur (`fabrique/`), la sortie TypeScript commitée (`ts/src/`, quarante-six connecteurs) et son contrat (`ts/src/types.ts`), leurs tests (`tests/test_fabrique.py`, `ts/test/`) et le contrôle en CI. Les vingt et une règles hors schéma JSON sont vérifiées.
+- Les 1068 fonctions sont générées.
 - La sortie Python se borne aux données du coût, du travail asynchrone et du fichier rendu (`oto/connectors/declared.py`, tenue à jour par `tests/test_fabrique.py`), à leurs fonctions pures (`tests/test_connectors_cost.py`) et à la lecture d'un fichier rendu (`oto/connectors/files.py`) ; pas de client Python généré, ni de runtime commun, ni de test de contrat entre les deux langages. L'alignement des fonctions pures sur oto-core tient aux cas communs du coût (« Les cas communs du coût »), joués des deux côtés ; ils ont révélé qu'un entier JSON au-delà de la plage d'un double (lu `Infinity` par l'hôte) faisait lever `OverflowError` côté Python, quantité relue comme identifiant de travail : la lib le lit désormais comme l'hôte, illisible (cas `settle_integer_beyond_double`, `async_job_id_integer_beyond_double`). Le client Python Sellsy reste écrit à la main, sur des verbes génériques.
 - Ce qu'exécute le paquet d'oto 2, relu le 2026-10-21 sur oto-core à son commit d26f513 (`packages/plateforme/server/connectors/` et `catalog/arguments.ts`) :
   - **Requête.** Les cinq méthodes, un corps JSON quelle que soit la méthode, `DELETE` compris ; la query (arguments donnés, constantes, `queryArrays` `repeat`, `brackets` ou `comma`), les en-têtes (constants du connecteur, constantes, arguments), `encode: json` ; l'entrée validée par Ajv 2020 contre le schéma tel quel ; le corps multipart de `files` ; le délai d'une fonction (`timeoutMs`) ; le rythme (`rateLimit`), par compte et par processus ; la pagination quand l'appel donne `all_pages`, `next` vers `requestParam` et arrêt sur `more` faux, `max_pages` borné (`total` n'est pas lu) ; les contrôles `equal_sums` et `non_empty`.
@@ -245,3 +245,4 @@ Le double ne reste qu'aux connecteurs pas encore basculés, et il s'éteint au p
 - 2026-10-23 : `allo` 1.2.0 : les quatre réponses d'un webhook retirent `signing_secret`, aucune fonction de plus — décidé par Alexis le 2026-10-23.
 - 2026-10-23 : `brevo` 1.0.0, la description du client existant : 60 fonctions de plus, 1012 générées, quarante-quatre connecteurs — choix du projet (source : demande du superviseur).
 - 2026-10-23 : `amplemarket` 1.0.0, description et client : 48 fonctions de plus, 1060 générées, quarante-cinq connecteurs — choix du projet (source : contribution externe, reprise par le mainteneur).
+- 2026-10-24 : `granola` 1.0.0, la description du client existant : 8 fonctions de plus, 1068 générées, quarante-six connecteurs — choix du projet (source : demande du mainteneur).

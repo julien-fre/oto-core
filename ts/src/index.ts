@@ -15,6 +15,7 @@ import * as gmail from "./gmail"
 import * as googleCalendar from "./google_calendar"
 import * as googleDrive from "./google_drive"
 import * as googleSheets from "./google_sheets"
+import * as granola from "./granola"
 import * as hubspot from "./hubspot"
 import * as jefacture from "./jefacture"
 import * as klaviyo from "./klaviyo"
@@ -62,6 +63,7 @@ export { gmail }
 export { googleCalendar }
 export { googleDrive }
 export { googleSheets }
+export { granola }
 export { hubspot }
 export { jefacture }
 export { klaviyo }
@@ -112,6 +114,7 @@ export const connectors: readonly Connector[] = [
   googleCalendar.connector,
   googleDrive.connector,
   googleSheets.connector,
+  granola.connector,
   hubspot.connector,
   jefacture.connector,
   klaviyo.connector,

@@ -96,7 +96,6 @@ without_description:
   gocardless: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   google_analytics: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   grain: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  granola: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   greenhouse: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   groq: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   hellostock: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }

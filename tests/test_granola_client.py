@@ -113,3 +113,36 @@ def test_rate_limit_error_is_typed(monkeypatch):
     with pytest.raises(UpstreamHTTPError) as e:
         _client().list_notes()
     assert e.value.status_code == 429
+
+
+_SECRET = "sample-signing-secret"
+_ENDPOINT = {"id": "whe_2mKr8fQxLp7Ta3", "object": "webhook_endpoint",
+             "url": "https://hooks.example.test/granola", "enabled": True}
+
+
+@pytest.mark.parametrize("call, answer", [
+    (lambda c: c.create_webhook_endpoint(url="https://hooks.example.test/granola", scopes=["personal"]),
+     dict(_ENDPOINT, signing_secret=_SECRET)),
+    (lambda c: c.update_webhook_endpoint("whe_2mKr8fQxLp7Ta3", enabled=True),
+     dict(_ENDPOINT, signing_secret=_SECRET)),
+    (lambda c: c.list_webhook_endpoints(),
+     {"webhook_endpoints": [dict(_ENDPOINT, signing_secret=_SECRET), dict(_ENDPOINT)]}),
+])
+def test_no_webhook_answer_gives_the_signing_secret(monkeypatch, call, answer):
+    """Granola ne rend le secret de signature qu'à la création : le client le retire, comme la description."""
+    monkeypatch.setattr(gr.requests.Session, "request", lambda self, *a, **k: _Resp(200, answer))
+    returned = call(_client())
+    assert _SECRET not in str(returned)
+    assert "id" in str(returned)
+
+
+def test_get_note_drops_the_address_of_an_attached_photo(monkeypatch):
+    """Quiconque détient l'adresse d'une photo jointe la voit : le client la retire, comme la description."""
+    note = {"id": "not_1d3tmYTlCICgjy", "title": "Weekly sync", "attachments": [
+        {"id": "att_4y6LduVdwSKC27", "type": "photo", "url": "https://files.example.test/p.jpg",
+         "width": 800, "height": 600}]}
+    monkeypatch.setattr(gr.requests.Session, "request", lambda self, *a, **k: _Resp(200, note))
+    returned = _client().get_note("not_1d3tmYTlCICgjy")
+    assert "files.example.test" not in str(returned)
+    assert returned["attachments"] == [{"id": "att_4y6LduVdwSKC27", "type": "photo", "width": 800, "height": 600}]
+    assert returned["title"] == "Weekly sync"

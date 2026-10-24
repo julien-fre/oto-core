@@ -25,6 +25,11 @@ Business-plan member, self-serve) and **workspace** keys (admin-provisioned,
 scoped to `["workspace"]` on webhook creation). Rate limits: 25 req/5s burst,
 5 req/s (300/min) sustained — 429 on excess, not retried here (surfaced as
 `UpstreamHTTPError`, same as every other client's non-2xx).
+
+No secret leaves the client: the webhook-endpoint calls drop `signing_secret`
+from their answer (Granola returns it only when an endpoint is created). No
+address that opens content without a login either: `get_note` drops the `url`
+of each attached photo (anyone holding it can view the photo).
 """
 from __future__ import annotations
 
@@ -43,6 +48,38 @@ def _clean(params: Dict[str, Any]) -> Dict[str, Any]:
     """Drops `None` values — an omitted kwarg must not become the literal
     string 'None' in the querystring."""
     return {k: v for k, v in params.items() if v is not None}
+
+
+# The address of a photo attached to a note opens it to anyone holding it: it
+# never leaves the client.
+ATTACHMENT_ADDRESS_FIELDS = ("url",)
+
+
+def _without_attachment_address(note: Any) -> Any:
+    """The note whose attachments lost their address (ATTACHMENT_ADDRESS_FIELDS)."""
+    if isinstance(note, dict):
+        attachments = note.get("attachments")
+        for attachment in attachments if isinstance(attachments, list) else []:
+            if isinstance(attachment, dict):
+                for field in ATTACHMENT_ADDRESS_FIELDS:
+                    attachment.pop(field, None)
+    return note
+
+
+# A webhook endpoint's signing secret never leaves the client.
+_WEBHOOK_SECRET_FIELDS = ("signing_secret",)
+
+
+def _without_secret(answer: Any) -> Any:
+    """The answer whose endpoints (the answer itself, or each one of
+    `webhook_endpoints`) lost their signing secret."""
+    if isinstance(answer, dict):
+        endpoints = answer.get("webhook_endpoints")
+        for endpoint in endpoints if isinstance(endpoints, list) else [answer]:
+            if isinstance(endpoint, dict):
+                for field in _WEBHOOK_SECRET_FIELDS:
+                    endpoint.pop(field, None)
+    return answer
 
 
 class GranolaClient:
@@ -106,8 +143,11 @@ class GranolaClient:
             **params: `include="transcript"` inlines the transcript in the
                 response — may return `TRANSCRIPT_TOO_LARGE` for long
                 meetings, in which case use `get_transcript` instead.
+
+        The download address (`url`) of each attached photo is dropped:
+        anyone holding it can view the photo.
         """
-        return self._get(f"/v1/notes/{note_id}", **params)
+        return _without_attachment_address(self._get(f"/v1/notes/{note_id}", **params))
 
     def get_transcript(self, note_id: str, **params: Any) -> Any:
         """GET /v1/notes/{note_id}/transcript — a note's transcript, paginated.
@@ -142,13 +182,15 @@ class GranolaClient:
 
     def list_webhook_endpoints(self) -> Any:
         """GET /v1/webhook-endpoints — this key's registered webhook endpoints.
-        `url` is redacted to its origin unless the caller is the endpoint's creator."""
-        return self._get("/v1/webhook-endpoints")
+        `url` is redacted to its origin unless the caller is the endpoint's creator.
+        Answered without any signing secret."""
+        return _without_secret(self._get("/v1/webhook-endpoints"))
 
     def create_webhook_endpoint(self, url: str, scopes: List[str], **body: Any) -> Any:
         """POST /v1/webhook-endpoints — register an HTTPS URL for event delivery.
-        The response's `signing_secret` (Standard Webhooks HMAC-SHA256) is shown
-        ONLY in this response — store it, it cannot be retrieved again.
+        Granola returns the endpoint's `signing_secret` (Standard Webhooks
+        HMAC-SHA256) only in this response; it is dropped here and never
+        returned, so deliveries cannot be verified by signature from here.
 
         Args:
             url: publicly reachable HTTPS URL to deliver events to.
@@ -160,12 +202,13 @@ class GranolaClient:
                 delivery to these folders + subfolders, max 100; omit = every
                 note matching `scopes`).
         """
-        return self._post("/v1/webhook-endpoints", {"url": url, "scopes": scopes, **body})
+        return _without_secret(self._post("/v1/webhook-endpoints", {"url": url, "scopes": scopes, **body}))
 
     def update_webhook_endpoint(self, webhook_endpoint_id: str, **body: Any) -> Any:
         """PATCH /v1/webhook-endpoints/{webhook_endpoint_id} — change url/scopes/
-        events/folder_ids/enabled. All fields optional; only supplied ones change."""
-        return self._patch(f"/v1/webhook-endpoints/{webhook_endpoint_id}", body)
+        events/folder_ids/enabled. All fields optional; only supplied ones change.
+        Answered without any signing secret."""
+        return _without_secret(self._patch(f"/v1/webhook-endpoints/{webhook_endpoint_id}", body))
 
     def delete_webhook_endpoint(self, webhook_endpoint_id: str) -> Any:
         """DELETE /v1/webhook-endpoints/{webhook_endpoint_id} — stop deliveries to this endpoint."""
