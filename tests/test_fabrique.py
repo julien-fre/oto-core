@@ -762,9 +762,11 @@ def test_act_rule_refuses(klass, declared, message):
 
 def test_linkedin_sends_act_and_reads_do_not():
     module = connector_module(check(_load(LINKEDIN), LINKEDIN)).source
-    for name in ("sendInvitation", "sendMessage"):
+    for name in ("sendInvitation", "sendMessage", "endorseProfile"):
         assert f'export const {name} = defineFunction({{\n  name: ' in module
-    assert module.count("  act: true,\n") == 2 and module.count("  act: false,\n") == 8
+    # Les trois envois (invitation, message, recommandation) côté action ; seize lectures et le choix d'un contrat,
+    # une écriture qui reste du côté lecture.
+    assert module.count("  act: true,\n") == 3 and module.count("  act: false,\n") == 17
 
 
 # --- Règle 10 : le signal de refus du service ----------------------------------------

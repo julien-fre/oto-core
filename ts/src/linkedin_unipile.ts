@@ -367,11 +367,362 @@ export const sendMessage = defineFunction({
   confirm: { summary: "Send this message in LinkedIn conversation {chat_id} from the connected account: \"{text}\". It cannot be unsent here." },
 })
 
+export const resolveFacet = defineFunction({
+  name: "linkedin_unipile.resolve_facet",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Resolve a label into LinkedIn search parameter candidates (facets), each with its id and its readable name: a location, a company, a school, an industry, a skill, a job title… One label often returns several candidates (\"Microsoft Excel\": Excel, Microsoft Office…): read the names and keep the relevant id. The same ids serve every product, classic, Sales Navigator or Recruiter.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["facet_type", "keywords"],
+    "properties": {
+      "facet_type": {
+        "enum": [
+          "LOCATION",
+          "COMPANY",
+          "RELATION",
+          "PEOPLE",
+          "SCHOOL",
+          "INDUSTRY",
+          "SERVICE",
+          "JOB_FUNCTION",
+          "JOB_TITLE",
+          "EMPLOYMENT_TYPE",
+          "SKILL"
+        ],
+        "description": "Kind of search parameter, in capitals."
+      },
+      "keywords": {
+        "type": "string",
+        "minLength": 1,
+        "personal": true,
+        "description": "Label to resolve (a place, a company, a skill, a member's name for PEOPLE)."
+      },
+      "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Candidates returned, at most."}
+    }
+  },
+  examples: [
+    { title: "A skill", input: {"facet_type": "SKILL", "keywords": "Microsoft Excel"} },
+    { title: "A city", input: {"facet_type": "LOCATION", "keywords": "Lyon", "limit": 10} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/linkedin/search/parameters",
+    pathParams: [],
+    query: {"type": "facet_type", "keywords": "keywords", "limit": "limit"},
+    body: {},
+    headers: {},
+  },
+  output: { items: "data" },
+})
+
+export const listContracts = defineFunction({
+  name: "linkedin_unipile.list_contracts",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "List the Recruiter and Sales Navigator contracts available to the connected account, each with its product, its id and whether it is the selected one. The premium functions act under the selected contract.",
+  schema: {"type": "object", "additionalProperties": false, "properties": {}},
+  examples: [
+    { title: "Available contracts", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/linkedin/contracts",
+    pathParams: [],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const selectContract = defineFunction({
+  name: "linkedin_unipile.select_contract",
+  connector: "linkedin_unipile",
+  class: "write",
+  act: false,
+  description: "Select one Recruiter or Sales Navigator contract of the connected account, by its id from list_contracts: the premium calls that follow act under it.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["contract_id"],
+    "properties": {
+      "contract_id": {"type": "string", "minLength": 1, "description": "Id of the contract, from list_contracts."}
+    }
+  },
+  examples: [
+    { title: "Select a contract", input: {"contract_id": "123456789"} },
+  ],
+  refusals: [
+    { code: "contract_not_found", when: 404, message: "No contract with this id for this account: take it from list_contracts." },
+  ],
+  request: {
+    method: "POST",
+    path: "/linkedin/contracts/{contract_id}/select",
+    pathParams: ["contract_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const inmailBalance = defineFunction({
+  name: "linkedin_unipile.inmail_balance",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Get the InMail credit balance of the connected account: the premium messages it can still send to members outside its network.",
+  schema: {"type": "object", "additionalProperties": false, "properties": {}},
+  examples: [
+    { title: "InMail credits", input: {} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/linkedin/inmail-credits",
+    pathParams: [],
+    query: {},
+    body: {},
+    headers: {},
+  },
+})
+
+export const endorseProfile = defineFunction({
+  name: "linkedin_unipile.endorse_profile",
+  connector: "linkedin_unipile",
+  class: "sensitive",
+  act: true,
+  description: "Endorse one skill of a member from the connected account. The member is named by provider id (ACoAA…) or public identifier; the skill by its endorsement id, read in the skills section of get_profile (with_sections linkedin_skills). The member sees the endorsement at once; it cannot be withdrawn here.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["profile_id", "skill_endorsement_id"],
+    "properties": {
+      "profile_id": {
+        "type": "string",
+        "minLength": 1,
+        "personal": true,
+        "description": "Provider id (ACoAA…) or public identifier of the member."
+      },
+      "skill_endorsement_id": {
+        "type": "string",
+        "pattern": "^[0-9]+$",
+        "description": "Endorsement id of the skill, from the skills section of get_profile."
+      }
+    }
+  },
+  examples: [
+    { title: "Endorse a skill", input: {"profile_id": "ACoAAB1x2y3", "skill_endorsement_id": "7"} },
+  ],
+  refusals: [
+    { code: "member_not_found", when: 404, message: "No LinkedIn member or skill with this id: take both from the member's profile." },
+  ],
+  request: {
+    method: "POST",
+    path: "/linkedin/member/{profile_id}/endorse-skill",
+    pathParams: ["profile_id"],
+    query: {},
+    body: {"skill_id": "skill_endorsement_id"},
+    headers: {},
+  },
+  confirm: { summary: "Endorse skill {skill_endorsement_id} of member {profile_id} from the connected account; the member sees it, and it cannot be withdrawn here." },
+})
+
+export const listJobPostings = defineFunction({
+  name: "linkedin_unipile.list_job_postings",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "List the job postings of the connected account, one page at a time: title, company, state, number of applications. Pass back next_cursor to read the next page.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
+      "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Job postings per page."},
+      "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
+      "max_pages": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "default": 10,
+        "description": "Pages read when all_pages is true."
+      }
+    }
+  },
+  examples: [
+    { title: "First page of job postings", input: {"limit": 20} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/linkedin/jobs",
+    pathParams: [],
+    query: {"cursor": "cursor", "limit": "limit"},
+    body: {},
+    headers: {},
+  },
+  pagination: { kind: "cursor", requestParam: "cursor", next: "next_cursor", maxPages: 10 },
+  output: { items: "data" },
+})
+
+export const getJobPosting = defineFunction({
+  name: "linkedin_unipile.get_job_posting",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Get one job posting of the connected account by its id, from list_job_postings: title, company, location, description, state.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["job_id"],
+    "properties": {
+      "job_id": {"type": "string", "minLength": 1, "description": "Id of the job posting, from list_job_postings."}
+    }
+  },
+  examples: [
+    { title: "One job posting", input: {"job_id": "4012345678"} },
+  ],
+  refusals: [
+    { code: "job_not_found", when: 404, message: "No job posting with this id for this account: take it from list_job_postings." },
+  ],
+  request: {
+    method: "GET",
+    path: "/linkedin/jobs/{job_id}",
+    pathParams: ["job_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  output: { strip: ["company.public_picture_url", "tracking_pixel_url"] },
+})
+
+export const listJobApplicants = defineFunction({
+  name: "linkedin_unipile.list_job_applicants",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "List the applicants of one job posting of the connected account, one page at a time, each with the applicant's profile. Pass back next_cursor to read the next page.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["job_id"],
+    "properties": {
+      "job_id": {"type": "string", "minLength": 1, "description": "Id of the job posting, from list_job_postings."},
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
+      "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Applicants per page."},
+      "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
+      "max_pages": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "default": 10,
+        "description": "Pages read when all_pages is true."
+      }
+    }
+  },
+  examples: [
+    { title: "Applicants of a job posting", input: {"job_id": "4012345678", "limit": 25} },
+  ],
+  refusals: [
+    { code: "job_not_found", when: 404, message: "No job posting with this id for this account: take it from list_job_postings." },
+  ],
+  request: {
+    method: "POST",
+    path: "/linkedin/jobs/{job_id}/applicants",
+    pathParams: ["job_id"],
+    query: {},
+    body: {"cursor": "cursor", "limit": "limit"},
+    headers: {},
+  },
+  pagination: { kind: "cursor", requestParam: "cursor", next: "next_cursor", maxPages: 10 },
+  output: { items: "data", strip: ["profile.public_picture_url", "profile.work_experience.company.picture_url", "profile.educations.school.picture_url"] },
+})
+
+export const getJobApplicant = defineFunction({
+  name: "linkedin_unipile.get_job_applicant",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Get one applicant of a job posting of the connected account, by the job id and the applicant id from list_job_applicants, with the applicant's profile.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["job_id", "applicant_id"],
+    "properties": {
+      "job_id": {"type": "string", "minLength": 1, "description": "Id of the job posting, from list_job_postings."},
+      "applicant_id": {
+        "type": "string",
+        "minLength": 1,
+        "personal": true,
+        "description": "Id of the applicant, from list_job_applicants."
+      }
+    }
+  },
+  examples: [
+    { title: "One applicant", input: {"job_id": "4012345678", "applicant_id": "98765"} },
+  ],
+  refusals: [
+    { code: "applicant_not_found", when: 404, message: "No applicant with this id for this job posting: take it from list_job_applicants." },
+  ],
+  request: {
+    method: "GET",
+    path: "/linkedin/jobs/{job_id}/applicants/{applicant_id}",
+    pathParams: ["job_id", "applicant_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  output: { strip: ["profile.public_picture_url", "profile.work_experience.company.picture_url", "profile.educations.school.picture_url"] },
+})
+
+export const listHiringProjects = defineFunction({
+  name: "linkedin_unipile.list_hiring_projects",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "List the Recruiter hiring projects of the connected account, one page at a time, each with its id, name and owner. Pass back next_cursor to read the next page.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
+      "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Hiring projects per page."},
+      "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
+      "max_pages": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "default": 10,
+        "description": "Pages read when all_pages is true."
+      }
+    }
+  },
+  examples: [
+    { title: "First page of hiring projects", input: {"limit": 20} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/linkedin/recruiter/projects",
+    pathParams: [],
+    query: {"cursor": "cursor", "limit": "limit"},
+    body: {},
+    headers: {},
+  },
+  pagination: { kind: "cursor", requestParam: "cursor", next: "next_cursor", maxPages: 10 },
+  output: { items: "data", strip: ["owner.public_picture_url"] },
+})
+
 export const connector = defineConnector({
   name: "linkedin_unipile",
   label: "LinkedIn (Unipile)",
   namespace: "linkedin_unipile",
-  version: "1.1.0",
+  version: "1.2.0",
   apiVersion: "v2",
   baseUrl: "https://api.unipile.com/v2/{account_id}",
   auth: {"kind": "api_key", "in": "header", "name": "X-API-KEY", "key": "api_key"},
@@ -401,5 +752,15 @@ export const connector = defineConnector({
     listChatMessages,
     sendInvitation,
     sendMessage,
+    resolveFacet,
+    listContracts,
+    selectContract,
+    inmailBalance,
+    endorseProfile,
+    listJobPostings,
+    getJobPosting,
+    listJobApplicants,
+    getJobApplicant,
+    listHiringProjects,
   ],
 })

@@ -17,12 +17,33 @@
 # - starting a new thread (send_message with attendee_id): its route depends
 #   on whether the provider sorts messaging by inbox, with a fallback on 501;
 #   list_chats takes the inbox route, the one the client declares for LinkedIn;
-# - the attendee names that list_chats can add (contacts book, several calls).
+# - the attendee names that list_chats can add (contacts book, several calls);
+# - search: one method for three products (classic, Sales Navigator,
+#   Recruiter) and two categories, each its own path; a search by pasted URL
+#   on another endpoint; facets given by name resolved into ids (one call
+#   each), and encoded in a shape that depends on the product and the facet;
+#   a page by cursor sent with an empty body;
+# - member_action: the route and the body depend on the pair product and
+#   action (a Sales Navigator lead list, a Recruiter pipeline), and the client
+#   refuses the other pairs locally;
+# - get_feed and parse_feed (the home feed): no Unipile endpoint, a raw
+#   request to LinkedIn's internal API relayed by the generic proxy, its
+#   address built from the cursor, its answer (a non-contractual graph) read
+#   by the client's own parsing.
+#
+# resolve_facet returns the facet candidates as Unipile lists them; the client
+# keeps only id and name.
+#
+# No address that opens content without a login reaches the agent: the
+# picture of a member, a company or a school (public_picture_url,
+# picture_url) and the tracking pixel of a job posting are stripped from the
+# Recruiter answers (output.strip), and the client strips them the same way.
+# Profile addresses (profile_url), behind a LinkedIn login, stay.
 connector:
   name: linkedin_unipile
   label: LinkedIn (Unipile)
   namespace: linkedin_unipile
-  version: 1.1.0
+  version: 1.2.0
   api_version: v2
   base_url: https://api.unipile.com/v2/{account_id}
   auth: { kind: api_key, in: header, name: X-API-KEY, key: api_key }
@@ -294,6 +315,251 @@ functions:
       method: POST
       path: "/chats/{chat_id}/messages/send"
       body: { text: text }
+
+  # --- Search ------------------------------------------------------------------
+
+  - name: resolve_facet
+    class: read
+    description: >-
+      Resolve a label into LinkedIn search parameter candidates (facets), each
+      with its id and its readable name: a location, a company, a school, an
+      industry, a skill, a job title… One label often returns several
+      candidates ("Microsoft Excel": Excel, Microsoft Office…): read the names
+      and keep the relevant id. The same ids serve every product, classic,
+      Sales Navigator or Recruiter.
+    input:
+      type: object
+      additionalProperties: false
+      required: [facet_type, keywords]
+      properties:
+        facet_type:
+          enum: [LOCATION, COMPANY, RELATION, PEOPLE, SCHOOL, INDUSTRY, SERVICE, JOB_FUNCTION, JOB_TITLE, EMPLOYMENT_TYPE, SKILL]
+          description: "Kind of search parameter, in capitals."
+        keywords: { type: string, minLength: 1, personal: true, description: "Label to resolve (a place, a company, a skill, a member's name for PEOPLE)." }
+        limit: { type: integer, minimum: 1, maximum: 100, description: "Candidates returned, at most." }
+    examples:
+      - { title: A skill, input: { facet_type: SKILL, keywords: Microsoft Excel } }
+      - { title: A city, input: { facet_type: LOCATION, keywords: Lyon, limit: 10 } }
+    call:
+      method: GET
+      path: /linkedin/search/parameters
+      query: { type: facet_type, keywords: keywords, limit: limit }
+    output: { items: data }
+
+  # --- Premium contracts (Recruiter, Sales Navigator) --------------------------
+
+  - name: list_contracts
+    class: read
+    description: >-
+      List the Recruiter and Sales Navigator contracts available to the
+      connected account, each with its product, its id and whether it is the
+      selected one. The premium functions act under the selected contract.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: Available contracts, input: {} }
+    call: { method: GET, path: /linkedin/contracts }
+
+  - name: select_contract
+    class: write
+    # A setting of the account's premium session, sent to no one: served on the read side, as oto 1 does.
+    act: false
+    description: >-
+      Select one Recruiter or Sales Navigator contract of the connected
+      account, by its id from list_contracts: the premium calls that follow act
+      under it.
+    input:
+      type: object
+      additionalProperties: false
+      required: [contract_id]
+      properties:
+        contract_id: { type: string, minLength: 1, description: "Id of the contract, from list_contracts." }
+    examples:
+      - { title: Select a contract, input: { contract_id: "123456789" } }
+    refusals:
+      - { code: contract_not_found, when: 404, message: "No contract with this id for this account: take it from list_contracts." }
+    call: { method: POST, path: "/linkedin/contracts/{contract_id}/select" }
+
+  - name: inmail_balance
+    class: read
+    description: >-
+      Get the InMail credit balance of the connected account: the premium
+      messages it can still send to members outside its network.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: InMail credits, input: {} }
+    call: { method: GET, path: /linkedin/inmail-credits }
+
+  # --- A member ----------------------------------------------------------------
+
+  - name: endorse_profile
+    class: sensitive
+    description: >-
+      Endorse one skill of a member from the connected account. The member is
+      named by provider id (ACoAA…) or public identifier; the skill by its
+      endorsement id, read in the skills section of get_profile
+      (with_sections linkedin_skills). The member sees the endorsement at once;
+      it cannot be withdrawn here.
+    input:
+      type: object
+      additionalProperties: false
+      required: [profile_id, skill_endorsement_id]
+      properties:
+        profile_id: { type: string, minLength: 1, personal: true, description: "Provider id (ACoAA…) or public identifier of the member." }
+        skill_endorsement_id: { type: string, pattern: "^[0-9]+$", description: "Endorsement id of the skill, from the skills section of get_profile." }
+    examples:
+      - { title: Endorse a skill, input: { profile_id: ACoAAB1x2y3, skill_endorsement_id: "7" } }
+    refusals:
+      - { code: member_not_found, when: 404, message: "No LinkedIn member or skill with this id: take both from the member's profile." }
+    confirm:
+      summary: "Endorse skill {skill_endorsement_id} of member {profile_id} from the connected account; the member sees it, and it cannot be withdrawn here."
+    call:
+      method: POST
+      path: "/linkedin/member/{profile_id}/endorse-skill"
+      body: { skill_id: skill_endorsement_id }
+
+  # --- Job postings and applicants ---------------------------------------------
+
+  - name: list_job_postings
+    class: read
+    description: >-
+      List the job postings of the connected account, one page at a time:
+      title, company, state, number of applications. Pass back next_cursor to
+      read the next page.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page." }
+        limit: { type: integer, minimum: 1, maximum: 100, description: "Job postings per page." }
+    examples:
+      - { title: First page of job postings, input: { limit: 20 } }
+    call:
+      method: GET
+      path: /linkedin/jobs
+      query: { cursor: cursor, limit: limit }
+    pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 10 }
+    output: { items: data }
+
+  - name: get_job_posting
+    class: read
+    description: >-
+      Get one job posting of the connected account by its id, from
+      list_job_postings: title, company, location, description, state.
+    input:
+      type: object
+      additionalProperties: false
+      required: [job_id]
+      properties:
+        job_id: { type: string, minLength: 1, description: "Id of the job posting, from list_job_postings." }
+    examples:
+      - { title: One job posting, input: { job_id: "4012345678" } }
+    refusals:
+      - { code: job_not_found, when: 404, message: "No job posting with this id for this account: take it from list_job_postings." }
+    call: { method: GET, path: "/linkedin/jobs/{job_id}" }
+    # The company picture and the tracking pixel open without a login: they never reach the agent.
+    output:
+      strip: [company.public_picture_url, tracking_pixel_url]
+      sample:
+        object: JobPosting
+        id: j-0
+        title: Data engineer
+        company: { id: c-0, name: Sample Co, public_picture_url: "https://media.example.test/c-0.png", profile_url: "https://www.example.test/company/c-0" }
+        tracking_pixel_url: "https://media.example.test/pixel.gif"
+
+  - name: list_job_applicants
+    class: read
+    description: >-
+      List the applicants of one job posting of the connected account, one
+      page at a time, each with the applicant's profile. Pass back next_cursor
+      to read the next page.
+    input:
+      type: object
+      additionalProperties: false
+      required: [job_id]
+      properties:
+        job_id: { type: string, minLength: 1, description: "Id of the job posting, from list_job_postings." }
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page." }
+        limit: { type: integer, minimum: 1, maximum: 100, description: "Applicants per page." }
+    examples:
+      - { title: Applicants of a job posting, input: { job_id: "4012345678", limit: 25 } }
+    refusals:
+      - { code: job_not_found, when: 404, message: "No job posting with this id for this account: take it from list_job_postings." }
+    call:
+      method: POST
+      path: "/linkedin/jobs/{job_id}/applicants"
+      body: { cursor: cursor, limit: limit }
+    pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 10 }
+    # Member, company and school pictures open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [profile.public_picture_url, profile.work_experience.company.picture_url, profile.educations.school.picture_url]
+      sample:
+        data:
+          - id: a-0
+            profile:
+              first_name: Jane
+              profile_url: "https://www.example.test/in/a-0"
+              public_picture_url: "https://media.example.test/a-0.jpg"
+              work_experience: [{ position: Engineer, company: { name: Sample Co, picture_url: "https://media.example.test/c-0.png" } }]
+              educations: [{ degree: MSc, school: { name: Sample School, picture_url: "https://media.example.test/s-0.png" } }]
+
+  - name: get_job_applicant
+    class: read
+    description: >-
+      Get one applicant of a job posting of the connected account, by the job
+      id and the applicant id from list_job_applicants, with the applicant's
+      profile.
+    input:
+      type: object
+      additionalProperties: false
+      required: [job_id, applicant_id]
+      properties:
+        job_id: { type: string, minLength: 1, description: "Id of the job posting, from list_job_postings." }
+        applicant_id: { type: string, minLength: 1, personal: true, description: "Id of the applicant, from list_job_applicants." }
+    examples:
+      - { title: One applicant, input: { job_id: "4012345678", applicant_id: "98765" } }
+    refusals:
+      - { code: applicant_not_found, when: 404, message: "No applicant with this id for this job posting: take it from list_job_applicants." }
+    call: { method: GET, path: "/linkedin/jobs/{job_id}/applicants/{applicant_id}" }
+    output:
+      strip: [profile.public_picture_url, profile.work_experience.company.picture_url, profile.educations.school.picture_url]
+      sample:
+        id: a-0
+        profile:
+          first_name: Jane
+          profile_url: "https://www.example.test/in/a-0"
+          public_picture_url: "https://media.example.test/a-0.jpg"
+          work_experience: [{ position: Engineer, company: { name: Sample Co, picture_url: "https://media.example.test/c-0.png" } }]
+          educations: [{ degree: MSc, school: { name: Sample School, picture_url: "https://media.example.test/s-0.png" } }]
+
+  - name: list_hiring_projects
+    class: read
+    description: >-
+      List the Recruiter hiring projects of the connected account, one page at
+      a time, each with its id, name and owner. Pass back next_cursor to read
+      the next page.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page." }
+        limit: { type: integer, minimum: 1, maximum: 100, description: "Hiring projects per page." }
+    examples:
+      - { title: First page of hiring projects, input: { limit: 20 } }
+    call:
+      method: GET
+      path: /linkedin/recruiter/projects
+      query: { cursor: cursor, limit: limit }
+    pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 10 }
+    # The owner's picture opens without a login: it never reaches the agent.
+    output:
+      items: data
+      strip: [owner.public_picture_url]
+      sample:
+        data:
+          - id: p-0
+            name: Data team
+            owner: { first_name: Jane, profile_url: "https://www.example.test/in/o-0", public_picture_url: "https://media.example.test/o-0.jpg" }
 
 exposure:
   mode: per_connector

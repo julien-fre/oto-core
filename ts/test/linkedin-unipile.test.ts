@@ -38,4 +38,36 @@ describe("linkedin_unipile definitions", () => {
       expect(fn.confirm?.summary.length).toBeGreaterThan(0)
     }
   })
+
+  it("should confirm a skill endorsement, which the member sees at once", () => {
+    expect(linkedinUnipile.endorseProfile.class).toBe("sensitive")
+    expect(linkedinUnipile.endorseProfile.act).toBe(true)
+    expect(linkedinUnipile.endorseProfile.confirm?.summary).toContain("{profile_id}")
+  })
+
+  it("should serve the search parameters, the contracts and the Recruiter reads on the read side", () => {
+    for (const fn of [
+      linkedinUnipile.resolveFacet, linkedinUnipile.listContracts, linkedinUnipile.inmailBalance,
+      linkedinUnipile.listJobPostings, linkedinUnipile.getJobPosting, linkedinUnipile.listJobApplicants,
+      linkedinUnipile.getJobApplicant, linkedinUnipile.listHiringProjects,
+    ]) expect(fn.act).toBe(false)
+    expect(linkedinUnipile.selectContract.class).toBe("write")
+    expect(linkedinUnipile.selectContract.act).toBe(false)
+  })
+
+  it("should strip the pictures and the tracking pixel, which open without a login, and keep the profile addresses", () => {
+    const pictures = ["profile.public_picture_url", "profile.work_experience.company.picture_url", "profile.educations.school.picture_url"]
+    expect(linkedinUnipile.getJobPosting.output?.strip).toEqual(["company.public_picture_url", "tracking_pixel_url"])
+    expect(linkedinUnipile.listJobApplicants.output?.strip).toEqual(pictures)
+    expect(linkedinUnipile.getJobApplicant.output?.strip).toEqual(pictures)
+    expect(linkedinUnipile.listHiringProjects.output?.strip).toEqual(["owner.public_picture_url"])
+    for (const fn of [linkedinUnipile.getJobPosting, linkedinUnipile.listJobApplicants, linkedinUnipile.getJobApplicant, linkedinUnipile.listHiringProjects])
+      for (const path of fn.output?.strip ?? []) expect(path.endsWith("profile_url")).toBe(false)
+  })
+
+  it("should mark what names a person as personal", () => {
+    expect(linkedinUnipile.resolveFacet.schema.properties.keywords).toMatchObject({ personal: true })
+    expect(linkedinUnipile.endorseProfile.schema.properties.profile_id).toMatchObject({ personal: true })
+    expect(linkedinUnipile.getJobApplicant.schema.properties.applicant_id).toMatchObject({ personal: true })
+  })
 })
