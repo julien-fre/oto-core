@@ -103,7 +103,6 @@ without_description:
   groq: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   hellostock: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   hithorizons: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
-  hunter: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   inpi: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   inqom: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }
   instagram_business: { category: before_the_rule, reason: "antérieur à la règle du 05/10 : pas encore décrit" }

@@ -18,6 +18,7 @@ import * as googleDrive from "./google_drive"
 import * as googleSheets from "./google_sheets"
 import * as granola from "./granola"
 import * as hubspot from "./hubspot"
+import * as hunter from "./hunter"
 import * as jefacture from "./jefacture"
 import * as klaviyo from "./klaviyo"
 import * as lemlist from "./lemlist"
@@ -67,6 +68,7 @@ export { googleDrive }
 export { googleSheets }
 export { granola }
 export { hubspot }
+export { hunter }
 export { jefacture }
 export { klaviyo }
 export { lemlist }
@@ -119,6 +121,7 @@ export const connectors: readonly Connector[] = [
   googleSheets.connector,
   granola.connector,
   hubspot.connector,
+  hunter.connector,
   jefacture.connector,
   klaviyo.connector,
   lemlist.connector,

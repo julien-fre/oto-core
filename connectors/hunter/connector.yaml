@@ -1,0 +1,170 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Hunter.io API v2 (https://hunter.io/api-documentation/v2, read on 2026-10-24). The values come from the Python client,
+# oto.tools.hunter, which this description follows: one GET per method to api.hunter.io/v2, the API key as a Bearer
+# token (never in the query string, where it would land in an error message), the arguments in the query. The function
+# names, the argument names and the keys sent to Hunter are the client's; the client is not changed
+# (tests/test_hunter_description.py reads it to keep both equal).
+#
+# Four functions: the emails found on a domain, the email of a person, the verification of an email, the account.
+# Not described, as the client leaves them out: the other filters of the domain search (company, offset, type,
+# seniority, department…), the LinkedIn handle of the email finder, and the rest of the API (discover, enrichment,
+# leads, sequences…).
+#
+# Read and act. Every call that spends Hunter credits is a write, served on the act side, like any call that spends
+# credits on a person or a company (amplemarket.find_person, apollo.match_person): domain_search (a search, 1 credit
+# per 1 to 10 emails, as the client documents it, none when nothing is found), email_finder (1 credit, none when no
+# email is found) and email_verifier (a verification, 0.5 credit on a single credits pool, otherwise one of the plan's
+# verifications: not free). account_info is a read, free ("This call is free", Account Information).
+#
+# Cost: one request each. The domain search bills 1 credit per 10 emails returned: limit is bounded at 10 (the client
+# takes up to Hunter's 100), so that one request is never under the real cost; a free plan refuses more than 10 anyway.
+# No answer says the credits consumed: nothing is settled.
+#
+# No secret and no address that opens content without a login reaches the agent: no answer of these four endpoints
+# carries the key or a signed address (the sources of an email are the public pages where Hunter saw it). Nothing is
+# stripped. The arguments that name a person (first_name, last_name, full_name, email) are personal.
+#
+# Rate: 15 requests per second on the domain search and the email finder, 10 on the email verifier, per key; the
+# lowest is declared. The client does not pace.
+#
+# Errors, as the client reads them (HunterError). Hunter inverts the usual convention: a 403 is the rate limit,
+# transient, retried; a 429 is the plan's usage limit, the period's credits exhausted, final ("You have reached your
+# usage limit. Upgrade your plan if necessary."). A 429 whose details contain "usage limit" marks the account
+# quota_exhausted; any other 429 says the same without a mark (never wider than the documented message). The 401 says
+# no valid API key: it marks the account credential_rejected. The 451 (claimed_email) says the person asked Hunter to
+# stop processing their data. A 5xx is not retried, as the client says (retryable false): a paid call may have been
+# billed.
+#
+# Probe: account_info, as oto 1, a read without argument, free. Its balance is the period's remaining searches,
+# data.requests.searches.remaining (Account Information: "use remaining to see how many requests are left";
+# available includes extra packs and does not drop), healthy at one search or more. A key that authenticates on an
+# empty account is then not healthy: top it up, reconnecting changes nothing.
+connector:
+  name: hunter
+  label: Hunter.io
+  namespace: hunter
+  version: 1.0.0
+  api_version: v2
+  base_url: https://api.hunter.io/v2
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  # As oto 1: a platform key (a daily quota set by the host) or the user's or organization's own key.
+  modes: [platform, byo_user, byo_org]
+  # The client waits 60 s for an answer (10 s to connect).
+  timeout_s: 60
+  rate_limit: { requests: 10, seconds: 1 }
+  probe: { function: account_info, balance: { path: data.requests.searches.remaining, min: 1, unit: searches } }
+  errors:
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Hunter rejected the request: a parameter is missing or invalid (a domain, a name, an email)." }
+    - { status: 401, code: key_refused, retryable: false, marks_account: credential_rejected,
+        message: "Hunter refused the API key: no valid key. A key is made in the Hunter account, API settings." }
+    - { status: 403, code: rate_limited, retryable: true,
+        message: "Hunter rate limit reached (Hunter answers 403 for it): space out the calls, then retry." }
+    - { status: 404, code: not_found, retryable: false,
+        message: "Not found in Hunter." }
+    - { status: 422, code: unprocessable, retryable: false,
+        message: "Hunter could not process the request: its message names the reason." }
+    - { status: 429, body: { path: errors.0.details, contains: [usage limit] }, code: credits_exhausted, retryable: false,
+        marks_account: quota_exhausted,
+        message: &out_of_credits "The Hunter account behind this key reached its plan's usage limit: the period's credits are exhausted. Retrying frees nothing: use another provider or upgrade the plan." }
+    - { status: 429, code: credits_exhausted, retryable: false, message: *out_of_credits }
+    - { status: 451, code: claimed_email, retryable: false,
+        message: "Hunter does not process this person's data: the person asked Hunter to stop. Do not look for it elsewhere through Hunter." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: false,
+        message: "Hunter failed. The call may have been billed: do not repeat it blindly." }
+
+functions:
+  - name: domain_search
+    class: write
+    description: >-
+      List the public emails Hunter found on a company domain: for each, the
+      address, its type (personal or generic), a confidence score, the
+      person's name, position, seniority, department, LinkedIn and Twitter
+      when known, the pages where it was seen and its verification; with the
+      domain's email pattern (such as first.last) and organization. Spends
+      Hunter credits: 1 per 1 to 10 emails returned, none when nothing is
+      found. limit caps the emails returned, at most 10.
+    input:
+      type: object
+      additionalProperties: false
+      required: [domain]
+      properties:
+        domain: &domain { type: string, minLength: 1, description: "The company domain, e.g. example.com." }
+        limit: { type: integer, minimum: 1, maximum: 10, description: "Max emails to return, 10 by default and at most." }
+    examples:
+      - { title: The emails of a domain, input: { domain: example.com } }
+      - { title: The first five emails, input: { domain: example.com, limit: 5 } }
+    call:
+      method: GET
+      path: /domain-search
+      query: { domain: domain, limit: limit }
+    cost: &request { per: request }
+
+  - name: email_finder
+    class: write
+    description: >-
+      Find the professional email of one person at a company, from the
+      company domain and the person's name (first_name and last_name, or
+      full_name). Answers the email, a confidence score, the person's
+      position, LinkedIn and Twitter when known, the pages where it was seen
+      and its verification. Spends 1 Hunter credit when an email is found,
+      none otherwise. 451 claimed_email: the person asked Hunter to stop
+      processing their data.
+    input:
+      type: object
+      additionalProperties: false
+      required: [domain]
+      anyOf:
+        - { required: [first_name, last_name] }
+        - { required: [full_name] }
+      properties:
+        domain: *domain
+        first_name: { type: string, minLength: 1, personal: true, description: "The person's first name, with last_name." }
+        last_name: { type: string, minLength: 1, personal: true, description: "The person's last name, with first_name." }
+        full_name: { type: string, minLength: 1, personal: true, description: "The person's full name, instead of first_name and last_name." }
+    examples:
+      - { title: By first and last name, input: { domain: example.com, first_name: Jane, last_name: Doe } }
+      - { title: By full name, input: { domain: example.com, full_name: Jane Doe } }
+    call:
+      method: GET
+      path: /email-finder
+      query: { domain: domain, first_name: first_name, last_name: last_name, full_name: full_name }
+    cost: *request
+
+  - name: email_verifier
+    class: write
+    description: >-
+      Verify that an email address is deliverable: status (valid, invalid,
+      accept_all, webmail, disposable, unknown), a score, and the checks
+      behind it (format, gibberish, disposable, webmail, MX records, SMTP
+      server and check, accept-all, blocked), with the pages where the address
+      was seen. Spends a Hunter verification (0.5 credit on a single credits
+      pool). A 202 answer means the verification is still running: call again
+      later, a repeated call is billed once. 451 claimed_email: the person
+      asked Hunter to stop processing their data.
+    input:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { type: string, minLength: 3, personal: true, description: "The email address to verify." }
+    examples:
+      - { title: Verify an email, input: { email: jane.doe@example.com } }
+    call:
+      method: GET
+      path: /email-verifier
+      query: { email: email }
+    cost: *request
+
+  - name: account_info
+    class: read
+    description: >-
+      The Hunter account behind this key: plan, reset date of its quotas, and
+      the period's requests: searches and verifications (used, available,
+      remaining), and credits on a single credits pool. Free.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: The account and its remaining credits, input: {} }
+    call: { method: GET, path: /account }
