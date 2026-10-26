@@ -9,31 +9,44 @@
 # names. The records of every object share one resource (AttioResource, built for an object): the object is the
 # argument `object`, a slug or an id, standard (companies, people, deals) or custom, as oto 1 serves it.
 #
+# The writes. The client wraps their body in {"data": {...}}: the nested body of the format says it, each argument at
+# its key under data, beside the constants the client adds there (format markdown for a note, format plaintext and the
+# author's type for a comment). Described since 1.1.0, as the client sends them: create_record, merge_records,
+# create_note, create_list, update_list, create_entry, create_comment (in a thread), create_attribute_option,
+# create_attribute_status; create_attribute since 1.0.0 ({"data": definition}). Named gaps, kept by the test:
+# - create_list requires api_slug, workspace_access and workspace_member_access, which the client fills when the call
+#   omits them (a slug made from the name, full-access, []): Attio requires all three.
+# - create_entry requires entry_values, which the client fills with {} (Attio requires it).
+# - update_list takes at least one value to change: the client would send an empty {"data": {}}.
+# - create_comment takes thread_id only. The client's other anchors, parent_object with parent_record_id and list_id
+#   with entry_id, are sent as such, where Attio's reference reads record: {object, record_id} and entry: {list,
+#   entry_id} and refuses any other key: they stay in the client.
+#
 # Not described, and why (the methods stay in the client):
-# - the writes whose body the client wraps in {"data": {...}}, around its arguments: create_record, update_record (and
-#   its PUT that overwrites a multiselect), merge_records, create_note, create_task, update_task, create_list,
-#   update_list, create_entry, update_entry, create_comment, create_attribute_option, create_attribute_status. A body
-#   key is an argument; the format places no argument inside another key ("data.values"), as for hubspot. Some also
-#   add values (format, author, assignees, a slug made from the name, a deadline completed to midnight) or a second
-#   request (the first workspace member as the default assignee of a task).
+# - update_record and update_entry: an argument (overwrite_multiselect) picks the method, PATCH (multiselect values
+#   added) or PUT (replaced); one function per method, the format has one method per function.
+# - create_task and update_task: the assignee and the linked record go inside a list ({"assignees": [{...}]}), which
+#   the nested body does not say; the client also completes a date deadline to midnight, and create_task reads the
+#   first workspace member as the default assignee (a second request).
 # - list_threads: the client sends parent_object, parent_record_id and list_id, where Attio reads object, record_id
 #   and list; Attio swallows unknown parameters, then refuses a thread list without a filter (400). Only entry_id is
 #   Attio's name, and it needs list.
 # - the query argument of search_records: the client rewrites it into a filter on the name ({"name": {"$contains":
 #   query}}); the agent writes that filter itself.
-# create_attribute is described: its body is {"data": definition}, one argument under one key.
 #
 # Read and act. Listing, reading and querying (records/query and entries/query are POST, still reads) stay on the read
-# side. Creating an attribute is a write, served on the act side: Attio has no DELETE on an attribute (it can be
-# archived in the app). Every delete is sensitive, with a confirmation: a record, a note, a task, a list entry, a
-# comment (a thread's first comment deletes the whole thread).
+# side. Creating and changing are writes, served on the act side; Attio has no DELETE on an attribute, an option or a
+# status (they can be archived). Every delete is sensitive, with a confirmation: a record, a note, a task, a list entry,
+# a comment (a thread's first comment deletes the whole thread); so is merging two records, which replaces both by a
+# third one.
 #
 # No address that opens content without a login reaches the agent: a call recording's video_url, a signed download
 # link valid one hour, and a workspace member's avatar_url, a public picture, are stripped (output.strip), and the
 # client strips them the same way. web_url links open the Attio app, behind its login: kept. No webhook nor secret in
 # the client.
 #
-# Personal data: the record filters (an email, a name, a phone number as a filter value) are personal.
+# Personal data: the record and entry filters (an email, a name, a phone number as a filter value), the values of a
+# record or an entry, the title and content of a note and the content of a comment are personal. Ids are not.
 #
 # Pagination. Notes, tasks, records and entries page by limit and offset, which the format does not page: the agent
 # advances offset itself (no total count; a page shorter than limit is the last). Meetings page by cursor
@@ -57,7 +70,7 @@ connector:
   name: attio
   label: Attio
   namespace: attio
-  version: 1.0.0
+  version: 1.1.0
   api_version: v2
   base_url: https://api.attio.com/v2
   auth: { kind: bearer, token: api_key }
@@ -82,7 +95,7 @@ connector:
     - { status: 429, code: rate_limited, retryable: true,
         message: "Attio rate limit reached (100 reads, 25 writes per second): wait a moment, then retry." }
     - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
-        message: "Attio is temporarily unavailable: try again later. An attribute being created may have been created: list the attributes before creating it again." }
+        message: "Attio is temporarily unavailable: try again later. A write may have gone through: read before writing again." }
 
 functions:
   # --- Records, of any object --------------------------------------------------------
@@ -166,6 +179,56 @@ functions:
       body: { limit: limit, filter: filters }
     cost: *request
 
+  - name: create_record
+    class: write
+    description: >-
+      Create a record of an object. values maps each attribute api_slug (from
+      list_attributes) to its value, a list for a multiselect:
+      {"name": "Acme", "domains": ["acme.example"]} for a company,
+      {"email_addresses": ["ada@acme.example"]} for a person. Search before
+      creating: a unique value already taken is refused.
+    input:
+      type: object
+      additionalProperties: false
+      required: [object, values]
+      properties:
+        object: *object
+        values: { type: object, minProperties: 1, personal: true, description: "Attribute values by api_slug." }
+    examples:
+      - { title: A company, input: { object: companies, values: { name: Acme, domains: [acme.example] } } }
+      - { title: A person, input: { object: people, values: { email_addresses: [ada@acme.example] } } }
+    call:
+      method: POST
+      path: "/objects/{object}/records"
+      body: { data: { values: values } }
+    cost: *request
+
+  - name: merge_records
+    class: sensitive
+    description: >-
+      Merge two records of the same object, for good. Attio marks both merged,
+      neither can be read again, and creates a third record whose id is
+      data.new_record_id; where both carry a value, the primary's wins. A 202
+      answer says the merge goes on in the background (404 merge_in_progress
+      until it ends); replaying it fails (404).
+    input:
+      type: object
+      additionalProperties: false
+      required: [object, primary_record_id, secondary_record_id]
+      properties:
+        object: *object
+        primary_record_id: { type: string, pattern: *uuid, description: "The record whose values win (a UUID)." }
+        secondary_record_id: { type: string, pattern: *uuid, description: "The other record (a UUID), of the same object." }
+    examples:
+      - { title: Merge two companies, input: { object: companies, primary_record_id: 0f1e2d3c-4b5a-4968-8776-655443322110, secondary_record_id: 1f2e3d4c-5b6a-4778-8887-766554433221 } }
+    call:
+      method: POST
+      path: "/objects/{object}/records/merge"
+      body: { data: { primary_record_id: primary_record_id, secondary_record_id: secondary_record_id } }
+    confirm:
+      summary: "Merge Attio records {primary_record_id} (its values win) and {secondary_record_id} of {object} into a new record: irreversible."
+    cost: *request
+
   - name: delete_record
     class: sensitive
     description: Delete a record of an object, for good, with its entries in lists.
@@ -223,6 +286,29 @@ functions:
     examples:
       - { title: A note, input: { note_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d } }
     call: { method: GET, path: "/notes/{note_id}" }
+    cost: *request
+
+  - name: create_note
+    class: write
+    description: >-
+      Add a note to a record: a title and a content in markdown. Attio does
+      not edit a note afterwards; delete_note removes it.
+    input:
+      type: object
+      additionalProperties: false
+      required: [parent_object, parent_record_id, title, content]
+      properties:
+        parent_object: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "The object slug or id of the record." }
+        parent_record_id: { type: string, pattern: *uuid, description: "The record id (a UUID)." }
+        title: { type: string, minLength: 1, personal: true }
+        content: { type: string, minLength: 1, personal: true, description: "Markdown." }
+    examples:
+      - { title: A call summary, input: { parent_object: companies, parent_record_id: 0f1e2d3c-4b5a-4968-8776-655443322110, title: Discovery call, content: "Budget agreed, **demo** next week." } }
+    call:
+      method: POST
+      path: /notes
+      body: { data: { parent_object: parent_object, parent_record_id: parent_record_id, title: title, content: content } }
+      constants: { body: { data: { format: markdown } } }
     cost: *request
 
   - name: delete_note
@@ -337,6 +423,64 @@ functions:
     call: { method: GET, path: "/lists/{list_id_or_slug}/views" }
     cost: *request
 
+  - name: create_list
+    class: write
+    description: >-
+      Create a list of records of one object (a pipeline). api_slug is its key
+      in the API, in snake case. workspace_access is the level of every
+      workspace member: full-access, read-and-write, read-only, or null for
+      none; workspace_member_access gives members their own level, [] for none.
+    input:
+      type: object
+      additionalProperties: false
+      required: [name, parent_object, api_slug, workspace_access, workspace_member_access]
+      properties:
+        name: &list_name { type: string, minLength: 1 }
+        parent_object: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "The object slug or id of the list's records." }
+        api_slug: &list_slug { type: string, pattern: "^[a-z][a-z0-9_]*$" }
+        workspace_access: &workspace_access { type: [string, "null"], enum: [full-access, read-and-write, read-only, null] }
+        workspace_member_access: &member_access
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [workspace_member_id, level]
+            properties:
+              workspace_member_id: { type: string, pattern: *uuid, description: "From list_workspace_members." }
+              level: { type: string, enum: [full-access, read-and-write, read-only] }
+    examples:
+      - { title: A sales pipeline, input: { name: Sales pipeline, parent_object: companies, api_slug: sales_pipeline, workspace_access: full-access, workspace_member_access: [] } }
+    call:
+      method: POST
+      path: /lists
+      body: { data: { name: name, api_slug: api_slug, parent_object: parent_object, workspace_access: workspace_access, workspace_member_access: workspace_member_access } }
+    cost: *request
+
+  - name: update_list
+    class: write
+    description: >-
+      Change a list's name, api_slug or access levels (as create_list says
+      them); only what is given changes.
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug]
+      minProperties: 2
+      properties:
+        list_id_or_slug: *list
+        name: *list_name
+        api_slug: *list_slug
+        workspace_access: *workspace_access
+        workspace_member_access: *member_access
+    examples:
+      - { title: Rename a list, input: { list_id_or_slug: sales_pipeline, name: Pipeline 2027 } }
+      - { title: Read-only for the workspace, input: { list_id_or_slug: sales_pipeline, workspace_access: read-only } }
+    call:
+      method: PATCH
+      path: "/lists/{list_id_or_slug}"
+      body: { data: { name: name, api_slug: api_slug, workspace_access: workspace_access, workspace_member_access: workspace_member_access } }
+    cost: *request
+
   - name: query_entries
     class: read
     description: >-
@@ -378,6 +522,29 @@ functions:
     examples:
       - { title: An entry, input: { list_id_or_slug: sales_pipeline, entry_id: 3c4d5e6f-7081-4c9d-8e1f-2a3b4c5d6e7f } }
     call: { method: GET, path: "/lists/{list_id_or_slug}/entries/{entry_id}" }
+    cost: *request
+
+  - name: create_entry
+    class: write
+    description: >-
+      Add a record to a list, as a new entry. entry_values maps the list's own
+      attributes (api_slug from list_attributes, target lists) to their
+      values, {} for none: {"stage": "Lead"}.
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug, parent_record_id, parent_object, entry_values]
+      properties:
+        list_id_or_slug: *list
+        parent_record_id: { type: string, pattern: *uuid, description: "The record to add (a UUID)." }
+        parent_object: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "The object slug or id of the record." }
+        entry_values: { type: object, personal: true, description: "The list's attribute values by api_slug; {} for none." }
+    examples:
+      - { title: A company into a pipeline, input: { list_id_or_slug: sales_pipeline, parent_record_id: 0f1e2d3c-4b5a-4968-8776-655443322110, parent_object: companies, entry_values: { stage: Lead } } }
+    call:
+      method: POST
+      path: "/lists/{list_id_or_slug}/entries"
+      body: { data: { parent_record_id: parent_record_id, parent_object: parent_object, entry_values: entry_values } }
     cost: *request
 
   - name: delete_entry
@@ -445,6 +612,29 @@ functions:
     examples:
       - { title: A comment, input: { comment_id: 5e6f7081-92a3-4ebf-8031-4c5d6e7f8091 } }
     call: { method: GET, path: "/comments/{comment_id}" }
+    cost: *request
+
+  - name: create_comment
+    class: write
+    description: >-
+      Reply in an existing thread of comments, in plain text, as a workspace
+      member (author_id, from list_workspace_members). A comment's thread_id
+      comes with get_comment.
+    input:
+      type: object
+      additionalProperties: false
+      required: [content, author_id, thread_id]
+      properties:
+        content: { type: string, minLength: 1, personal: true }
+        author_id: { type: string, pattern: *uuid, description: "A workspace member id (a UUID)." }
+        thread_id: { type: string, pattern: *uuid, description: "The thread id (a UUID)." }
+    examples:
+      - { title: A reply, input: { content: "Done, sent today.", author_id: 4d5e6f70-8192-4dae-9f20-3b4c5d6e7f80, thread_id: 6f708192-a3b4-4fc0-9142-5d6e7f8091a2 } }
+    call:
+      method: POST
+      path: /comments
+      body: { data: { content: content, thread_id: thread_id, author: { id: author_id } } }
+      constants: { body: { data: { format: plaintext, author: { type: workspace-member } } } }
     cost: *request
 
   - name: delete_comment
@@ -732,4 +922,44 @@ functions:
       method: POST
       path: "/{target}/{identifier}/attributes"
       body: { data: definition }
+    cost: *request
+
+  - name: create_attribute_option
+    class: write
+    description: Add an option to a select attribute of an object or a list. Attio deletes no option; it can only be archived.
+    input:
+      type: object
+      additionalProperties: false
+      required: [target, identifier, attribute, title]
+      properties:
+        target: *target
+        identifier: *identifier
+        attribute: *attribute
+        title: { type: string, minLength: 1 }
+    examples:
+      - { title: A category, input: { target: objects, identifier: companies, attribute: categories, title: Reseller } }
+    call:
+      method: POST
+      path: "/{target}/{identifier}/attributes/{attribute}/options"
+      body: { data: { title: title } }
+    cost: *request
+
+  - name: create_attribute_status
+    class: write
+    description: Add a status to a status attribute (a stage of a deal or a pipeline). Attio deletes no status; it can only be archived.
+    input:
+      type: object
+      additionalProperties: false
+      required: [target, identifier, attribute, title]
+      properties:
+        target: *target
+        identifier: *identifier
+        attribute: *attribute
+        title: { type: string, minLength: 1 }
+    examples:
+      - { title: A deal stage, input: { target: objects, identifier: deals, attribute: stage, title: Negotiation } }
+    call:
+      method: POST
+      path: "/{target}/{identifier}/attributes/{attribute}/statuses"
+      body: { data: { title: title } }
     cost: *request

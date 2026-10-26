@@ -1,13 +1,19 @@
-"""La description `attio` 1.0.0 : celle du client existant (`oto.tools.attio`).
+"""La description `attio` 1.1.0 : celle du client existant (`oto.tools.attio`), ses écritures comprises.
 
 Le client range ses méthodes par ressource (`client.notes.list`, `client.attributes.options`…) : chaque fonction est
 une méthode, nommée de son verbe et de sa ressource (`FUNCTIONS`), avec les arguments que la méthode nomme ; les clés
 envoyées à Attio (chemin, query, corps) sont les siennes. Les fiches de tous les objets partagent une ressource
-(`AttioResource`, bâtie pour un objet) : l'objet est l'argument `object`. Écarts nommés, gardés ici :
-- les méthodes laissées au client (`LEFT_OUT`) : les écritures dont le client emballe le corps dans `{"data": {...}}`
-  autour de ses arguments (le format ne place pas un argument sous une autre clé), et `threads.list`, dont le client
-  envoie des noms de paramètres qu'Attio ne lit pas ;
-- l'argument `query` de `records.search`, que le client récrit en filtre sur le nom (`ARGUMENTS_LEFT_OUT`) ;
+(`AttioResource`, bâtie pour un objet) : l'objet est l'argument `object`. Le corps des écritures, que le client emballe
+dans `{"data": {...}}`, est un corps emboîté : la constante du corps, puis chaque argument donné posé à son chemin
+(`_body`, la référence du format) ; il est jugé égal à celui du client pour chaque argument donné ou absent.
+Écarts nommés, gardés ici :
+- les méthodes laissées au client (`LEFT_OUT`) : celles dont un argument choisit le verbe (PATCH ou PUT), les tâches
+  (l'assigné et la fiche liée dans une liste, l'échéance complétée, l'assigné par défaut lu par une seconde requête),
+  et `threads.list`, dont le client envoie des noms de paramètres qu'Attio ne lit pas ;
+- l'argument `query` de `records.search`, que le client récrit en filtre sur le nom, et les ancres d'un commentaire
+  autres que son fil, envoyées sous des noms que la référence d'Attio refuse (`ARGUMENTS_LEFT_OUT`) ;
+- les arguments que le client prend en `**kwargs` (`KEYWORDS`) : les valeurs d'une fiche, les champs d'une liste ;
+- les valeurs que le client pose quand l'appel ne les donne pas, exigées ici (`REQUIRED_HERE`) ;
 - les valeurs que le client pose quand l'appel ne les donne pas (`CLIENT_FILLS`), défauts non déclarés ;
 - ce que le schéma refuse et que le client laisse passer (`NARROWER`), et ce que le client refuse lui-même
   (`CLIENT_REFUSES`).
@@ -31,6 +37,7 @@ import yaml
 from fabrique import python
 from fabrique.descriptions import CONNECTORS, check
 from fabrique.typescript import connector_module
+from fabrique.descriptions import body_entries
 from oto.connectors.declared import DECLARED
 from oto.tools.attio import client as attio_client
 from oto.tools.attio.client import AttioClient, AttioResource
@@ -55,23 +62,23 @@ FUNCTIONS = {
     "list_attributes": ("attributes", "list"), "get_attribute": ("attributes", "get"),
     "list_attribute_options": ("attributes", "options"), "list_attribute_statuses": ("attributes", "statuses"),
     "create_attribute": ("attributes", "create"),
+    "create_record": ("records", "create"), "merge_records": ("records", "merge"),
+    "create_note": ("notes", "create"),
+    "create_list": ("lists", "create"), "update_list": ("lists", "update"),
+    "create_entry": ("entries", "create"),
+    "create_comment": ("comments", "create"),
+    "create_attribute_option": ("attributes", "create_option"),
+    "create_attribute_status": ("attributes", "create_status"),
 }
-_ENVELOPE = "the client wraps the body in {'data': {...}} around its arguments; the format places no argument under another key"
+_VERB = "an argument (overwrite_multiselect) picks the method, PATCH (added) or PUT (replaced): one method per function"
+_IN_A_LIST = "the assignee and the linked record go inside a list, which the nested body does not say"
 # Les méthodes laissées au client, et pourquoi.
 LEFT_OUT = {
-    "create_record": (("records", "create"), _ENVELOPE),
-    "update_record": (("records", "update"), _ENVELOPE + "; its method (PATCH or PUT) is picked by an argument"),
-    "merge_records": (("records", "merge"), _ENVELOPE),
-    "create_note": (("notes", "create"), _ENVELOPE + ", with format markdown added"),
-    "create_task": (("tasks", "create"), _ENVELOPE + ", with values added and a second request (the default assignee)"),
-    "update_task": (("tasks", "update"), _ENVELOPE + ", with the deadline completed to midnight, the assignee wrapped"),
-    "create_list": (("lists", "create"), _ENVELOPE + ", with a slug made from the name and access defaults"),
-    "update_list": (("lists", "update"), _ENVELOPE),
-    "create_entry": (("entries", "create"), _ENVELOPE + ", with entry_values {} by default"),
-    "update_entry": (("entries", "update"), _ENVELOPE + "; its method (PATCH or PUT) is picked by an argument"),
-    "create_comment": (("comments", "create"), _ENVELOPE + ", with format and author wrapped, an anchor among three"),
-    "create_attribute_option": (("attributes", "create_option"), _ENVELOPE),
-    "create_attribute_status": (("attributes", "create_status"), _ENVELOPE),
+    "update_record": (("records", "update"), _VERB),
+    "update_entry": (("entries", "update"), _VERB),
+    "create_task": (("tasks", "create"), _IN_A_LIST + "; a date deadline completed to midnight; a second request "
+                                          "(the first workspace member, the default assignee)"),
+    "update_task": (("tasks", "update"), _IN_A_LIST + "; a date deadline completed to midnight"),
     "list_threads": (("threads", "list"), "the client sends parent_object, parent_record_id and list_id where Attio "
                                           "reads object, record_id and list: swallowed, then an unfiltered thread list "
                                           "is refused"),
@@ -82,10 +89,25 @@ RESOURCES = {"records": AttioResource, **{
         "call_recordings", "objects", "attributes")}}
 # Les fiches de tous les objets : l'objet de la ressource est un argument de la fonction.
 ARGUMENTS_ADDED = {name: {"object"} for name, (resource, _) in FUNCTIONS.items() if resource == "records"}
+_ANCHOR = "sent as such, where Attio's reference reads record {object, record_id} or entry {list, entry_id}"
 # Les arguments d'une méthode que sa fonction ne prend pas, et pourquoi.
-ARGUMENTS_LEFT_OUT = {"search_records": {"query": "the client rewrites it into {'name': {'$contains': query}}"}}
-# Exigés par la description, facultatifs au client : sans `query`, une recherche sans filtre est list_records.
-REQUIRED_HERE = {"search_records": {"filters"}}
+ARGUMENTS_LEFT_OUT = {
+    "search_records": {"query": "the client rewrites it into {'name': {'$contains': query}}"},
+    "create_comment": {a: _ANCHOR for a in ("parent_object", "parent_record_id", "list_id", "entry_id")},
+}
+# Les arguments que le client prend en `**kwargs` : un argument dont il reçoit les clés (`values`, une fiche), ou des
+# arguments nommés qu'il reçoit tels quels (les champs d'une liste).
+SPREAD = {"create_record": "values"}
+KEYWORDS = {"update_list": {"name", "api_slug", "workspace_access", "workspace_member_access"}}
+# Exigés par la description, facultatifs au client : sans `query`, une recherche sans filtre est list_records ; les
+# valeurs que le client pose quand l'appel ne les donne pas (un slug tiré du nom, un accès complet, des listes vides),
+# qu'Attio exige ; le fil, seule ancre décrite d'un commentaire.
+REQUIRED_HERE = {
+    "search_records": {"filters"},
+    "create_list": {"api_slug", "workspace_access", "workspace_member_access"},
+    "create_entry": {"entry_values"},
+    "create_comment": {"thread_id"},
+}
 # Ce que le client pose quand l'appel ne le donne pas : défauts du client, non déclarés (l'hôte n'envoie rien).
 CLIENT_FILLS = {
     "list_records": {"limit": 50, "offset": 0},
@@ -95,14 +117,18 @@ CLIENT_FILLS = {
 POST_READS = {"list_records", "search_records", "query_entries"}
 CLASSES = {
     "read": {n for n in FUNCTIONS if n.split("_")[0] in ("list", "get", "search", "query")},
-    "write": {"create_attribute"},
-    "sensitive": {"delete_record", "delete_note", "delete_task", "delete_entry", "delete_comment"},
+    "write": {"create_attribute", "create_record", "create_note", "create_list", "update_list", "create_entry",
+              "create_comment", "create_attribute_option", "create_attribute_status"},
+    "sensitive": {"delete_record", "delete_note", "delete_task", "delete_entry", "delete_comment", "merge_records"},
 }
+# Sensible sans être une suppression : la fusion remplace deux fiches par une troisième, sans retour.
+SENSITIVE_POSTS = {"merge_records"}
 ADDRESSES = {
     "list_workspace_members": ("data.avatar_url", "list"), "get_workspace_member": ("data.avatar_url", "one"),
     "list_call_recordings": ("data.video_url", "list"), "get_call_recording": ("data.video_url", "one"),
 }
-PERSONAL = {"search_records": ["filters"], "query_entries": ["filter"]}
+PERSONAL = {"search_records": ["filters"], "query_entries": ["filter"], "create_record": ["values"],
+            "create_note": ["content", "title"], "create_entry": ["entry_values"], "create_comment": ["content"]}
 UUID = "0f1e2d3c-4b5a-4968-8776-655443322110"
 VALUES = {
     "object": "companies", "record_id": UUID, "limit": 20, "offset": 40,
@@ -115,8 +141,17 @@ VALUES = {
     "target": "objects", "identifier": "companies", "attribute": "stage",
     "definition": {"title": "Source", "description": None, "api_slug": "source", "type": "text",
                    "is_required": False, "is_unique": False, "is_multiselect": False, "config": {}},
+    "values": {"name": "Acme", "domains": ["acme.example"]},
+    "primary_record_id": UUID, "secondary_record_id": "1f2e3d4c-5b6a-4778-8887-766554433221",
+    "title": "Discovery call", "content": "Budget agreed.", "name": "Sales pipeline", "api_slug": "sales_pipeline",
+    "workspace_access": "read-and-write",
+    "workspace_member_access": [{"workspace_member_id": UUID, "level": "read-only"}],
+    "entry_values": {"stage": "Lead"}, "author_id": UUID,
 }
-VALUES_OF = {"list_tasks": {"sort": "created_at:desc", "limit": 100}, "list_meetings": {"sort": "start_desc"}}
+VALUES_OF = {"list_tasks": {"sort": "created_at:desc", "limit": 100}, "list_meetings": {"sort": "start_desc"},
+             "create_attribute_option": {"title": "Reseller"}}
+# Le moins qu'accepte une fonction au-delà de ses arguments exigés : une liste change au moins une valeur.
+FEWEST = {"update_list": {"name": "Pipeline 2027"}}
 # Plus étroit que le client, qui laisse passer : motifs d'identifiant, listes fermées, bornes, paires.
 NARROWER = {
     "get_record": [{"object": "companies/x", "record_id": UUID}, {"object": "companies", "record_id": "r1"}],
@@ -129,12 +164,24 @@ NARROWER = {
                          {"target": "objects", "identifier": "companies",
                           "definition": dict(VALUES["definition"], type="formula")}],
     "query_entries": [{"list_id_or_slug": "sales_pipeline", "offset": -1}],
+    "create_record": [{"object": "companies", "values": {}}],
+    "merge_records": [{"object": "companies", "primary_record_id": "r1", "secondary_record_id": UUID}],
+    "create_note": [{"parent_object": "people", "parent_record_id": UUID, "title": "", "content": "x"}],
+    "create_list": [{"name": "Pipeline", "parent_object": "companies", "api_slug": "Pipeline",
+                     "workspace_access": "full-access", "workspace_member_access": []},
+                    {"name": "Pipeline", "parent_object": "companies", "api_slug": "pipeline",
+                     "workspace_access": "admin", "workspace_member_access": []}],
+    # Le client enverrait {"data": {}} : rien à changer.
+    "update_list": [{"list_id_or_slug": "sales_pipeline"}],
+    "create_attribute_status": [{"target": "objects", "identifier": "deals", "attribute": "stage", "title": ""}],
 }
 # Ce que le client refuse lui-même (ValueError avant tout envoi), et que le schéma refuse aussi.
 CLIENT_REFUSES = {
     "list_notes": [{"limit": 51}, {"limit": 0}],
     "list_tasks": [{"limit": 1001}, {"sort": "due_at:asc"}],
     "list_meetings": [{"limit": 201}, {"sort": "start"}],
+    # Un fil vide n'est pas une ancre : le client n'en a alors aucune.
+    "create_comment": [{"content": "x", "author_id": UUID, "thread_id": ""}],
 }
 
 
@@ -182,9 +229,11 @@ def _call_the_client(name: str, arguments: dict, answer=None) -> tuple[dict, obj
         return _Answer(answer)
 
     resource, method = FUNCTIONS[name]
-    given = dict(arguments)
+    given = copy.deepcopy(arguments)
     client = AttioClient(api_key="attio-k")
     target = AttioResource(client, given.pop("object")) if resource == "records" else getattr(client, resource)
+    if name in SPREAD:
+        given.update(given.pop(SPREAD[name]))
     with mock.patch.object(attio_client.requests, "request", request):
         returned = getattr(target, method)(**given)
     assert len(sent) == 1, name
@@ -196,13 +245,26 @@ def _in_query(value):
     return str(value).lower() if isinstance(value, bool) else str(value)
 
 
+def _body(call: dict, given: dict) -> dict:
+    """Le corps que bâtit l'hôte (« Le corps emboîté ») : la constante du corps, copiée, puis chaque argument donné posé
+    à son chemin, les objets parents créés au besoin ; un argument absent ne crée rien, un `null` part `null`."""
+    sent = copy.deepcopy((call.get("constants") or {}).get("body") or {})
+    for path, argument in body_entries(call["body"]):
+        if argument in given:
+            parent = sent
+            for key in path[:-1]:
+                parent = parent.setdefault(key, {})
+            parent[path[-1]] = copy.deepcopy(given[argument])
+    return sent
+
+
 def _described(name: str, function: dict, arguments: dict) -> tuple:
     """La requête que dit la description, plus ce que le client pose quand l'appel ne le donne pas."""
     call = function["call"]
     given = {**CLIENT_FILLS.get(name, {}), **arguments}
     path = call["path"].format(**{a: given[a] for a in re.findall(r"{(\w+)}", call["path"])})
     query = {api: _in_query(given[a]) for api, a in call.get("query", {}).items() if a in given}
-    body = {api: given[a] for api, a in call["body"].items() if a in given} if "body" in call else None
+    body = _body(call, given) if "body" in call else None
     return call["method"], AttioClient.BASE_URL + path, query, body
 
 
@@ -217,7 +279,15 @@ def _every_argument(name: str, function: dict) -> dict:
 
 def _required(name: str, function: dict) -> dict:
     values = {**VALUES, **VALUES_OF.get(name, {})}
-    return {a: values[a] for a in function["input"].get("required", [])}
+    return {**{a: values[a] for a in function["input"].get("required", [])}, **FEWEST.get(name, {})}
+
+
+def _each_absence(name: str, function: dict) -> list[dict]:
+    """Tous les arguments, puis chaque argument facultatif absent tour à tour, puis le moins accepté."""
+    every = _every_argument(name, function)
+    required = set(function["input"].get("required", []))
+    calls = [every] + [{a: v for a, v in every.items() if a != absent} for absent in every if absent not in required]
+    return [c for c in calls if _valid(function, c)] + [_required(name, function)]
 
 
 def _valid(function: dict, arguments: dict) -> bool:
@@ -243,9 +313,9 @@ def _shaped(answer, paths: list[str]):
     return answer
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.1.0"
     check(description, ATTIO)
 
 
@@ -278,20 +348,57 @@ def test_each_function_takes_the_arguments_its_client_method_names():
     for name, function in _functions().items():
         parameters = _parameters(name)
         left_out = set(ARGUMENTS_LEFT_OUT.get(name, {}))
+        spread = {SPREAD[name]} if name in SPREAD else set()
         properties = set(function["input"]["properties"])
-        assert properties == (set(parameters) - left_out) | ARGUMENTS_ADDED.get(name, set()), name
+        assert properties == ((set(parameters) - left_out) | ARGUMENTS_ADDED.get(name, set()) | spread
+                              | KEYWORDS.get(name, set())), name
         without_default = {p for p, v in parameters.items() if v.default is inspect.Parameter.empty}
         assert set(function["input"].get("required", [])) == (
-            without_default | ARGUMENTS_ADDED.get(name, set()) | REQUIRED_HERE.get(name, set())), name
+            without_default | ARGUMENTS_ADDED.get(name, set()) | REQUIRED_HERE.get(name, set()) | spread), name
+    keyword_methods = {n for n in FUNCTIONS if any(
+        v.kind is inspect.Parameter.VAR_KEYWORD for v in inspect.signature(
+            getattr(RESOURCES[FUNCTIONS[n][0]], FUNCTIONS[n][1])).parameters.values())}
+    assert keyword_methods == set(SPREAD) | set(KEYWORDS)
     assert set(ARGUMENTS_LEFT_OUT) <= set(FUNCTIONS) and set(REQUIRED_HERE) <= set(FUNCTIONS)
 
 
 def test_each_argument_goes_where_the_client_sends_it():
+    """Pour chaque fonction, tous ses arguments, chaque facultatif absent tour à tour et le moins accepté : la requête
+    de l'hôte (verbe, chemin, query, corps emboîté) est celle du client."""
     for name, function in _functions().items():
-        for arguments in (_every_argument(name, function), _required(name, function)):
+        for arguments in _each_absence(name, function):
             jsonschema.validate(arguments, function["input"])
             sent, _ = _call_the_client(name, arguments)
             assert _client_view(sent) == _described(name, function, arguments), (name, arguments)
+
+
+def test_each_write_body_is_the_clients_under_data():
+    """Les écritures : le corps de l'hôte, constante et table emboîtée, est exactement celui du client, `data` compris,
+    y compris un `null` donné."""
+    functions = _functions()
+    writes = {n for n, f in functions.items() if f["class"] != "read" and "body" in f["call"]}
+    assert writes == CLASSES["write"] | SENSITIVE_POSTS
+    for name in writes:
+        assert set(functions[name]["call"]["body"]) == {"data"}, name
+    expected = {
+        "create_note": {"data": {"parent_object": "people", "parent_record_id": UUID, "title": "Discovery call",
+                                 "format": "markdown", "content": "Budget agreed."}},
+        "create_comment": {"data": {"format": "plaintext", "content": "Budget agreed.", "thread_id": UUID,
+                                    "author": {"type": "workspace-member", "id": UUID}}},
+        "create_record": {"data": {"values": {"name": "Acme", "domains": ["acme.example"]}}},
+    }
+    for name, body in expected.items():
+        arguments = _every_argument(name, functions[name])
+        sent, _ = _call_the_client(name, arguments)
+        assert sent["json"] == body == _described(name, functions[name], arguments)[3], name
+    for name, arguments in {
+        "update_list": {"list_id_or_slug": "sales_pipeline", "workspace_access": None},
+        "create_list": dict(_every_argument("create_list", functions["create_list"]), workspace_access=None),
+    }.items():
+        jsonschema.validate(arguments, functions[name]["input"])
+        sent, _ = _call_the_client(name, arguments)
+        assert sent["json"]["data"]["workspace_access"] is None, name
+        assert _client_view(sent) == _described(name, functions[name], arguments), name
 
 
 def test_each_example_sends_what_the_client_sends_for_it():
@@ -336,7 +443,7 @@ def test_reads_writes_and_deletes_are_classified_and_each_delete_is_confirmed():
         method = function["call"]["method"]
         if function["class"] == "read":
             assert method == ("POST" if name in POST_READS else "GET"), name
-        assert (method == "DELETE") == (function["class"] == "sensitive"), name
+        assert (method == "DELETE" or name in SENSITIVE_POSTS) == (function["class"] == "sensitive"), name
         assert ("confirm" in function) == (function["class"] == "sensitive"), name
         assert "act" not in function, name
         if "confirm" in function:
@@ -355,8 +462,10 @@ def test_only_the_meetings_page_by_cursor_and_each_call_costs_one_request():
     assert meetings["output"] == {"items": "data"}
 
 
-def test_the_filters_are_personal_and_nothing_else():
-    """Un filtre de fiche porte un courriel, un nom ou un numéro : donnée personnelle ; aucun autre argument."""
+def test_the_personal_arguments_are_named():
+    """Un filtre, les valeurs d'une fiche ou d'une entrée portent un courriel, un nom ou un numéro ; le titre et le
+    texte d'une note, le texte d'un commentaire parlent de personnes : donnée personnelle. Aucun autre argument, ni un
+    identifiant."""
     for name, function in _functions().items():
         properties = function["input"]["properties"]
         assert sorted(a for a, s in properties.items() if s.get("personal") is True) == PERSONAL.get(name, []), name
@@ -400,12 +509,18 @@ def test_the_401_marks_the_account_and_429_and_5xx_are_retried_as_oto_1_says():
 
 
 def test_what_stays_in_the_client_is_named_in_the_description():
-    """Chaque méthode laissée au client, et l'argument `query`, sont nommés dans l'en-tête du fichier."""
+    """Chaque méthode laissée au client, l'argument `query` et les ancres d'un commentaire hors de son fil sont nommés
+    dans l'en-tête du fichier, comme ce que la description exige et que le client pose."""
     header = ATTIO.read_text(encoding="utf-8").split("\nconnector:")[0]
     for name in LEFT_OUT:
         assert name in header, name
         assert name not in _functions(), name
     assert "query argument of search_records" in header
+    for argument in ARGUMENTS_LEFT_OUT["create_comment"]:
+        assert argument in header, argument
+    for name, required in REQUIRED_HERE.items():
+        if name != "search_records":
+            assert name in header and all(a in header for a in required), name
 
 
 def test_the_typescript_output_and_the_python_table():

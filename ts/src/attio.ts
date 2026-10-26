@@ -134,6 +134,85 @@ export const searchRecords = defineFunction({
   cost: { per: "request" },
 })
 
+export const createRecord = defineFunction({
+  name: "attio.create_record",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Create a record of an object. values maps each attribute api_slug (from list_attributes) to its value, a list for a multiselect: {\"name\": \"Acme\", \"domains\": [\"acme.example\"]} for a company, {\"email_addresses\": [\"ada@acme.example\"]} for a person. Search before creating: a unique value already taken is refused.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["object", "values"],
+    "properties": {
+      "object": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "An object slug (companies, people, deals) or id, from list_objects."
+      },
+      "values": {"type": "object", "minProperties": 1, "personal": true, "description": "Attribute values by api_slug."}
+    }
+  },
+  examples: [
+    { title: "A company", input: {"object": "companies", "values": {"name": "Acme", "domains": ["acme.example"]}} },
+    { title: "A person", input: {"object": "people", "values": {"email_addresses": ["ada@acme.example"]}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/objects/{object}/records",
+    pathParams: ["object"],
+    query: {},
+    body: {"data": {"values": "values"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const mergeRecords = defineFunction({
+  name: "attio.merge_records",
+  connector: "attio",
+  class: "sensitive",
+  act: true,
+  description: "Merge two records of the same object, for good. Attio marks both merged, neither can be read again, and creates a third record whose id is data.new_record_id; where both carry a value, the primary's wins. A 202 answer says the merge goes on in the background (404 merge_in_progress until it ends); replaying it fails (404).",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["object", "primary_record_id", "secondary_record_id"],
+    "properties": {
+      "object": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "An object slug (companies, people, deals) or id, from list_objects."
+      },
+      "primary_record_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "The record whose values win (a UUID)."
+      },
+      "secondary_record_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "The other record (a UUID), of the same object."
+      }
+    }
+  },
+  examples: [
+    { title: "Merge two companies", input: {"object": "companies", "primary_record_id": "0f1e2d3c-4b5a-4968-8776-655443322110", "secondary_record_id": "1f2e3d4c-5b6a-4778-8887-766554433221"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/objects/{object}/records/merge",
+    pathParams: ["object"],
+    query: {},
+    body: {"data": {"primary_record_id": "primary_record_id", "secondary_record_id": "secondary_record_id"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+  confirm: { summary: "Merge Attio records {primary_record_id} (its values win) and {secondary_record_id} of {object} into a new record: irreversible." },
+})
+
 export const deleteRecord = defineFunction({
   name: "attio.delete_record",
   connector: "attio",
@@ -248,6 +327,47 @@ export const getNote = defineFunction({
     query: {},
     body: {},
     headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const createNote = defineFunction({
+  name: "attio.create_note",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Add a note to a record: a title and a content in markdown. Attio does not edit a note afterwards; delete_note removes it.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["parent_object", "parent_record_id", "title", "content"],
+    "properties": {
+      "parent_object": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "The object slug or id of the record."
+      },
+      "parent_record_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "The record id (a UUID)."
+      },
+      "title": {"type": "string", "minLength": 1, "personal": true},
+      "content": {"type": "string", "minLength": 1, "personal": true, "description": "Markdown."}
+    }
+  },
+  examples: [
+    { title: "A call summary", input: {"parent_object": "companies", "parent_record_id": "0f1e2d3c-4b5a-4968-8776-655443322110", "title": "Discovery call", "content": "Budget agreed, **demo** next week."} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/notes",
+    pathParams: [],
+    query: {},
+    body: {"data": {"parent_object": "parent_object", "parent_record_id": "parent_record_id", "title": "title", "content": "content"}},
+    headers: {},
+    constants: {"body": {"data": {"format": "markdown"}}},
   },
   cost: { per: "request" },
 })
@@ -480,6 +600,112 @@ export const listListViews = defineFunction({
   cost: { per: "request" },
 })
 
+export const createList = defineFunction({
+  name: "attio.create_list",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Create a list of records of one object (a pipeline). api_slug is its key in the API, in snake case. workspace_access is the level of every workspace member: full-access, read-and-write, read-only, or null for none; workspace_member_access gives members their own level, [] for none.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name", "parent_object", "api_slug", "workspace_access", "workspace_member_access"],
+    "properties": {
+      "name": {"type": "string", "minLength": 1},
+      "parent_object": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "The object slug or id of the list's records."
+      },
+      "api_slug": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+      "workspace_access": {"type": ["string", "null"], "enum": ["full-access", "read-and-write", "read-only", null]},
+      "workspace_member_access": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspace_member_id", "level"],
+          "properties": {
+            "workspace_member_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+              "description": "From list_workspace_members."
+            },
+            "level": {"type": "string", "enum": ["full-access", "read-and-write", "read-only"]}
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "A sales pipeline", input: {"name": "Sales pipeline", "parent_object": "companies", "api_slug": "sales_pipeline", "workspace_access": "full-access", "workspace_member_access": []} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/lists",
+    pathParams: [],
+    query: {},
+    body: {"data": {"name": "name", "api_slug": "api_slug", "parent_object": "parent_object", "workspace_access": "workspace_access", "workspace_member_access": "workspace_member_access"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const updateList = defineFunction({
+  name: "attio.update_list",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Change a list's name, api_slug or access levels (as create_list says them); only what is given changes.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["list_id_or_slug"],
+    "minProperties": 2,
+    "properties": {
+      "list_id_or_slug": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "A list id or api_slug, from list_lists."
+      },
+      "name": {"type": "string", "minLength": 1},
+      "api_slug": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+      "workspace_access": {"type": ["string", "null"], "enum": ["full-access", "read-and-write", "read-only", null]},
+      "workspace_member_access": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspace_member_id", "level"],
+          "properties": {
+            "workspace_member_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+              "description": "From list_workspace_members."
+            },
+            "level": {"type": "string", "enum": ["full-access", "read-and-write", "read-only"]}
+          }
+        }
+      }
+    }
+  },
+  examples: [
+    { title: "Rename a list", input: {"list_id_or_slug": "sales_pipeline", "name": "Pipeline 2027"} },
+    { title: "Read-only for the workspace", input: {"list_id_or_slug": "sales_pipeline", "workspace_access": "read-only"} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/lists/{list_id_or_slug}",
+    pathParams: ["list_id_or_slug"],
+    query: {},
+    body: {"data": {"name": "name", "api_slug": "api_slug", "workspace_access": "workspace_access", "workspace_member_access": "workspace_member_access"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
 export const queryEntries = defineFunction({
   name: "attio.query_entries",
   connector: "attio",
@@ -573,6 +799,54 @@ export const getEntry = defineFunction({
     pathParams: ["list_id_or_slug", "entry_id"],
     query: {},
     body: {},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const createEntry = defineFunction({
+  name: "attio.create_entry",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Add a record to a list, as a new entry. entry_values maps the list's own attributes (api_slug from list_attributes, target lists) to their values, {} for none: {\"stage\": \"Lead\"}.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["list_id_or_slug", "parent_record_id", "parent_object", "entry_values"],
+    "properties": {
+      "list_id_or_slug": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "A list id or api_slug, from list_lists."
+      },
+      "parent_record_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "The record to add (a UUID)."
+      },
+      "parent_object": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "The object slug or id of the record."
+      },
+      "entry_values": {
+        "type": "object",
+        "personal": true,
+        "description": "The list's attribute values by api_slug; {} for none."
+      }
+    }
+  },
+  examples: [
+    { title: "A company into a pipeline", input: {"list_id_or_slug": "sales_pipeline", "parent_record_id": "0f1e2d3c-4b5a-4968-8776-655443322110", "parent_object": "companies", "entry_values": {"stage": "Lead"}} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/lists/{list_id_or_slug}/entries",
+    pathParams: ["list_id_or_slug"],
+    query: {},
+    body: {"data": {"parent_record_id": "parent_record_id", "parent_object": "parent_object", "entry_values": "entry_values"}},
     headers: {},
   },
   cost: { per: "request" },
@@ -703,6 +977,46 @@ export const getComment = defineFunction({
     query: {},
     body: {},
     headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const createComment = defineFunction({
+  name: "attio.create_comment",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Reply in an existing thread of comments, in plain text, as a workspace member (author_id, from list_workspace_members). A comment's thread_id comes with get_comment.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["content", "author_id", "thread_id"],
+    "properties": {
+      "content": {"type": "string", "minLength": 1, "personal": true},
+      "author_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "A workspace member id (a UUID)."
+      },
+      "thread_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "The thread id (a UUID)."
+      }
+    }
+  },
+  examples: [
+    { title: "A reply", input: {"content": "Done, sent today.", "author_id": "4d5e6f70-8192-4dae-9f20-3b4c5d6e7f80", "thread_id": "6f708192-a3b4-4fc0-9142-5d6e7f8091a2"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/comments",
+    pathParams: [],
+    query: {},
+    body: {"data": {"content": "content", "thread_id": "thread_id", "author": {"id": "author_id"}}},
+    headers: {},
+    constants: {"body": {"data": {"format": "plaintext", "author": {"type": "workspace-member"}}}},
   },
   cost: { per: "request" },
 })
@@ -1289,11 +1603,91 @@ export const createAttribute = defineFunction({
   cost: { per: "request" },
 })
 
+export const createAttributeOption = defineFunction({
+  name: "attio.create_attribute_option",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Add an option to a select attribute of an object or a list. Attio deletes no option; it can only be archived.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["target", "identifier", "attribute", "title"],
+    "properties": {
+      "target": {
+        "type": "string",
+        "enum": ["objects", "lists"],
+        "description": "objects for an object's attributes, lists for a list's."
+      },
+      "identifier": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$", "description": "The object or list id or slug."},
+      "attribute": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "The attribute id or api_slug, from list_attributes."
+      },
+      "title": {"type": "string", "minLength": 1}
+    }
+  },
+  examples: [
+    { title: "A category", input: {"target": "objects", "identifier": "companies", "attribute": "categories", "title": "Reseller"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/{target}/{identifier}/attributes/{attribute}/options",
+    pathParams: ["target", "identifier", "attribute"],
+    query: {},
+    body: {"data": {"title": "title"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const createAttributeStatus = defineFunction({
+  name: "attio.create_attribute_status",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Add a status to a status attribute (a stage of a deal or a pipeline). Attio deletes no status; it can only be archived.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["target", "identifier", "attribute", "title"],
+    "properties": {
+      "target": {
+        "type": "string",
+        "enum": ["objects", "lists"],
+        "description": "objects for an object's attributes, lists for a list's."
+      },
+      "identifier": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$", "description": "The object or list id or slug."},
+      "attribute": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "The attribute id or api_slug, from list_attributes."
+      },
+      "title": {"type": "string", "minLength": 1}
+    }
+  },
+  examples: [
+    { title: "A deal stage", input: {"target": "objects", "identifier": "deals", "attribute": "stage", "title": "Negotiation"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/{target}/{identifier}/attributes/{attribute}/statuses",
+    pathParams: ["target", "identifier", "attribute"],
+    query: {},
+    body: {"data": {"title": "title"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
 export const connector = defineConnector({
   name: "attio",
   label: "Attio",
   namespace: "attio",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "v2",
   baseUrl: "https://api.attio.com/v2",
   auth: {"kind": "bearer", "token": "api_key"},
@@ -1308,16 +1702,19 @@ export const connector = defineConnector({
     { status: 404, code: "not_found", message: "Not found in Attio: wrong id or slug, or out of this token's reach.", retryable: false },
     { status: 409, code: "conflict", message: "Attio refused a duplicate: the slug or the unique value is already taken.", retryable: false },
     { status: 429, code: "rate_limited", message: "Attio rate limit reached (100 reads, 25 writes per second): wait a moment, then retry.", retryable: true },
-    { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Attio is temporarily unavailable: try again later. An attribute being created may have been created: list the attributes before creating it again.", retryable: true },
+    { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Attio is temporarily unavailable: try again later. A write may have gone through: read before writing again.", retryable: true },
   ],
   probe: { function: "attio.list_objects", nonEmpty: ["data"] },
   functions: [
     listRecords,
     getRecord,
     searchRecords,
+    createRecord,
+    mergeRecords,
     deleteRecord,
     listNotes,
     getNote,
+    createNote,
     deleteNote,
     listTasks,
     getTask,
@@ -1325,12 +1722,16 @@ export const connector = defineConnector({
     listLists,
     getList,
     listListViews,
+    createList,
+    updateList,
     queryEntries,
     getEntry,
+    createEntry,
     deleteEntry,
     listWorkspaceMembers,
     getWorkspaceMember,
     getComment,
+    createComment,
     deleteComment,
     getThread,
     listMeetings,
@@ -1346,5 +1747,7 @@ export const connector = defineConnector({
     listAttributeOptions,
     listAttributeStatuses,
     createAttribute,
+    createAttributeOption,
+    createAttributeStatus,
   ],
 })
