@@ -23,6 +23,7 @@ import * as hunter from "./hunter"
 import * as jefacture from "./jefacture"
 import * as klaviyo from "./klaviyo"
 import * as lemlist from "./lemlist"
+import * as linear from "./linear"
 import * as linkedinUnipile from "./linkedin_unipile"
 import * as mailpool from "./mailpool"
 import * as malibou from "./malibou"
@@ -74,6 +75,7 @@ export { hunter }
 export { jefacture }
 export { klaviyo }
 export { lemlist }
+export { linear }
 export { linkedinUnipile }
 export { mailpool }
 export { malibou }
@@ -128,6 +130,7 @@ export const connectors: readonly Connector[] = [
   jefacture.connector,
   klaviyo.connector,
   lemlist.connector,
+  linear.connector,
   linkedinUnipile.connector,
   mailpool.connector,
   malibou.connector,

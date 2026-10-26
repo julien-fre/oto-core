@@ -442,10 +442,11 @@ class LinearClient:
         """
         return self._execute(query, {"id": comment_id})["comment"]
 
-    def list_comments(self, issue_id: str, *, first: int = 50,
+    def list_comments(self, issue_id: str, *, first: Optional[int] = None,
                        after: Optional[str] = None,
                        fields: Optional[str] = None) -> Any:
-        """`comments(filter: {issue: {id: {eq: ...}}})` for one issue."""
+        """`comments(filter: {issue: {id: {eq: ...}}})` for one issue.
+        `first` left out sends nothing: Linear's default page size (50)."""
         query = f"""
             query Comments($issueId: ID!, $first: Int, $after: String) {{
               comments(filter: {{ issue: {{ id: {{ eq: $issueId }} }} }},
@@ -624,9 +625,10 @@ class LinearClient:
         """
         return self._execute(query, {"id": team_id})["team"]
 
-    def list_teams(self, *, first: int = 50, after: Optional[str] = None,
+    def list_teams(self, *, first: Optional[int] = None, after: Optional[str] = None,
                     fields: Optional[str] = None) -> Any:
-        """`teams` — every team in the workspace visible to this key."""
+        """`teams` — every team in the workspace visible to this key.
+        `first` left out sends nothing: Linear's default page size (50)."""
         query = f"""
             query Teams($first: Int, $after: String) {{
               teams(first: $first, after: $after) {{
@@ -637,12 +639,13 @@ class LinearClient:
         """
         return self._execute(query, {"first": first, "after": after})["teams"]
 
-    def list_workflow_states(self, team_id: str, *, first: int = 50,
+    def list_workflow_states(self, team_id: str, *, first: Optional[int] = None,
                               after: Optional[str] = None,
                               fields: Optional[str] = None) -> Any:
         """`workflowStates(filter: {team: {id: {eq: ...}}})` — a team's
         status list (Backlog/Todo/In Progress/Done/Cancelled buckets, each
-        with its own states) — resolve a `state_id` for `update_issue` here."""
+        with its own states) — resolve a `state_id` for `update_issue` here.
+        `first` left out sends nothing: Linear's default page size (50)."""
         query = f"""
             query WorkflowStates($teamId: ID!, $first: Int, $after: String) {{
               workflowStates(filter: {{ team: {{ id: {{ eq: $teamId }} }} }},
@@ -781,9 +784,10 @@ class LinearClient:
         """
         return self._execute(query, {"id": user_id})["user"]
 
-    def list_users(self, *, first: int = 50, after: Optional[str] = None,
+    def list_users(self, *, first: Optional[int] = None, after: Optional[str] = None,
                     fields: Optional[str] = None) -> Any:
-        """`users` — every member of the workspace visible to this key."""
+        """`users` — every member of the workspace visible to this key.
+        `first` left out sends nothing: Linear's default page size (50)."""
         query = f"""
             query Users($first: Int, $after: String) {{
               users(first: $first, after: $after) {{
@@ -835,7 +839,7 @@ class LinearClient:
     def create_webhook(self, url: str, *, team_id: Optional[str] = None,
                         resource_types: Optional[List[str]] = None,
                         secret: Optional[str] = None,
-                        enabled: bool = True,
+                        enabled: Optional[bool] = None,
                         all_public_teams: bool = False,
                         fields: Optional[str] = None) -> Any:
         """`webhookCreate(input:)`. `resource_types`: Linear's documented
@@ -843,7 +847,8 @@ class LinearClient:
         `"Cycle"`, `"ProjectUpdate"`, `"Reaction"` — passed through raw and
         validated server-side, not re-validated here (the full enum wasn't
         confirmed via introspection). `all_public_teams=True` subscribes
-        across every public team instead of one `team_id`."""
+        across every public team instead of one `team_id`. `enabled` left
+        out sends nothing: Linear's default, an enabled webhook."""
         query = f"""
             mutation WebhookCreate($input: WebhookCreateInput!) {{
               webhookCreate(input: $input) {{

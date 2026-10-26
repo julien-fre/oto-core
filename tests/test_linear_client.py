@@ -155,8 +155,22 @@ def test_create_webhook_wraps_input(capture):
     body = capture["kwargs"]["json"]
     assert body["variables"]["input"] == {
         "url": "https://example.com/hook", "teamId": "t1",
-        "resourceTypes": ["Issue", "Comment"], "enabled": True,
+        "resourceTypes": ["Issue", "Comment"],
     }
+
+
+def test_create_webhook_sends_enabled_only_when_given(capture):
+    """`enabled` left out sends nothing (Linear's default: enabled); given, it is sent as is."""
+    _client().create_webhook("https://example.com/hook", resource_types=["Issue"], enabled=False)
+    assert capture["kwargs"]["json"]["variables"]["input"]["enabled"] is False
+
+
+def test_described_lists_send_first_only_when_given(capture):
+    """`first` left out sends nothing (Linear's default page size); given, it is sent as is."""
+    _client().list_users()
+    assert capture["kwargs"]["json"]["variables"] == {}
+    _client().list_comments("i1", first=10)
+    assert capture["kwargs"]["json"]["variables"] == {"issueId": "i1", "first": 10}
 
 
 def test_delete_project(capture):

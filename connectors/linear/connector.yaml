@@ -1,0 +1,888 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Linear GraphQL API (https://linear.app/developers/graphql, read on 2026-10-26). One endpoint,
+# POST https://api.linear.app/graphql, a body {query, variables}. The values come from the Python client,
+# oto.tools.linear, which this description follows: the API key in the Authorization header with no prefix (Linear
+# wants the personal key verbatim, never "Bearer <key>"), JSON bodies. tests/test_linear_description.py reads the client
+# to keep both equal.
+#
+# A GraphQL call is a nested body: the operation text is a body constant (constants.body.query), written as the
+# client sends it, its whitespace squeezed (insignificant in GraphQL); each argument is a variable under variables, an
+# input object under variables.input (title, teamId, assigneeId…). An argument not given is not sent, as the client
+# drops a None; variables itself is a constant empty object, as the client always sends it, even without an argument.
+# The lists page by cursor under variables: after is the cursor, data.<list>.pageInfo the next one.
+#
+# Not described, and why (the methods stay in the client):
+# - list_issues, search_issues, list_projects, list_cycles, list_labels: the client writes the operation text from the
+#   filters given, declaring a variable and its filter clause only for a filter given (Linear refuses a declared
+#   variable left unused). Without a filter, list_projects, list_cycles and list_labels send a constant text, but with
+#   team_id another one. Made constant, the text would change (a whole filter object as one variable, or a variable
+#   bound to null, whose meaning Linear does not document): no longer what oto 1 sends.
+# - list_webhooks: with team_id, another operation (team(id){webhooks}), whose answer the client reshapes into
+#   {nodes, pageInfo}.
+# - the fields argument of every method: the client writes it into the operation text, the selection. A free selection
+#   is not an argument of the format (it would let the agent select any field, a webhook secret among them); each
+#   function sends the client's default selection.
+# - the secret argument of create_webhook: a signing secret written by the agent would go through its context and the
+#   host's log of the arguments. Without it Linear makes one, readable in Linear's settings.
+#
+# Read and act. Reads stay on the read side. Creating and updating an issue, a comment, a project, a label or a
+# webhook are writes. Archiving an issue (reversible in Linear) and every delete (an issue or a project to the trash;
+# a comment, a label, a webhook) are sensitive, with a confirmation.
+#
+# The answer is Linear's, {data: {<field>: …}}; the client returns data.<field> alone. The format has no unwrapping
+# of a single object (items is a list path): each description says where to read (data.issue, data.issueCreate…). The
+# lists set items to data.<list>.nodes.
+#
+# No secret and no address that opens content without a login reaches the agent: no selection reads a webhook's
+# secret, an avatar or an attachment; the url of an issue or a project opens the Linear app, behind its login.
+#
+# Personal data: an argument that names a person, a user id (assignee_id, lead_id, user_id).
+#
+# Narrower than the client, which lets everything through (named in the test): first from 1 to 250 (Linear's
+# bound), priority from 0 to 4, dates as YYYY-MM-DD, an https webhook url, resource_types required (Linear refuses a
+# webhook without), all_public_teams only true (the client sends nothing for false), an update with at least one
+# change (the client would send an empty input).
+#
+# Errors. Linear answers a GraphQL error with an errors list, under a 200 or a 400; the client raises on any errors
+# list, whatever the status. AUTHENTICATION_ERROR (an invalid or revoked key: oto 1 reads it under a 200) marks the
+# account credential_rejected, under a 200, a 400 or a 401; a 401 alone also. RATELIMITED, under a 400 as the client
+# says (the hourly quota of the key: 5,000 requests or 3,000,000 complexity points), is not retried: the client says
+# stop until the reset, which can be an hour away; it does not mark the account (an hourly rate, not the plan's
+# credits). The client looks for RATELIMITED in every error of the list; the description reads the first one. Any other
+# error under a 200 leaves data.<field> null: expect refuses it (no_result). Other 400s are invalid requests; a 403 is
+# a right the key lacks; the 5xx are retried, as oto 1 says ("try again later").
+#
+# Rate: 5,000 requests per hour per key, Linear's rate limiting page. The client does not pace.
+#
+# Probe: get_viewer, as oto 1, a read without argument, data.viewer.id non-empty.
+connector:
+  name: linear
+  label: Linear
+  namespace: linear
+  version: 1.0.0
+  api_version: GraphQL (unversioned)
+  base_url: https://api.linear.app
+  auth: { kind: api_key, in: header, name: Authorization, key: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  # A personal API key (Settings, Security and access, Personal API keys): it acts as its holder. No platform key.
+  modes: [byo_user, byo_org]
+  timeout_s: 60
+  rate_limit: { requests: 5000, seconds: 3600 }
+  probe: { function: get_viewer, non_empty: [data.viewer.id] }
+  errors:
+    - { status: [200, 400, 401], body: { path: errors.0.extensions.code, equals: [AUTHENTICATION_ERROR] },
+        code: key_refused, retryable: false, marks_account: credential_rejected,
+        message: "Linear rejected the API key: invalid or revoked. A personal key is made in Linear, Settings, Security and access." }
+    - { status: [400, 429], body: { path: errors.0.extensions.code, equals: [RATELIMITED] },
+        code: rate_limited, retryable: false,
+        message: "Linear's hourly quota for this key is reached (5,000 requests or 3,000,000 complexity points): stop until the reset, do not retry now." }
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Linear rejected the request: its errors list says why (an unknown id, an invalid value)." }
+    - { status: 401, code: key_refused, retryable: false, marks_account: credential_rejected,
+        message: "Linear rejected the API key: invalid or revoked. A personal key is made in Linear, Settings, Security and access." }
+    - { status: 403, code: forbidden, retryable: false,
+        message: "Linear refused: the key's holder lacks the right for this object or action." }
+    - { status: 429, code: rate_limited, retryable: false,
+        message: "Linear's hourly quota for this key is reached: stop until the reset, do not retry now." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
+        message: "Linear is temporarily unavailable: try again later." }
+
+functions:
+  # --- Issues ----------------------------------------------------------------------
+
+  - name: get_issue
+    class: read
+    description: >-
+      One Linear issue, by its id or its identifier (ENG-123), under
+      data.issue: identifier, title, description (markdown), priority (0 none,
+      1 urgent, 2 high, 3 normal, 4 low), estimate, due date, url, dates,
+      state, assignee, team, project, cycle, labels, parent issue.
+    input:
+      type: object
+      additionalProperties: false
+      required: [issue_id]
+      properties:
+        issue_id: &issue_id { type: string, minLength: 1, description: "The issue's id, or its identifier such as ENG-123." }
+    examples:
+      - { title: An issue by its identifier, input: { issue_id: ENG-123 } }
+    refusals: [&no_result { code: no_result, when: "the response carries no result under data",
+                             message: "Linear returned no result: its errors list says why (an unknown id, a missing right, an invalid value)." }]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.issue }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: issue_id } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query Issue($id: String!) { issue(id: $id) { id identifier title description priority estimate dueDate
+            url createdAt updatedAt state { id name type } assignee { id name email } team { id name key } project {
+            id name } cycle { id number } labels { nodes { id name color } } parent { id identifier title } } }
+
+  - name: create_issue
+    class: write
+    description: >-
+      Create a Linear issue in a team; the answer is under
+      data.issueCreate: success and the issue (its fields as get_issue).
+      priority: 0 none, 1 urgent, 2 high, 3 normal, 4 low. state_id comes from
+      list_workflow_states; parent_id makes it a sub-issue.
+    input:
+      type: object
+      additionalProperties: false
+      required: [title, team_id]
+      properties:
+        title: { type: string, minLength: 1 }
+        team_id: &team_id { type: string, minLength: 1, description: "The team's id, from list_teams." }
+        description: &issue_description { type: string, description: "Markdown." }
+        assignee_id: &assignee_id { type: string, minLength: 1, personal: true, description: "The id of the user to assign, from list_users." }
+        state_id: &state_id { type: string, minLength: 1, description: "A workflow state of the team, from list_workflow_states." }
+        priority: &priority { type: integer, minimum: 0, maximum: 4, description: "0 none, 1 urgent, 2 high, 3 normal, 4 low." }
+        label_ids: &label_ids { type: array, items: { type: string, minLength: 1 }, description: "Label ids, from list_labels." }
+        project_id: &project_id_field { type: string, minLength: 1 }
+        cycle_id: &cycle_id_field { type: string, minLength: 1 }
+        parent_id: { type: string, minLength: 1, description: "The parent issue's id: the new issue is its sub-issue." }
+        due_date: &due_date { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "YYYY-MM-DD." }
+        estimate: &estimate { type: integer, minimum: 0 }
+    examples:
+      - { title: A bug in a team, input: { title: Login fails on Safari, team_id: t-0, priority: 2 } }
+      - title: A sub-issue, assigned and due
+        input: { title: Fix the cookie, team_id: t-0, parent_id: i-0, assignee_id: u-0, due_date: "2026-11-15", label_ids: [l-0] }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.issueCreate }]
+    call:
+      method: POST
+      path: /graphql
+      body:
+        variables:
+          input: { title: title, teamId: team_id, description: description, assigneeId: assignee_id,
+                   stateId: state_id, priority: priority, labelIds: label_ids, projectId: project_id,
+                   cycleId: cycle_id, parentId: parent_id, dueDate: due_date, estimate: estimate }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id
+            identifier title description priority estimate dueDate url createdAt updatedAt state { id name type }
+            assignee { id name email } team { id name key } project { id name } cycle { id number } labels { nodes {
+            id name color } } parent { id identifier title } } } }
+
+  - name: update_issue
+    class: write
+    description: >-
+      Change a Linear issue: only the fields given change; label_ids replaces
+      all its labels. The answer is under data.issueUpdate: success and the
+      issue (its fields as get_issue). At least one change.
+    input:
+      type: object
+      additionalProperties: false
+      required: [issue_id]
+      minProperties: 2
+      properties:
+        issue_id: *issue_id
+        title: { type: string, minLength: 1 }
+        description: *issue_description
+        assignee_id: *assignee_id
+        state_id: *state_id
+        priority: *priority
+        label_ids: *label_ids
+        project_id: *project_id_field
+        cycle_id: *cycle_id_field
+        due_date: *due_date
+        estimate: *estimate
+    examples:
+      - { title: Move to a state, input: { issue_id: ENG-123, state_id: s-0 } }
+      - { title: Reassign and reprioritize, input: { issue_id: i-0, assignee_id: u-0, priority: 1 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.issueUpdate }]
+    call:
+      method: POST
+      path: /graphql
+      body:
+        variables:
+          id: issue_id
+          input: { title: title, description: description, assigneeId: assignee_id, stateId: state_id,
+                   priority: priority, labelIds: label_ids, projectId: project_id, cycleId: cycle_id,
+                   dueDate: due_date, estimate: estimate }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) {
+            success issue { id identifier title description priority estimate dueDate url createdAt updatedAt state {
+            id name type } assignee { id name email } team { id name key } project { id name } cycle { id number }
+            labels { nodes { id name color } } parent { id identifier title } } } }
+
+  - name: archive_issue
+    class: sensitive
+    description: >-
+      Archive a Linear issue: it leaves the lists, and can be restored from
+      Linear. The answer is data.issueArchive.success.
+    input:
+      type: object
+      additionalProperties: false
+      required: [issue_id]
+      properties:
+        issue_id: *issue_id
+    examples:
+      - { title: Archive an issue, input: { issue_id: ENG-123 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.issueArchive }]
+    confirm: { summary: "Archive Linear issue {issue_id}." }
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: issue_id } }
+      constants:
+        body: { variables: {}, query: "mutation IssueArchive($id: String!) { issueArchive(id: $id) { success } }" }
+
+  - name: delete_issue
+    class: sensitive
+    description: >-
+      Delete a Linear issue: it moves to the trash, where Linear keeps it for
+      a while before deleting it for good. The answer is
+      data.issueDelete.success.
+    input:
+      type: object
+      additionalProperties: false
+      required: [issue_id]
+      properties:
+        issue_id: *issue_id
+    examples:
+      - { title: Delete an issue, input: { issue_id: ENG-123 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.issueDelete }]
+    confirm: { summary: "Delete Linear issue {issue_id}: it moves to the trash." }
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: issue_id } }
+      constants:
+        body: { variables: {}, query: "mutation IssueDelete($id: String!) { issueDelete(id: $id) { success } }" }
+
+  # --- Comments --------------------------------------------------------------------
+
+  - name: get_comment
+    class: read
+    description: >-
+      One comment on a Linear issue, under data.comment: body (markdown),
+      dates, author, issue, parent comment.
+    input:
+      type: object
+      additionalProperties: false
+      required: [comment_id]
+      properties:
+        comment_id: &comment_id { type: string, minLength: 1 }
+    examples:
+      - { title: A comment, input: { comment_id: c-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.comment }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: comment_id } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query Comment($id: String!) { comment(id: $id) { id body createdAt updatedAt user { id name } issue { id
+            identifier } parent { id } } }
+
+  - name: list_comments
+    class: read
+    description: >-
+      The comments of a Linear issue, a page at a time, under
+      data.comments.nodes (each as get_comment);
+      data.comments.pageInfo.endCursor is the after of the next page while
+      hasNextPage is true.
+    input:
+      type: object
+      additionalProperties: false
+      required: [issue_id]
+      properties:
+        issue_id: { type: string, minLength: 1, description: "The issue's id." }
+        first: &first { type: integer, minimum: 1, maximum: 250, description: "Items per page, 50 by default at Linear, at most 250." }
+        after: &after { type: string, minLength: 1, description: "The endCursor of the previous page." }
+    examples:
+      - { title: The comments of an issue, input: { issue_id: i-0 } }
+      - { title: The next page, input: { issue_id: i-0, first: 100, after: cursor-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.comments }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { issueId: issue_id, first: first, after: after } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query Comments($issueId: ID!, $first: Int, $after: String) { comments(filter: { issue: { id: { eq:
+            $issueId } } }, first: $first, after: $after) { nodes { id body createdAt updatedAt user { id name } issue
+            { id identifier } parent { id } } pageInfo { hasNextPage endCursor } } }
+    pagination: { kind: cursor, request_param: after, next: data.comments.pageInfo.endCursor, more: data.comments.pageInfo.hasNextPage, max_pages: 20 }
+    output: { items: data.comments.nodes }
+
+  - name: create_comment
+    class: write
+    description: >-
+      Comment on a Linear issue, in markdown; parent_id answers another
+      comment, in its thread. The answer is under data.commentCreate: success
+      and the comment.
+    input:
+      type: object
+      additionalProperties: false
+      required: [issue_id, body]
+      properties:
+        issue_id: { type: string, minLength: 1, description: "The issue's id." }
+        body: &comment_body { type: string, minLength: 1, description: "Markdown." }
+        parent_id: { type: string, minLength: 1, description: "The comment this one answers." }
+    examples:
+      - { title: A comment, input: { issue_id: i-0, body: "Reproduced on Safari 18." } }
+      - { title: An answer in a thread, input: { issue_id: i-0, body: Fixed., parent_id: c-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.commentCreate }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { input: { issueId: issue_id, body: body, parentId: parent_id } } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation CommentCreate($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id
+            body createdAt updatedAt user { id name } issue { id identifier } parent { id } } } }
+
+  - name: update_comment
+    class: write
+    description: >-
+      Replace the text of a comment on a Linear issue. The answer is under
+      data.commentUpdate: success and the comment.
+    input:
+      type: object
+      additionalProperties: false
+      required: [comment_id, body]
+      properties:
+        comment_id: *comment_id
+        body: *comment_body
+    examples:
+      - { title: Correct a comment, input: { comment_id: c-0, body: "Reproduced on Safari 18 and 17." } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.commentUpdate }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: comment_id, input: { body: body } } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation CommentUpdate($id: String!, $input: CommentUpdateInput!) { commentUpdate(id: $id, input: $input)
+            { success comment { id body createdAt updatedAt user { id name } issue { id identifier } parent { id } } } }
+
+  - name: delete_comment
+    class: sensitive
+    description: Delete a comment on a Linear issue. The answer is data.commentDelete.success.
+    input:
+      type: object
+      additionalProperties: false
+      required: [comment_id]
+      properties:
+        comment_id: *comment_id
+    examples:
+      - { title: Delete a comment, input: { comment_id: c-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.commentDelete }]
+    confirm: { summary: "Delete Linear comment {comment_id}." }
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: comment_id } }
+      constants:
+        body: { variables: {}, query: "mutation CommentDelete($id: String!) { commentDelete(id: $id) { success } }" }
+
+  # --- Projects --------------------------------------------------------------------
+
+  - name: get_project
+    class: read
+    description: >-
+      One Linear project, under data.project: name, description, status (id,
+      name, type), url, target date, dates, lead, teams.
+    input:
+      type: object
+      additionalProperties: false
+      required: [project_id]
+      properties:
+        project_id: &project_id { type: string, minLength: 1 }
+    examples:
+      - { title: A project, input: { project_id: p-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.project }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: project_id } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query Project($id: String!) { project(id: $id) { id name description status { id name type } url
+            targetDate createdAt updatedAt lead { id name } teams { nodes { id name key } } } }
+
+  - name: create_project
+    class: write
+    description: >-
+      Create a Linear project in one or more teams. status_id is one of the
+      workspace's project statuses (read one from an existing project with
+      get_project), not a free text. The answer is under data.projectCreate:
+      success and the project (as get_project).
+    input:
+      type: object
+      additionalProperties: false
+      required: [name, team_ids]
+      properties:
+        name: { type: string, minLength: 1 }
+        team_ids: { type: array, minItems: 1, items: { type: string, minLength: 1 }, description: "Team ids, from list_teams." }
+        description: &project_description { type: string }
+        status_id: &status_id { type: string, minLength: 1, description: "A project status id, as get_project returns it in status.id." }
+        lead_id: &lead_id { type: string, minLength: 1, personal: true, description: "The id of the user who leads the project, from list_users." }
+        target_date: &target_date { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "YYYY-MM-DD." }
+    examples:
+      - { title: A project in one team, input: { name: Checkout redesign, team_ids: [t-0] } }
+      - title: Led, dated
+        input: { name: Checkout redesign, team_ids: [t-0, t-1], lead_id: u-0, target_date: "2026-12-18", status_id: ps-0 }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.projectCreate }]
+    call:
+      method: POST
+      path: /graphql
+      body:
+        variables:
+          input: { name: name, teamIds: team_ids, description: description, statusId: status_id, leadId: lead_id,
+                   targetDate: target_date }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation ProjectCreate($input: ProjectCreateInput!) { projectCreate(input: $input) { success project { id
+            name description status { id name type } url targetDate createdAt updatedAt lead { id name } teams {
+            nodes { id name key } } } } }
+
+  - name: update_project
+    class: write
+    description: >-
+      Change a Linear project: only the fields given change. The answer is
+      under data.projectUpdate: success and the project (as get_project). At
+      least one change.
+    input:
+      type: object
+      additionalProperties: false
+      required: [project_id]
+      minProperties: 2
+      properties:
+        project_id: *project_id
+        name: { type: string, minLength: 1 }
+        description: *project_description
+        status_id: *status_id
+        lead_id: *lead_id
+        target_date: *target_date
+    examples:
+      - { title: Move the target date, input: { project_id: p-0, target_date: "2027-01-15" } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.projectUpdate }]
+    call:
+      method: POST
+      path: /graphql
+      body:
+        variables:
+          id: project_id
+          input: { name: name, description: description, statusId: status_id, leadId: lead_id,
+                   targetDate: target_date }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation ProjectUpdate($id: String!, $input: ProjectUpdateInput!) { projectUpdate(id: $id, input: $input)
+            { success project { id name description status { id name type } url targetDate createdAt updatedAt lead {
+            id name } teams { nodes { id name key } } } } }
+
+  - name: delete_project
+    class: sensitive
+    description: >-
+      Delete a Linear project: it moves to the trash. Its issues stay, out of
+      the project. The answer is data.projectDelete.success.
+    input:
+      type: object
+      additionalProperties: false
+      required: [project_id]
+      properties:
+        project_id: *project_id
+    examples:
+      - { title: Delete a project, input: { project_id: p-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.projectDelete }]
+    confirm: { summary: "Delete Linear project {project_id}: it moves to the trash." }
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: project_id } }
+      constants:
+        body: { variables: {}, query: "mutation ProjectDelete($id: String!) { projectDelete(id: $id) { success } }" }
+
+  # --- Teams and workflow states ---------------------------------------------------
+
+  - name: get_team
+    class: read
+    description: One Linear team, under data.team - name, key (the prefix of its issue identifiers), description, private.
+    input:
+      type: object
+      additionalProperties: false
+      required: [team_id]
+      properties:
+        team_id: *team_id
+    examples:
+      - { title: A team, input: { team_id: t-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.team }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: team_id } }
+      constants:
+        body: { variables: {}, query: "query Team($id: String!) { team(id: $id) { id name key description private } }" }
+
+  - name: list_teams
+    class: read
+    description: >-
+      The Linear teams the key's holder sees, a page at a time, under
+      data.teams.nodes (each as get_team); data.teams.pageInfo.endCursor is
+      the after of the next page while hasNextPage is true.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        first: *first
+        after: *after
+    examples:
+      - { title: The teams, input: {} }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.teams }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { first: first, after: after } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query Teams($first: Int, $after: String) { teams(first: $first, after: $after) { nodes { id name key
+            description private } pageInfo { hasNextPage endCursor } } }
+    pagination: { kind: cursor, request_param: after, next: data.teams.pageInfo.endCursor, more: data.teams.pageInfo.hasNextPage, max_pages: 20 }
+    output: { items: data.teams.nodes }
+
+  - name: list_workflow_states
+    class: read
+    description: >-
+      The workflow states of a Linear team (Backlog, Todo, In Progress, Done,
+      Canceled and the team's own), a page at a time, under
+      data.workflowStates.nodes: id, name, type, position, color. Read here the
+      state_id of create_issue and update_issue.
+    input:
+      type: object
+      additionalProperties: false
+      required: [team_id]
+      properties:
+        team_id: *team_id
+        first: *first
+        after: *after
+    examples:
+      - { title: The states of a team, input: { team_id: t-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.workflowStates }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { teamId: team_id, first: first, after: after } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query WorkflowStates($teamId: ID!, $first: Int, $after: String) { workflowStates(filter: { team: { id: {
+            eq: $teamId } } }, first: $first, after: $after) { nodes { id name type position color } pageInfo {
+            hasNextPage endCursor } } }
+    pagination: { kind: cursor, request_param: after, next: data.workflowStates.pageInfo.endCursor, more: data.workflowStates.pageInfo.hasNextPage, max_pages: 20 }
+    output: { items: data.workflowStates.nodes }
+
+  # --- Cycles ----------------------------------------------------------------------
+
+  - name: get_cycle
+    class: read
+    description: One Linear cycle (a sprint), under data.cycle - number, name, start, end, completion date, team.
+    input:
+      type: object
+      additionalProperties: false
+      required: [cycle_id]
+      properties:
+        cycle_id: *cycle_id_field
+    examples:
+      - { title: A cycle, input: { cycle_id: cy-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.cycle }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: cycle_id } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query Cycle($id: String!) { cycle(id: $id) { id number name startsAt endsAt completedAt team { id name } }
+            }
+
+  # --- Labels ----------------------------------------------------------------------
+
+  - name: get_label
+    class: read
+    description: One Linear issue label, under data.issueLabel - name, color, description, team (none for a workspace label).
+    input:
+      type: object
+      additionalProperties: false
+      required: [label_id]
+      properties:
+        label_id: &label_id { type: string, minLength: 1 }
+    examples:
+      - { title: A label, input: { label_id: l-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.issueLabel }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: label_id } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query IssueLabel($id: String!) { issueLabel(id: $id) { id name color description team { id name } } }
+
+  - name: create_label
+    class: write
+    description: >-
+      Create a Linear issue label, in a team, or for the whole workspace
+      without team_id. The answer is under data.issueLabelCreate: success and
+      the label.
+    input:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        team_id: *team_id
+        color: { type: string, pattern: "^#[0-9A-Fa-f]{6}$", description: "A hex color, #RRGGBB." }
+        description: { type: string }
+    examples:
+      - { title: A team label, input: { name: Regression, team_id: t-0, color: "#EB5757" } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.issueLabelCreate }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { input: { name: name, teamId: team_id, color: color, description: description } } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation IssueLabelCreate($input: IssueLabelCreateInput!) { issueLabelCreate(input: $input) { success
+            issueLabel { id name color description team { id name } } } }
+
+  - name: delete_label
+    class: sensitive
+    description: Delete a Linear issue label; the issues that carry it lose it. The answer is data.issueLabelDelete.success.
+    input:
+      type: object
+      additionalProperties: false
+      required: [label_id]
+      properties:
+        label_id: *label_id
+    examples:
+      - { title: Delete a label, input: { label_id: l-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.issueLabelDelete }]
+    confirm: { summary: "Delete Linear label {label_id}: the issues that carry it lose it." }
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: label_id } }
+      constants:
+        body: { variables: {}, query: "mutation IssueLabelDelete($id: String!) { issueLabelDelete(id: $id) { success } }" }
+
+  # --- Users -----------------------------------------------------------------------
+
+  - name: get_viewer
+    class: read
+    description: >-
+      The Linear user who holds the API key, under data.viewer: id, name,
+      email, display name, whether active and admin, creation date. Use it to
+      know on whose behalf the key acts.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: Who holds the key, input: {} }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.viewer }]
+    call:
+      method: POST
+      path: /graphql
+      constants:
+        body:
+          query: "query Viewer { viewer { id name email displayName active admin createdAt } }"
+          variables: {}
+
+  - name: get_user
+    class: read
+    description: >-
+      One member of the Linear workspace, under data.user: name, email,
+      display name, whether active and admin, creation date.
+    input:
+      type: object
+      additionalProperties: false
+      required: [user_id]
+      properties:
+        user_id: { type: string, minLength: 1, personal: true }
+    examples:
+      - { title: A user, input: { user_id: u-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.user }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: user_id } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query User($id: String!) { user(id: $id) { id name email displayName active admin createdAt } }
+
+  - name: list_users
+    class: read
+    description: >-
+      The members of the Linear workspace, a page at a time, under
+      data.users.nodes (each as get_user); data.users.pageInfo.endCursor is
+      the after of the next page while hasNextPage is true.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        first: *first
+        after: *after
+    examples:
+      - { title: The members, input: {} }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.users }]
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { first: first, after: after } }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            query Users($first: Int, $after: String) { users(first: $first, after: $after) { nodes { id name email
+            displayName active admin createdAt } pageInfo { hasNextPage endCursor } } }
+    pagination: { kind: cursor, request_param: after, next: data.users.pageInfo.endCursor, more: data.users.pageInfo.hasNextPage, max_pages: 20 }
+    output: { items: data.users.nodes }
+
+  # --- Webhooks --------------------------------------------------------------------
+  # No selection reads a webhook's secret.
+
+  - name: create_webhook
+    class: write
+    description: >-
+      Register an https address that Linear posts events to, for the
+      resource types listed (Issue, Comment, IssueLabel, Project, Cycle,
+      ProjectUpdate, Reaction…), from one team (team_id) or every public team
+      (all_public_teams). Disabled from the start with enabled false. Linear
+      makes the signing secret, readable in its settings only. The answer is
+      under data.webhookCreate: success and the webhook (url, enabled,
+      resource types, team, date).
+    input:
+      type: object
+      additionalProperties: false
+      required: [url, resource_types]
+      properties:
+        url: &webhook_url { type: string, pattern: "^https://", description: "The publicly reachable https address that receives the events." }
+        team_id: *team_id
+        resource_types: &resource_types { type: array, minItems: 1, items: { type: string, minLength: 1 }, description: "Linear's resource types, such as Issue or Comment." }
+        enabled: { type: boolean, description: "False to create it disabled; enabled by default at Linear." }
+        all_public_teams: { const: true, description: "Every public team instead of one team_id." }
+    examples:
+      - { title: Issue events of a team, input: { url: "https://hooks.example.test/linear", team_id: t-0, resource_types: [Issue, Comment] } }
+      - { title: Every public team, input: { url: "https://hooks.example.test/linear", resource_types: [Issue], all_public_teams: true } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.webhookCreate }]
+    call:
+      method: POST
+      path: /graphql
+      body:
+        variables:
+          input: { url: url, teamId: team_id, resourceTypes: resource_types, enabled: enabled,
+                   allPublicTeams: all_public_teams }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation WebhookCreate($input: WebhookCreateInput!) { webhookCreate(input: $input) { success webhook { id
+            url enabled resourceTypes team { id name } createdAt } } }
+
+  - name: update_webhook
+    class: write
+    description: >-
+      Change a Linear webhook: its address, its resource types, or enable or
+      disable it; only what is given changes. The answer is under
+      data.webhookUpdate: success and the webhook. At least one change.
+    input:
+      type: object
+      additionalProperties: false
+      required: [webhook_id]
+      minProperties: 2
+      properties:
+        webhook_id: &webhook_id { type: string, minLength: 1 }
+        url: *webhook_url
+        resource_types: *resource_types
+        enabled: { type: boolean }
+    examples:
+      - { title: Disable a webhook, input: { webhook_id: w-0, enabled: false } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.webhookUpdate }]
+    call:
+      method: POST
+      path: /graphql
+      body:
+        variables:
+          id: webhook_id
+          input: { url: url, resourceTypes: resource_types, enabled: enabled }
+      constants:
+        body:
+          variables: {}
+          query: >-
+            mutation WebhookUpdate($id: String!, $input: WebhookUpdateInput!) { webhookUpdate(id: $id, input: $input)
+            { success webhook { id url enabled resourceTypes team { id name } createdAt } } }
+
+  - name: delete_webhook
+    class: sensitive
+    description: Delete a Linear webhook; Linear stops posting to its address. The answer is data.webhookDelete.success.
+    input:
+      type: object
+      additionalProperties: false
+      required: [webhook_id]
+      properties:
+        webhook_id: *webhook_id
+    examples:
+      - { title: Delete a webhook, input: { webhook_id: w-0 } }
+    refusals: [*no_result]
+    expect: [{ kind: non_empty, refusal: no_result, path: data.webhookDelete }]
+    confirm: { summary: "Delete Linear webhook {webhook_id}: Linear stops posting to its address." }
+    call:
+      method: POST
+      path: /graphql
+      body: { variables: { id: webhook_id } }
+      constants:
+        body: { variables: {}, query: "mutation WebhookDelete($id: String!) { webhookDelete(id: $id) { success } }" }
