@@ -8,12 +8,12 @@ pas dire :
    en-tête ou partie fichier), chaque `{param}` du chemin et chaque valeur de `query`,
    `body`, `headers` et `files` nomme un argument déclaré, un argument du chemin est requis, aucun
    argument n'est sans place (l'argument qui forme le corps entier, règle 20, a la sienne), et le
-   `request_param` d'une pagination est un argument ;
+   `request_param` d'une pagination est un argument (placé en query ou au corps, emboîté ou non) ;
 2. chaque référence de `auth` (`key`, `token`, `username`, `password`, `client_id`,
    `client_secret`) nomme un champ de `credential` ; en `basic`, `username` est facultatif
    (absent, l'identifiant est vide), et nomme un champ quand il est déclaré ;
-3. un nom côté API reçoit une seule valeur : une constante de `call.constants` ne
-   reprend pas un nom de la même place, un en-tête constant (du connecteur ou de la
+3. un nom côté API reçoit une seule valeur : une constante de query ne reprend pas un
+   nom de query (au corps, la règle 22 le dit à toute profondeur), un en-tête constant (du connecteur ou de la
    fonction) ni celui de l'authentification ni un autre en-tête, à la casse près, et
    une clé passée en query (`auth.in: query`) n'est le nom d'aucun paramètre de
    query ; chaque clé de `call.encode` nomme un argument placé en query, en corps ou
@@ -133,7 +133,14 @@ pas dire :
    travail que tient le tiers a sa relève) ; elle n'est la relève d'aucun travail asynchrone (`background_collect`) ;
    elle n'est pas paginée (`background_paginated`). Les codes sont ceux des cas communs
    (`connectors/_cases/background.yaml`), jugés dans cet ordre ; `class`, `act`, `confirm`, `cost` et `output.file` ne
-   changent pas.
+   changent pas ;
+22. le corps emboîté (`call.body` en table dont une valeur est elle-même une table, décidé par Alexis le 2026-10-26) :
+   une table emboîtée porte au moins une entrée (`body_nested_empty`) ; aucun chemin n'est à la fois constant
+   (`constants.body`) et argument, ni l'un sous l'autre : la table et la constante ne se rejoignent que par des objets
+   des deux côtés (`body_key_twice`, au premier niveau comme au-dessous) ; un corps multipart (`files`) n'a pas de table
+   emboîtée, ses parties sont des textes (`body_nested_multipart`). Ce que l'hôte envoie : la constante du corps, puis
+   chaque argument donné à son chemin, les objets parents créés au besoin, un argument absent ne créant rien. Les codes
+   sont ceux des cas communs (`connectors/_cases/nested_body.yaml`), jugés dans cet ordre.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -175,11 +182,28 @@ def body_argument(call: dict) -> str | None:
     return body if isinstance(body, str) else None
 
 
+def body_entries(table: dict, at: tuple[str, ...] = ()) -> list[tuple[tuple[str, ...], str]]:
+    """Les entrées d'un corps en table, à toute profondeur (règle 22) : le chemin des clés côté API et l'argument, dans
+    l'ordre du fichier ; une table emboîtée vide n'en donne aucune."""
+    entries: list[tuple[tuple[str, ...], str]] = []
+    for key, value in table.items():
+        if isinstance(value, dict):
+            entries += body_entries(value, at + (key,))
+        else:
+            entries.append((at + (key,), value))
+    return entries
+
+
 def argument_table(call: dict, kind: str) -> dict:
     """La table d'une place de `call` (`query`, `body`, `headers`, `files`) : nom côté API → argument ; vide quand la place
-    est absente, ou quand le corps est un argument entier (`body_argument`), qui n'a pas de nom côté API."""
+    est absente, ou quand le corps est un argument entier (`body_argument`), qui n'a pas de nom côté API. Celle du corps
+    est mise à plat (`body_entries`) : un chemin emboîté s'y nomme par ses clés jointes d'un point, pour les messages."""
     table = call.get(kind)
-    return table if isinstance(table, dict) else {}
+    if not isinstance(table, dict):
+        return {}
+    if kind == "body":
+        return {".".join(path): argument for path, argument in body_entries(table)}
+    return table
 
 
 # Les refus de la règle 20, les mêmes des deux côtés (cas communs `connectors/_cases/body.yaml`), dans l'ordre où ils
@@ -251,6 +275,59 @@ def body_argument_refusal(function: dict) -> tuple[str, str] | None:
         return ("body_argument_not_alone", "is the whole body: no body constant nor file part joins it")
     if "pagination" in function:
         return ("body_argument_paginated", "a function whose body is one argument is not paginated")
+    return None
+
+
+# Les refus de la règle 22, les mêmes des deux côtés (cas communs `connectors/_cases/nested_body.yaml`), dans l'ordre où
+# ils se jugent.
+NESTED_BODY_REFUSALS = ("body_nested_empty", "body_key_twice", "body_nested_multipart")
+
+
+def _empty_table(table: dict, at: tuple[str, ...]) -> tuple[str, ...] | None:
+    """Le chemin de la première table emboîtée vide, ou `None`."""
+    for key, value in table.items():
+        if isinstance(value, dict):
+            found = (at + (key,)) if not value else _empty_table(value, at + (key,))
+            if found is not None:
+                return found
+    return None
+
+
+def _clash(table: dict, constant: object, at: tuple[str, ...]) -> tuple[str, ...] | None:
+    """Le premier chemin où la table et la constante du corps se rencontrent autrement que par deux objets : un argument
+    là où la constante a une valeur, ou une table emboîtée sous une constante qui n'est pas un objet ; `None` sinon."""
+    if not isinstance(constant, dict):
+        return None
+    for key, value in table.items():
+        if key not in constant:
+            continue
+        if not (isinstance(value, dict) and isinstance(constant[key], dict)):
+            return at + (key,)
+        found = _clash(value, constant[key], at + (key,))
+        if found is not None:
+            return found
+    return None
+
+
+def body_table_refusal(function: dict) -> tuple[str, str, str] | None:
+    """Le premier défaut d'un corps en table, `(code, chemin, raison)`, ou `None` : la règle 22, hors de toute
+    description, que les cas communs rejouent ; un corps formé d'un argument entier relève de la règle 20."""
+    call = function["call"]
+    table = call.get("body")
+    if not isinstance(table, dict):
+        return None
+    empty = _empty_table(table, ())
+    if empty is not None:
+        return ("body_nested_empty", ".".join(empty), "is a nested table without any entry: it places nothing")
+    clash = _clash(table, (call.get("constants") or {}).get("body"), ())
+    if clash is not None:
+        return ("body_key_twice", ".".join(clash),
+                "is both a body constant and an argument, or one is under the other: they meet only through objects")
+    if "files" in call:
+        nested = next((path for path, _ in body_entries(table) if len(path) > 1), None)
+        if nested is not None:
+            return ("body_nested_multipart", ".".join(nested),
+                    "is nested in a multipart body, whose parts are texts: a file part rules out a nested table")
     return None
 
 
@@ -341,6 +418,10 @@ def check_arguments(function: dict, where: str) -> None:
         raise DescriptionError(f"{where}: function {name}: call.body {whole!r}: {code}: {reason}")
     if whole is not None:
         place(whole, "the whole body")
+    nested = body_table_refusal(function)
+    if nested is not None:
+        code, path, reason = nested
+        raise DescriptionError(f"{where}: function {name}: call.body {path!r}: {code}: {reason}")
     for argument in PATH_PARAM.findall(call["path"]):
         place(argument, "the path")
         if argument not in required:
@@ -397,12 +478,10 @@ def check_constants(connector: dict, function: dict, where: str) -> None:
         return
     name = function["name"]
     constants = call.get("constants") or {}
-    for kind in ("query", "body"):
-        for api_name in constants.get(kind) or {}:
-            if api_name in argument_table(call, kind):
-                raise DescriptionError(
-                    f"{where}: function {name}: {kind} {api_name!r} is both a constant and an argument"
-                )
+    # Au corps, la règle 22 juge la constante et la table à toute profondeur (`body_key_twice`).
+    for api_name in constants.get("query") or {}:
+        if api_name in argument_table(call, "query"):
+            raise DescriptionError(f"{where}: function {name}: query {api_name!r} is both a constant and an argument")
     auth_query = _auth_query(connector["auth"])
     if auth_query and (auth_query in (call.get("query") or {}) or auth_query in (constants.get("query") or {})):
         raise DescriptionError(
@@ -1075,7 +1154,12 @@ def check_account_identity(data: dict, where: str) -> None:
             raise DescriptionError(f"{where}: function {name}: the path cites the account identity {{{identity}}}")
         for kind in PLACES:
             mapping = argument_table(call, kind)
-            api_names = {n.lower() for n in mapping} if kind == "headers" else set(mapping)
+            if kind == "body":
+                # Toute clé d'un chemin emboîté, à chaque profondeur.
+                api_names = {key for path, _ in body_entries(call["body"] if isinstance(call.get("body"), dict) else {})
+                             for key in path}
+            else:
+                api_names = {n.lower() for n in mapping} if kind == "headers" else set(mapping)
             if identity in api_names or identity in mapping.values():
                 raise DescriptionError(
                     f"{where}: function {name}: {kind} parameter {identity!r} bears the name of the account identity"

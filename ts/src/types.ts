@@ -210,6 +210,14 @@ export type Example = { readonly title: string; readonly input: { readonly [argu
 /** Nom côté API → nom de l'argument d'entrée. Chaque argument va à un seul endroit de la requête. */
 export type ArgumentMap = { readonly [apiName: string]: string }
 
+/**
+ * Le corps en table : nom côté API → argument, ou → une table de même forme, emboîtée à toute profondeur (règle 22 de la
+ * fabrique). L'hôte part de la constante du corps (`constants.body`) et pose chaque argument donné à son chemin, en
+ * créant les objets parents qui manquent ; un argument absent ne part pas et ne crée rien. Un chemin n'est jamais à la
+ * fois constant et argument : table et constante ne se rejoignent que par des objets.
+ */
+export type BodyMap = { readonly [apiName: string]: string | BodyMap }
+
 /** En-tête → valeur constante ; jamais un secret. */
 export type ConstantHeaders = { readonly [header: string]: string }
 
@@ -221,12 +229,12 @@ export type RequestSpec = {
   /** Les listes s'y encodent selon `Connector.queryArrays`. */
   readonly query: ArgumentMap
   /**
-   * Corps JSON, quelle que soit la méthode : un `DELETE` peut en porter un ; avec `files`, les parties texte du corps
-   * multipart. Ou le nom d'un argument, un objet strict du schéma (`type: object`, `additionalProperties: false`, des
+   * Corps JSON, quelle que soit la méthode : un `DELETE` peut en porter un ; une table (`BodyMap`), emboîtée ou non ;
+   * avec `files`, les parties texte du corps multipart, une table plate. Ou le nom d'un argument, un objet strict du schéma (`type: object`, `additionalProperties: false`, des
    * propriétés déclarées), requis, qui forme le corps entier : l'hôte envoie l'objet validé tel quel, en JSON, sans
    * constante de corps, sans fichier, sans pagination, jamais en `GET` (règle 20 de la fabrique).
    */
-  readonly body: ArgumentMap | string
+  readonly body: BodyMap | string
   readonly headers: ArgumentMap
   /**
    * Nom de partie → argument qui porte l'identifiant d'un fichier en transit de l'appelant (un texte). Présent, le corps
@@ -237,7 +245,8 @@ export type RequestSpec = {
   readonly files?: ArgumentMap
   /**
    * Valeurs envoyées à chaque appel, sous leur nom côté API, en plus des arguments ; elles ne sont pas dans le schéma.
-   * Un nom n'y est jamais aussi un nom d'argument de la même place.
+   * Un nom n'y est jamais aussi un nom d'argument de la même place ; au corps, la constante et la table (`BodyMap`) ne se
+   * rejoignent que par des objets des deux côtés, à toute profondeur.
    */
   readonly constants?: {
     readonly query?: { readonly [apiName: string]: string | number | boolean }
@@ -250,7 +259,9 @@ export type RequestSpec = {
 
 /**
  * Présente, elle a ajouté au schéma les arguments `all_pages` et `max_pages`, qui ne vont pas dans la requête : l'hôte
- * suit `next` (chemin pointé dans la réponse) vers `requestParam` tant que `all_pages` est vrai, `max_pages` pages au plus.
+ * suit `next` (chemin pointé dans la réponse) vers `requestParam` (un argument, placé en query ou au corps, emboîté ou non :
+ * chaque page se compose comme la première, le curseur à la place de l'argument) tant que `all_pages` est vrai,
+ * `max_pages` pages au plus.
  * Il s'arrête quand `next` est absent ou nul, ou quand `more` est présent et que la réponse y porte `false`.
  */
 export type Pagination = {

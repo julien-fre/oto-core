@@ -101,6 +101,11 @@
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/identifier" }
     },
+    "body_map": {
+      "description": "API-side name to an input argument, or to a nested map of the same form, at any depth: the argument is placed under that key path, beside the body constants under the same parents (rule 22 of the fabrique). An argument not given is not sent, and creates no parent.",
+      "type": "object",
+      "additionalProperties": { "oneOf": [{ "$ref": "#/$defs/identifier" }, { "$ref": "#/$defs/body_map" }] }
+    },
     "constant_headers": {
       "description": "Header name to a constant value. Never a secret: the file is public.",
       "type": "object",
@@ -787,8 +792,8 @@
             },
             "query": { "$ref": "#/$defs/argument_map" },
             "body": {
-              "description": "JSON body, whatever the method: a DELETE may carry one. A map of API-side names to input arguments, or the name of one input argument, a strict object (type: object, additionalProperties: false, properties declared) that is the whole body, sent as validated (rule 20 of the fabrique).",
-              "oneOf": [{ "$ref": "#/$defs/argument_map" }, { "$ref": "#/$defs/identifier" }]
+              "description": "JSON body, whatever the method: a DELETE may carry one. A map of API-side names to input arguments, nested maps allowed (rule 22 of the fabrique), or the name of one input argument, a strict object (type: object, additionalProperties: false, properties declared) that is the whole body, sent as validated (rule 20 of the fabrique).",
+              "oneOf": [{ "$ref": "#/$defs/body_map" }, { "$ref": "#/$defs/identifier" }]
             },
             "headers": { "$ref": "#/$defs/argument_map" },
             "files": {
@@ -827,7 +832,7 @@
           "required": ["kind", "request_param", "next", "max_pages"],
           "properties": {
             "kind": { "enum": ["cursor", "page"] },
-            "request_param": { "description": "Input argument carrying the cursor or page number.", "$ref": "#/$defs/identifier" },
+            "request_param": { "description": "Input argument carrying the cursor or page number, placed in the query or the body (nested or not).", "$ref": "#/$defs/identifier" },
             "next": { "description": "Dotted path of the next cursor or page number in the response.", "$ref": "#/$defs/text" },
             "total": { "description": "Dotted path of the total count in the response.", "$ref": "#/$defs/text" },
             "more": {

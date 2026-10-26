@@ -40,7 +40,12 @@ function requestOf(connector: Connector, fn: ConnectorFunction, args: Record<str
   const query = new URLSearchParams(pick(fn.request.query) as Record<string, string>).toString()
   // Le témoin envoie un corps en table ; un corps en texte (l'argument qui forme le corps entier, règle 20) n'est pas le sien.
   if (typeof fn.request.body === "string") throw new Error(`${fn.name}: the witness sends a table body`)
-  const body = pick(fn.request.body)
+  // Une table plate : une table emboîtée (règle 22) n'est pas la sienne non plus.
+  const flat = Object.entries(fn.request.body).map(([apiName, argument]) => {
+    if (typeof argument !== "string") throw new Error(`${fn.name}: the witness sends a flat table body`)
+    return [apiName, argument] as const
+  })
+  const body = pick(Object.fromEntries(flat))
   return {
     url: `${connector.baseUrl}${path}${query ? `?${query}` : ""}`,
     method: fn.request.method,

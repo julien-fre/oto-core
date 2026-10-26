@@ -24,7 +24,8 @@
     "./auth-cases": "./src/auth-cases.ts",
     "./error-cases": "./src/error-cases.ts",
     "./body-cases": "./src/body-cases.ts",
-    "./background-cases": "./src/background-cases.ts"
+    "./background-cases": "./src/background-cases.ts",
+    "./nested-body-cases": "./src/nested-body-cases.ts"
   },
   "files": [
     "src",

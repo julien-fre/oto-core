@@ -13,7 +13,7 @@ import re
 import pytest
 import yaml
 
-from fabrique import body_cases, python
+from fabrique import body_cases, nested_body_cases, python
 from fabrique.build import generate, stale
 from fabrique.descriptions import CONNECTORS, DescriptionError, check, served
 from fabrique.typescript import NotGenerated, connector_module, function_source, js_block
@@ -116,6 +116,59 @@ def test_whole_body_is_generated_as_the_argument_name():
     source = function_source("body_cases", _create_lead())
     assert '    body: "lead",\n' in source
     assert '"additionalProperties": false' in source
+
+
+# --- Règle 22 : le corps emboîté --------------------------------------------------
+
+NESTED_BODY_CASES = CONNECTORS / "nested_body_cases" / "connector.yaml"
+
+
+def _nested(name: str) -> dict:
+    """Une fonction des cas communs du corps emboîté (`connectors/_cases/nested_body.yaml`), seule sous leur connecteur."""
+    loaded = nested_body_cases.load()
+    function = next(f for f in loaded.description.data["functions"] if f["name"] == name)
+    return nested_body_cases.alone(loaded, function)
+
+
+def test_nested_body_places_its_arguments():
+    """Chaque argument d'une table emboîtée a sa place (règle 1), à côté de la constante de même parent."""
+    check(_nested("update_issue"), NESTED_BODY_CASES)
+
+
+def test_nested_body_names_a_path_in_rule_1():
+    description = _nested("update_issue")
+    description["functions"][0]["call"]["query"] = {"team": "team_id"}
+    with pytest.raises(DescriptionError, match=r"argument 'team_id' goes to two places \(query 'team' and body 'variables.input.teamId'\)"):
+        check(description, NESTED_BODY_CASES)
+    description = _nested("update_issue")
+    description["functions"][0]["call"]["body"]["variables"]["input"]["state"] = "state_id"
+    with pytest.raises(DescriptionError, match=r"body 'variables.input.state' names 'state_id', which is not an input argument"):
+        check(description, NESTED_BODY_CASES)
+
+
+@pytest.mark.parametrize("value", [3, ["title"], "Title", None], ids=["number", "list", "not_an_identifier", "null"])
+def test_nested_body_values_are_arguments_or_maps(value):
+    description = _nested("update_issue")
+    description["functions"][0]["call"]["body"]["variables"]["input"]["title"] = value
+    with pytest.raises(DescriptionError, match="does not match the description schema at functions/0/call/body"):
+        check(description, NESTED_BODY_CASES)
+
+
+def test_nested_body_key_bearing_the_account_identity():
+    """La règle 8 lit toute clé d'un chemin emboîté : aucune ne porte le nom de l'identité d'un compte rattaché."""
+    description = _load(LINKEDIN)
+    function = _nested("update_issue")["functions"][0]
+    description["functions"].append(function)
+    check(description, LINKEDIN)
+    function["call"]["body"]["variables"] = {"account_id": {"id": "issue_id"}}
+    with pytest.raises(DescriptionError, match="body parameter 'account_id' bears the name of the account identity"):
+        check(description, LINKEDIN)
+
+
+def test_nested_body_is_generated_as_is():
+    source = function_source("nested_body_cases", _nested("update_issue")["functions"][0])
+    assert ('    body: {"variables": {"id": "issue_id", "input": {"title": "title", "teamId": "team_id", '
+            '"priority": "priority"}}},\n') in source
 
 
 # --- Règle 2 : une référence de auth nomme un champ de credential -----------------
@@ -320,7 +373,7 @@ def _fn(d, name):
 
 @pytest.mark.parametrize("path, mutate, message", [
     (PENNYLANE, lambda d: _fn(d, "create_customer_invoice")["call"]["constants"]["body"].update(label=True),
-     "body 'label' is both a constant and an argument"),
+     "call.body 'label': body_key_twice"),
     (NOTION, lambda d: d["connector"]["headers"].update(Authorization="x"),
      "header 'Authorization' is set twice"),
     (NOTION, lambda d: _fn(d, "get_page")["call"].update(constants={"headers": {"notion-version": "x"}}),

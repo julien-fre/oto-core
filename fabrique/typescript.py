@@ -109,8 +109,9 @@ def _object(entries: list[tuple[str, str]], indent: int) -> str:
 
 
 def _request(call: dict) -> str:
-    """La requête : `body` est une table (nom côté API → argument), ou le nom de l'argument qui forme le corps entier
-    (règle 20), recopié tel quel en texte ; un hôte qui n'attend qu'une table le refuse à la déclaration."""
+    """La requête : `body` est une table (nom côté API → argument, ou → table emboîtée, règle 22), recopiée telle quelle,
+    ou le nom de l'argument qui forme le corps entier (règle 20), recopié tel quel en texte ; un hôte qui n'attend
+    qu'une table plate refuse l'une et l'autre à la déclaration, au lieu d'envoyer un corps faux."""
     entries = [
         ("method", js(call["method"])),
         ("path", js(call["path"])),

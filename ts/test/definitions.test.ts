@@ -5,9 +5,14 @@
 import { Ajv2020 } from "ajv/dist/2020.js"
 import { describe, expect, it } from "vitest"
 import { connectors } from "../src"
+import type { BodyMap } from "../src/types"
 
 const ajv = new Ajv2020({ strictTypes: false, strictTuples: false, validateFormats: false, allErrors: true })
 ajv.addKeyword({ keyword: "personal", schemaType: "boolean" })
+/** Les entrées d'un corps en table, à toute profondeur (règle 22) : chaque clé côté API et chaque argument. */
+const bodyKeys = (body: BodyMap): string[] => Object.entries(body).flatMap(([key, value]) => [key, ...(typeof value === "string" ? [] : bodyKeys(value))])
+const bodyArguments = (body: BodyMap): string[] => Object.values(body).flatMap((value) => (typeof value === "string" ? [value] : bodyArguments(value)))
+
 const functions = connectors.flatMap((connector) => connector.functions.map((fn) => [fn.name, connector, fn] as const))
 
 describe("generated definitions", () => {
@@ -38,10 +43,10 @@ describe("generated definitions", () => {
   it.each(functions)("%s: every path parameter and mapped argument names a schema key", (_name, _connector, fn) => {
     const keys = Object.keys(fn.schema.properties as object)
     for (const param of fn.request.pathParams) expect(keys).toContain(param)
-    // Un corps en texte est l'argument qui forme le corps entier (règle 20) ; en table, des noms côté API.
-    const whole = typeof fn.request.body === "string" ? [fn.request.body] : []
-    const body = typeof fn.request.body === "string" ? {} : fn.request.body
-    const mapped = [...whole, ...[fn.request.query, body, fn.request.headers, fn.request.files ?? {}].flatMap((names) => Object.values(names))]
+    // Un corps en texte est l'argument qui forme le corps entier (règle 20) ; en table, des noms côté API, emboîtés ou non
+    // (règle 22).
+    const body = typeof fn.request.body === "string" ? [fn.request.body] : bodyArguments(fn.request.body)
+    const mapped = [...body, ...[fn.request.query, fn.request.headers, fn.request.files ?? {}].flatMap((names) => Object.values(names))]
     for (const argument of mapped) {
       expect(keys).toContain(argument)
     }
@@ -115,8 +120,8 @@ describe("generated definitions", () => {
       for (const fn of connector.functions) {
         expect(Object.keys(fn.schema.properties as object), fn.name).not.toContain(identity.name)
         expect(fn.request.path, fn.name).not.toContain(cited)
-        const body = typeof fn.request.body === "string" ? {} : fn.request.body
-        for (const names of [fn.request.query, body, fn.request.headers]) expect(Object.keys(names)).not.toContain(identity.name)
+        const body = typeof fn.request.body === "string" ? [] : bodyKeys(fn.request.body)
+        for (const names of [Object.keys(fn.request.query), body, Object.keys(fn.request.headers)]) expect(names).not.toContain(identity.name)
       }
     },
   )

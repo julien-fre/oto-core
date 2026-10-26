@@ -1,0 +1,309 @@
+# Common cases of the nested body: a `call.body` map whose value may be a map of the same form, at any depth, with the
+# semantics of docs/conception/format-de-description.md, « Le corps emboîté » (rule 22 of the fabrique, decided
+# 2026-10-26). The host starts from the body constant (`constants.body`), then places each argument given at its key
+# path, creating the parent objects it lacks; an argument not given is not sent and creates nothing; a null is sent as
+# null. A key is a key, never a path: a dot in it is a character, not a step.
+#
+# Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the functions the
+# cases carry into one description, checked with the schema and the rules of every description (rule 22 included), then
+# converts it as it converts a description: ts/src/nested-body-cases.ts for the host package
+# (`@otomata_tech/connectors/nested-body-cases`), whose engine builds each request. tests/test_nested_body_cases.py plays
+# the cases against a reference written in the test: the Python lib sends no request of a description. A function
+# shared by several cases is written once, with a YAML anchor; the same name is always the same function.
+#
+# A case (`cases`): the arguments of a call (`input`, valid against the function input) and the request the host sends:
+# its path, its query (name and value pairs, in the order of `call.query`), the headers the arguments set (names in
+# lower case) and its JSON body.
+#
+# A rejected input (`rejected`): arguments the input schema of a case function refuses, so that nothing is sent.
+#
+# A refused function (`refused`): a function, valid against the description schema, that rule 22 refuses with this code,
+# and no other rule. The codes, the same on both sides (ts/src/nested-body-cases.ts), in the order they are judged:
+# body_nested_empty, body_key_twice, body_nested_multipart.
+connector:
+  name: nested_body_cases
+  label: Nested body cases
+  namespace: nested_body_cases
+  version: 1.0.0
+  api_version: v1
+  base_url: https://api.example.test/v1
+  auth: { kind: bearer, token: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  modes: [byo_org]
+  errors:
+    - { status: 429, code: rate_limited, retryable: true, message: "Rate limit reached: retry later." }
+
+cases:
+  # --- An envelope: the arguments under one key, beside a constant of that key -----------------------------------------
+  - name: nested_argument_beside_a_constant
+    function: &create_record
+      name: create_record
+      class: write
+      description: Create a record of an object; the vendor wraps it in data.
+      input:
+        type: object
+        additionalProperties: false
+        required: [object, values]
+        properties:
+          object: { type: string }
+          matching_attribute: { type: string }
+          values: { type: object, additionalProperties: { type: string } }
+          owner_id: { type: [string, "null"] }
+      examples: [{ title: One record, input: { object: people, values: { name: Ada } } }]
+      call:
+        method: POST
+        path: "/objects/{object}/records"
+        query: { matching_attribute: matching_attribute }
+        body: { data: { values: values, owner_id: owner_id } }
+        constants: { body: { data: { format: plain } } }
+    input: { object: people, matching_attribute: email, values: { name: Ada, city: Lyon }, owner_id: u-1 }
+    request:
+      path: /objects/people/records
+      query: [[matching_attribute, email]]
+      headers: {}
+      body: { data: { format: plain, values: { name: Ada, city: Lyon }, owner_id: u-1 } }
+
+  - name: absent_nested_argument_is_not_sent
+    function: *create_record
+    input: { object: people, values: { name: Ada } }
+    request:
+      path: /objects/people/records
+      query: []
+      headers: {}
+      body: { data: { format: plain, values: { name: Ada } } }
+
+  - name: nested_null_is_sent
+    function: *create_record
+    input: { object: people, values: { name: Ada }, owner_id: null }
+    request:
+      path: /objects/people/records
+      query: []
+      headers: {}
+      body: { data: { format: plain, values: { name: Ada }, owner_id: null } }
+
+  # --- Deeper: a request text constant, its variables placed two levels down -------------------------------------------
+  - name: deep_arguments_beside_a_constant_text
+    function: &update_issue
+      name: update_issue
+      class: write
+      description: Change an issue through a query endpoint; the query text is constant, the arguments are its variables.
+      input:
+        type: object
+        additionalProperties: false
+        required: [issue_id]
+        properties:
+          issue_id: { type: string }
+          title: { type: string }
+          team_id: { type: string }
+          priority: { type: integer, minimum: 0, maximum: 4 }
+      examples: [{ title: Rename an issue, input: { issue_id: i-1, title: Spring } }]
+      call:
+        method: POST
+        path: /graphql
+        body: { variables: { id: issue_id, input: { title: title, teamId: team_id, priority: priority } } }
+        constants:
+          body: { query: "mutation UpdateIssue($id: String!, $input: IssueInput!) { updateIssue(id: $id, input: $input) { ok } }" }
+    input: { issue_id: i-1, title: Spring, team_id: t-1, priority: 0 }
+    request:
+      path: /graphql
+      query: []
+      headers: {}
+      body:
+        query: "mutation UpdateIssue($id: String!, $input: IssueInput!) { updateIssue(id: $id, input: $input) { ok } }"
+        variables: { id: i-1, input: { title: Spring, teamId: t-1, priority: 0 } }
+
+  - name: no_parent_without_an_argument
+    function: *update_issue
+    input: { issue_id: i-1 }
+    request:
+      path: /graphql
+      query: []
+      headers: {}
+      body:
+        query: "mutation UpdateIssue($id: String!, $input: IssueInput!) { updateIssue(id: $id, input: $input) { ok } }"
+        variables: { id: i-1 }
+
+  # --- A cursor under a nested key: each page places it as the agent would --------------------------------------------
+  - name: cursor_under_a_nested_key
+    function: &list_issues
+      name: list_issues
+      class: read
+      description: List issues through a query endpoint, page by page; the cursor is a variable of the query.
+      input:
+        type: object
+        additionalProperties: false
+        properties:
+          first: { type: integer, minimum: 1, maximum: 100 }
+          after: { type: string }
+      examples: [{ title: First page, input: { first: 50 } }]
+      call:
+        method: POST
+        path: /graphql
+        body: { variables: { first: first, after: after } }
+        constants:
+          body: { query: "query Issues($first: Int, $after: String) { issues(first: $first, after: $after) { nodes { id } pageInfo { endCursor hasNextPage } } }" }
+      pagination:
+        kind: cursor
+        request_param: after
+        next: data.issues.pageInfo.endCursor
+        more: data.issues.pageInfo.hasNextPage
+        max_pages: 3
+    input: { first: 50, after: c-1 }
+    request:
+      path: /graphql
+      query: []
+      headers: {}
+      body:
+        query: "query Issues($first: Int, $after: String) { issues(first: $first, after: $after) { nodes { id } pageInfo { endCursor hasNextPage } } }"
+        variables: { first: 50, after: c-1 }
+
+  - name: first_page_without_a_cursor
+    function: *list_issues
+    input: { first: 50 }
+    request:
+      path: /graphql
+      query: []
+      headers: {}
+      body:
+        query: "query Issues($first: Int, $after: String) { issues(first: $first, after: $after) { nodes { id } pageInfo { endCursor hasNextPage } } }"
+        variables: { first: 50 }
+
+  # --- Constant and arguments meet through objects at several depths; a dot in a key is a character --------------------
+  - name: constant_and_arguments_meet_through_objects
+    function: &create_profile
+      name: create_profile
+      class: write
+      description: Create a profile; the vendor wraps its attributes in a typed resource.
+      input:
+        type: object
+        additionalProperties: false
+        required: [email]
+        properties:
+          email: { type: string, personal: true }
+          first_name: { type: string }
+          source: { type: string }
+          request_key: { type: string }
+      examples: [{ title: One profile, input: { email: ada@example.test } }]
+      call:
+        method: POST
+        path: /profiles
+        headers: { Idempotency-Key: request_key }
+        body: { data: { attributes: { email: email, first_name: first_name } }, "utm.source": source }
+        constants: { body: { data: { type: profile } } }
+    input: { email: ada@example.test, first_name: Ada, source: form, request_key: k-1 }
+    request:
+      path: /profiles
+      query: []
+      headers: { idempotency-key: k-1 }
+      body: { data: { type: profile, attributes: { email: ada@example.test, first_name: Ada } }, "utm.source": form }
+
+  - name: required_argument_only
+    function: *create_profile
+    input: { email: ada@example.test }
+    request:
+      path: /profiles
+      query: []
+      headers: {}
+      body: { data: { type: profile, attributes: { email: ada@example.test } } }
+
+rejected:
+  - name: required_nested_argument_missing
+    function: update_issue
+    input: { title: Spring }
+  - name: nested_argument_out_of_bounds
+    function: update_issue
+    input: { issue_id: i-1, priority: 9 }
+
+refused:
+  - name: empty_nested_table
+    function:
+      name: update_record
+      class: write
+      description: Change a record.
+      input: { type: object, additionalProperties: false, required: [name], properties: { name: { type: string } } }
+      examples: [{ title: Rename, input: { name: Ada } }]
+      call: { method: PATCH, path: /records, body: { name: name, data: {} } }
+    refusal: body_nested_empty
+
+  - name: deep_empty_nested_table
+    function:
+      name: update_record
+      class: write
+      description: Change a record.
+      input: { type: object, additionalProperties: false, required: [name], properties: { name: { type: string } } }
+      examples: [{ title: Rename, input: { name: Ada } }]
+      call: { method: PATCH, path: /records, body: { data: { name: name, meta: {} } } }
+    refusal: body_nested_empty
+
+  - name: argument_on_a_constant
+    function:
+      name: update_record
+      class: write
+      description: Change a record.
+      input: { type: object, additionalProperties: false, required: [format], properties: { format: { type: string } } }
+      examples: [{ title: Plain, input: { format: plain } }]
+      call:
+        method: PATCH
+        path: /records
+        body: { data: { format: format } }
+        constants: { body: { data: { format: plain } } }
+    refusal: body_key_twice
+
+  - name: flat_argument_on_a_constant
+    function:
+      name: update_record
+      class: write
+      description: Change a record.
+      input: { type: object, additionalProperties: false, properties: { draft: { type: boolean } } }
+      examples: [{ title: Draft, input: { draft: true } }]
+      call:
+        method: PATCH
+        path: /records
+        body: { draft: draft }
+        constants: { body: { draft: true } }
+    refusal: body_key_twice
+
+  - name: argument_over_a_constant_object
+    function:
+      name: update_record
+      class: write
+      description: Change a record.
+      input: { type: object, additionalProperties: false, properties: { data: { type: object } } }
+      examples: [{ title: Data, input: { data: {} } }]
+      call:
+        method: PATCH
+        path: /records
+        body: { data: data }
+        constants: { body: { data: { format: plain } } }
+    refusal: body_key_twice
+
+  - name: table_under_a_constant_value
+    function:
+      name: update_record
+      class: write
+      description: Change a record.
+      input: { type: object, additionalProperties: false, properties: { name: { type: string } } }
+      examples: [{ title: Rename, input: { name: Ada } }]
+      call:
+        method: PATCH
+        path: /records
+        body: { data: { name: name } }
+        constants: { body: { data: plain } }
+    refusal: body_key_twice
+
+  - name: nested_in_multipart
+    function:
+      name: upload_note
+      class: write
+      description: Upload a file with a note.
+      input:
+        type: object
+        additionalProperties: false
+        required: [file]
+        properties:
+          file: { type: string }
+          title: { type: string }
+      examples: [{ title: One file, input: { file: f-1 } }]
+      call: { method: POST, path: /notes, body: { meta: { title: title } }, files: { file: file } }
+    refusal: body_nested_multipart
