@@ -1,4 +1,4 @@
-"""La description `attio` 1.1.0 : celle du client existant (`oto.tools.attio`), ses écritures comprises.
+"""La description `attio` 1.2.0 : celle du client existant (`oto.tools.attio`), ses écritures comprises.
 
 Le client range ses méthodes par ressource (`client.notes.list`, `client.attributes.options`…) : chaque fonction est
 une méthode, nommée de son verbe et de sa ressource (`FUNCTIONS`), avec les arguments que la méthode nomme ; les clés
@@ -7,7 +7,11 @@ envoyées à Attio (chemin, query, corps) sont les siennes. Les fiches de tous l
 dans `{"data": {...}}`, est un corps emboîté : la constante du corps, puis chaque argument donné posé à son chemin
 (`_body`, la référence du format) ; il est jugé égal à celui du client pour chaque argument donné ou absent.
 Écarts nommés, gardés ici :
-- les méthodes laissées au client (`LEFT_OUT`) : celles dont un argument choisit le verbe (PATCH ou PUT), les tâches
+- deux fonctions décrivent la même méthode (`BY_VERB`, écart à « une fonction par méthode, sous son nom » décidé par
+  Alexis) : `records.update` et `entries.update`, dont l'argument `overwrite_multiselect` choisit le verbe (PATCH
+  ajoute aux valeurs d'une multisélection, PUT les remplace), sont chacune une fonction par verbe, l'argument fixé par
+  la fonction et jamais pris ; le client est appelé avec la valeur qui correspond à la fonction ;
+- les méthodes laissées au client (`LEFT_OUT`) : les tâches
   (l'assigné et la fiche liée dans une liste, l'échéance complétée, l'assigné par défaut lu par une seconde requête),
   et `threads.list`, dont le client envoie des noms de paramètres qu'Attio ne lit pas ;
 - l'argument `query` de `records.search`, que le client récrit en filtre sur le nom, et les ancres d'un commentaire
@@ -69,13 +73,20 @@ FUNCTIONS = {
     "create_comment": ("comments", "create"),
     "create_attribute_option": ("attributes", "create_option"),
     "create_attribute_status": ("attributes", "create_status"),
+    "update_record": ("records", "update"), "replace_record_values": ("records", "update"),
+    "update_entry": ("entries", "update"), "replace_entry_values": ("entries", "update"),
 }
-_VERB = "an argument (overwrite_multiselect) picks the method, PATCH (added) or PUT (replaced): one method per function"
+# L'écart décidé par Alexis : deux fonctions par méthode, une par verbe, l'argument qui choisit le verbe fixé par chacune
+# (PATCH ajoute aux valeurs d'une multisélection, PUT les remplace) et passé au client tel que la fonction le fixe.
+BY_VERB = {
+    "update_record": ("PATCH", {"overwrite_multiselect": False}),
+    "replace_record_values": ("PUT", {"overwrite_multiselect": True}),
+    "update_entry": ("PATCH", {"overwrite_multiselect": False}),
+    "replace_entry_values": ("PUT", {"overwrite_multiselect": True}),
+}
 _IN_A_LIST = "the assignee and the linked record go inside a list, which the nested body does not say"
 # Les méthodes laissées au client, et pourquoi.
 LEFT_OUT = {
-    "update_record": (("records", "update"), _VERB),
-    "update_entry": (("entries", "update"), _VERB),
     "create_task": (("tasks", "create"), _IN_A_LIST + "; a date deadline completed to midnight; a second request "
                                           "(the first workspace member, the default assignee)"),
     "update_task": (("tasks", "update"), _IN_A_LIST + "; a date deadline completed to midnight"),
@@ -97,7 +108,7 @@ ARGUMENTS_LEFT_OUT = {
 }
 # Les arguments que le client prend en `**kwargs` : un argument dont il reçoit les clés (`values`, une fiche), ou des
 # arguments nommés qu'il reçoit tels quels (les champs d'une liste).
-SPREAD = {"create_record": "values"}
+SPREAD = {"create_record": "values", "update_record": "values", "replace_record_values": "values"}
 KEYWORDS = {"update_list": {"name", "api_slug", "workspace_access", "workspace_member_access"}}
 # Exigés par la description, facultatifs au client : sans `query`, une recherche sans filtre est list_records ; les
 # valeurs que le client pose quand l'appel ne les donne pas (un slug tiré du nom, un accès complet, des listes vides),
@@ -118,17 +129,21 @@ POST_READS = {"list_records", "search_records", "query_entries"}
 CLASSES = {
     "read": {n for n in FUNCTIONS if n.split("_")[0] in ("list", "get", "search", "query")},
     "write": {"create_attribute", "create_record", "create_note", "create_list", "update_list", "create_entry",
-              "create_comment", "create_attribute_option", "create_attribute_status"},
-    "sensitive": {"delete_record", "delete_note", "delete_task", "delete_entry", "delete_comment", "merge_records"},
+              "create_comment", "create_attribute_option", "create_attribute_status", "update_record", "update_entry"},
+    "sensitive": {"delete_record", "delete_note", "delete_task", "delete_entry", "delete_comment", "merge_records",
+                  "replace_record_values", "replace_entry_values"},
 }
-# Sensible sans être une suppression : la fusion remplace deux fiches par une troisième, sans retour.
-SENSITIVE_POSTS = {"merge_records"}
+# Sensibles sans être une suppression : la fusion remplace deux fiches par une troisième, sans retour ; le remplacement
+# des valeurs d'une fiche ou d'une entrée perd celles d'une multisélection qu'il remplace (`[]` la vide).
+SENSITIVE_WRITES = {"merge_records", "replace_record_values", "replace_entry_values"}
 ADDRESSES = {
     "list_workspace_members": ("data.avatar_url", "list"), "get_workspace_member": ("data.avatar_url", "one"),
     "list_call_recordings": ("data.video_url", "list"), "get_call_recording": ("data.video_url", "one"),
 }
 PERSONAL = {"search_records": ["filters"], "query_entries": ["filter"], "create_record": ["values"],
-            "create_note": ["content", "title"], "create_entry": ["entry_values"], "create_comment": ["content"]}
+            "create_note": ["content", "title"], "create_entry": ["entry_values"], "create_comment": ["content"],
+            "update_record": ["values"], "replace_record_values": ["values"],
+            "update_entry": ["entry_values"], "replace_entry_values": ["entry_values"]}
 UUID = "0f1e2d3c-4b5a-4968-8776-655443322110"
 VALUES = {
     "object": "companies", "record_id": UUID, "limit": 20, "offset": 40,
@@ -173,6 +188,11 @@ NARROWER = {
                      "workspace_access": "admin", "workspace_member_access": []}],
     # Le client enverrait {"data": {}} : rien à changer.
     "update_list": [{"list_id_or_slug": "sales_pipeline"}],
+    # Le client enverrait une table de valeurs vide : rien à changer.
+    **{name: [{"object": "companies", "record_id": UUID, "values": {}}]
+       for name in ("update_record", "replace_record_values")},
+    **{name: [{"list_id_or_slug": "sales_pipeline", "entry_id": UUID, "entry_values": {}}]
+       for name in ("update_entry", "replace_entry_values")},
     "create_attribute_status": [{"target": "objects", "identifier": "deals", "attribute": "stage", "title": ""}],
 }
 # Ce que le client refuse lui-même (ValueError avant tout envoi), et que le schéma refuse aussi.
@@ -234,6 +254,7 @@ def _call_the_client(name: str, arguments: dict, answer=None) -> tuple[dict, obj
     target = AttioResource(client, given.pop("object")) if resource == "records" else getattr(client, resource)
     if name in SPREAD:
         given.update(given.pop(SPREAD[name]))
+    given.update(BY_VERB.get(name, (None, {}))[1])
     with mock.patch.object(attio_client.requests, "request", request):
         returned = getattr(target, method)(**given)
     assert len(sent) == 1, name
@@ -313,16 +334,19 @@ def _shaped(answer, paths: list[str]):
     return answer
 
 
-def test_the_description_is_version_1_1_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_2_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.1.0"
+    assert description["connector"]["version"] == "1.2.0"
     check(description, ATTIO)
 
 
 def test_each_client_method_is_one_function_or_left_out_by_name():
+    """Une fonction par méthode, sauf l'écart nommé : deux fonctions, une par verbe, décrivent la même méthode."""
     assert set(_functions()) == set(FUNCTIONS)
     described = set(FUNCTIONS.values())
-    assert len(described) == len(FUNCTIONS)
+    shared = {method for method in described if list(FUNCTIONS.values()).count(method) > 1}
+    assert shared == {FUNCTIONS[name] for name in BY_VERB} == {("records", "update"), ("entries", "update")}
+    assert len(described) == len(FUNCTIONS) - len(shared)
     left_out = {method for method, _ in LEFT_OUT.values()}
     assert len(left_out) == len(LEFT_OUT) and not described & left_out
     assert described | left_out == _public_methods()
@@ -347,12 +371,12 @@ def test_the_connector_says_what_the_client_does():
 def test_each_function_takes_the_arguments_its_client_method_names():
     for name, function in _functions().items():
         parameters = _parameters(name)
-        left_out = set(ARGUMENTS_LEFT_OUT.get(name, {}))
+        left_out = set(ARGUMENTS_LEFT_OUT.get(name, {})) | set(BY_VERB.get(name, (None, {}))[1])
         spread = {SPREAD[name]} if name in SPREAD else set()
         properties = set(function["input"]["properties"])
         assert properties == ((set(parameters) - left_out) | ARGUMENTS_ADDED.get(name, set()) | spread
                               | KEYWORDS.get(name, set())), name
-        without_default = {p for p, v in parameters.items() if v.default is inspect.Parameter.empty}
+        without_default = {p for p, v in parameters.items() if v.default is inspect.Parameter.empty} - left_out
         assert set(function["input"].get("required", [])) == (
             without_default | ARGUMENTS_ADDED.get(name, set()) | REQUIRED_HERE.get(name, set()) | spread), name
     keyword_methods = {n for n in FUNCTIONS if any(
@@ -377,7 +401,7 @@ def test_each_write_body_is_the_clients_under_data():
     y compris un `null` donné."""
     functions = _functions()
     writes = {n for n, f in functions.items() if f["class"] != "read" and "body" in f["call"]}
-    assert writes == CLASSES["write"] | SENSITIVE_POSTS
+    assert writes == CLASSES["write"] | SENSITIVE_WRITES
     for name in writes:
         assert set(functions[name]["call"]["body"]) == {"data"}, name
     expected = {
@@ -386,6 +410,10 @@ def test_each_write_body_is_the_clients_under_data():
         "create_comment": {"data": {"format": "plaintext", "content": "Budget agreed.", "thread_id": UUID,
                                     "author": {"type": "workspace-member", "id": UUID}}},
         "create_record": {"data": {"values": {"name": "Acme", "domains": ["acme.example"]}}},
+        "update_record": {"data": {"values": {"name": "Acme", "domains": ["acme.example"]}}},
+        "replace_record_values": {"data": {"values": {"name": "Acme", "domains": ["acme.example"]}}},
+        "update_entry": {"data": {"entry_values": {"stage": "Lead"}}},
+        "replace_entry_values": {"data": {"entry_values": {"stage": "Lead"}}},
     }
     for name, body in expected.items():
         arguments = _every_argument(name, functions[name])
@@ -443,7 +471,7 @@ def test_reads_writes_and_deletes_are_classified_and_each_delete_is_confirmed():
         method = function["call"]["method"]
         if function["class"] == "read":
             assert method == ("POST" if name in POST_READS else "GET"), name
-        assert (method == "DELETE" or name in SENSITIVE_POSTS) == (function["class"] == "sensitive"), name
+        assert (method == "DELETE" or name in SENSITIVE_WRITES) == (function["class"] == "sensitive"), name
         assert ("confirm" in function) == (function["class"] == "sensitive"), name
         assert "act" not in function, name
         if "confirm" in function:
@@ -521,6 +549,43 @@ def test_what_stays_in_the_client_is_named_in_the_description():
     for name, required in REQUIRED_HERE.items():
         if name != "search_records":
             assert name in header and all(a in header for a in required), name
+
+
+def test_two_functions_describe_one_method_each_with_its_verb():
+    """L'écart nommé : `records.update` et `entries.update` sont chacune deux fonctions, PATCH (ajoute) et PUT
+    (remplace). Chacune ne prend pas `overwrite_multiselect`, et le client, appelé avec la valeur qui correspond à la
+    fonction, envoie son verbe, son chemin et son corps ; l'autre valeur enverrait l'autre verbe. Le remplacement est
+    sensible : sa confirmation et sa description disent la perte des valeurs, celle de la fiche la valeur unique qu'il
+    libère. L'en-tête du fichier nomme l'écart."""
+    functions = _functions()
+    header = ATTIO.read_text(encoding="utf-8").split("\nconnector:")[0]
+    assert "a gap to \"one function per method, under its name\"" in header
+    for name, (verb, fixed) in BY_VERB.items():
+        function = functions[name]
+        assert function["call"]["method"] == verb, name
+        assert set(fixed) == {"overwrite_multiselect"} and not set(fixed) & set(function["input"]["properties"]), name
+        assert name in header and f"{verb}, {str(fixed['overwrite_multiselect']).lower()}" in header, name
+        arguments = _every_argument(name, function)
+        sent, _ = _call_the_client(name, arguments)
+        assert sent["method"] == verb and _client_view(sent) == _described(name, function, arguments), name
+        other = {"PATCH": "PUT", "PUT": "PATCH"}[verb]
+        given = copy.deepcopy(arguments)
+        client = AttioClient(api_key="attio-k")
+        resource, method = FUNCTIONS[name]
+        target = AttioResource(client, given.pop("object")) if resource == "records" else getattr(client, resource)
+        if name in SPREAD:
+            given.update(given.pop(SPREAD[name]))
+        seen = []
+        with mock.patch.object(attio_client.requests, "request",
+                               lambda m, u, **k: seen.append(m) or _Answer()):
+            getattr(target, method)(overwrite_multiselect=not fixed["overwrite_multiselect"], **given)
+        assert seen == [other], name
+        if verb == "PUT":
+            assert function["class"] == "sensitive" and "lost" in function["confirm"]["summary"], name
+            assert "which are lost" in function["description"] and "[] empties it" in function["description"], name
+        else:
+            assert function["class"] == "write" and "[] changes nothing" in function["description"], name
+    assert "free a unique value" in functions["replace_record_values"]["description"]
 
 
 def test_the_typescript_output_and_the_python_table():

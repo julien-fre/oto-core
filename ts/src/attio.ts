@@ -169,6 +169,87 @@ export const createRecord = defineFunction({
   cost: { per: "request" },
 })
 
+export const updateRecord = defineFunction({
+  name: "attio.update_record",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Change values of a record. values maps each attribute api_slug (from list_attributes) to its value: a single value replaces the one there; for a multiselect (domains, email_addresses), the values given are added to those already there, and [] changes nothing. Attributes not given stay. To replace or empty a multiselect, replace_record_values.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["object", "record_id", "values"],
+    "properties": {
+      "object": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "An object slug (companies, people, deals) or id, from list_objects."
+      },
+      "record_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "A record id (a UUID), from list_records or search_records."
+      },
+      "values": {"type": "object", "minProperties": 1, "personal": true, "description": "Attribute values by api_slug."}
+    }
+  },
+  examples: [
+    { title: "Rename a company", input: {"object": "companies", "record_id": "0f1e2d3c-4b5a-4968-8776-655443322110", "values": {"name": "Acme Group"}} },
+    { title: "Add a domain", input: {"object": "companies", "record_id": "0f1e2d3c-4b5a-4968-8776-655443322110", "values": {"domains": ["acme-group.example"]}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/objects/{object}/records/{record_id}",
+    pathParams: ["object", "record_id"],
+    query: {},
+    body: {"data": {"values": "values"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const replaceRecordValues = defineFunction({
+  name: "attio.replace_record_values",
+  connector: "attio",
+  class: "sensitive",
+  act: true,
+  description: "Replace values of a record. For each multiselect attribute given (domains, email_addresses), the values given replace those there, which are lost; [] empties it. A single value replaces the one there, as with update_record; attributes not given stay. The way to free a unique value (a domain, an email address) left on a record to be merged: replace that attribute without it, then another record can take it. To add to a multiselect, update_record.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["object", "record_id", "values"],
+    "properties": {
+      "object": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "An object slug (companies, people, deals) or id, from list_objects."
+      },
+      "record_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "A record id (a UUID), from list_records or search_records."
+      },
+      "values": {"type": "object", "minProperties": 1, "personal": true, "description": "Attribute values by api_slug."}
+    }
+  },
+  examples: [
+    { title: "Keep one domain", input: {"object": "companies", "record_id": "0f1e2d3c-4b5a-4968-8776-655443322110", "values": {"domains": ["acme.example"]}} },
+    { title: "Free the domains of a company to merge", input: {"object": "companies", "record_id": "1f2e3d4c-5b6a-4778-8887-766554433221", "values": {"domains": []}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PUT",
+    path: "/objects/{object}/records/{record_id}",
+    pathParams: ["object", "record_id"],
+    query: {},
+    body: {"data": {"values": "values"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+  confirm: { summary: "Replace values of Attio record {record_id} of {object} with {values}: the multiselect values there are lost." },
+})
+
 export const mergeRecords = defineFunction({
   name: "attio.merge_records",
   connector: "attio",
@@ -850,6 +931,95 @@ export const createEntry = defineFunction({
     headers: {},
   },
   cost: { per: "request" },
+})
+
+export const updateEntry = defineFunction({
+  name: "attio.update_entry",
+  connector: "attio",
+  class: "write",
+  act: true,
+  description: "Change values of a list entry. entry_values maps the list's own attributes (api_slug from list_attributes, target lists) to their values: a single value replaces the one there ({\"stage\": \"Won\"}); for a multiselect, the values given are added to those already there, and [] changes nothing. Attributes not given stay. To replace or empty a multiselect, replace_entry_values.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["list_id_or_slug", "entry_id", "entry_values"],
+    "properties": {
+      "list_id_or_slug": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "A list id or api_slug, from list_lists."
+      },
+      "entry_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "An entry id (a UUID), from query_entries."
+      },
+      "entry_values": {
+        "type": "object",
+        "minProperties": 1,
+        "personal": true,
+        "description": "The list's attribute values by api_slug."
+      }
+    }
+  },
+  examples: [
+    { title: "Move a deal to Won", input: {"list_id_or_slug": "sales_pipeline", "entry_id": "3c4d5e6f-7081-4c9d-8e1f-2a3b4c5d6e7f", "entry_values": {"stage": "Won"}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PATCH",
+    path: "/lists/{list_id_or_slug}/entries/{entry_id}",
+    pathParams: ["list_id_or_slug", "entry_id"],
+    query: {},
+    body: {"data": {"entry_values": "entry_values"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+})
+
+export const replaceEntryValues = defineFunction({
+  name: "attio.replace_entry_values",
+  connector: "attio",
+  class: "sensitive",
+  act: true,
+  description: "Replace values of a list entry. For each multiselect attribute of the list given, the values given replace those there, which are lost; [] empties it. A single value replaces the one there, as with update_entry; attributes not given stay. To add to a multiselect, update_entry.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["list_id_or_slug", "entry_id", "entry_values"],
+    "properties": {
+      "list_id_or_slug": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "A list id or api_slug, from list_lists."
+      },
+      "entry_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "An entry id (a UUID), from query_entries."
+      },
+      "entry_values": {
+        "type": "object",
+        "minProperties": 1,
+        "personal": true,
+        "description": "The list's attribute values by api_slug."
+      }
+    }
+  },
+  examples: [
+    { title: "Empty a multiselect", input: {"list_id_or_slug": "sales_pipeline", "entry_id": "3c4d5e6f-7081-4c9d-8e1f-2a3b4c5d6e7f", "entry_values": {"regions": []}} },
+  ],
+  refusals: [],
+  request: {
+    method: "PUT",
+    path: "/lists/{list_id_or_slug}/entries/{entry_id}",
+    pathParams: ["list_id_or_slug", "entry_id"],
+    query: {},
+    body: {"data": {"entry_values": "entry_values"}},
+    headers: {},
+  },
+  cost: { per: "request" },
+  confirm: { summary: "Replace values of entry {entry_id} in Attio list {list_id_or_slug} with {entry_values}: the multiselect values there are lost." },
 })
 
 export const deleteEntry = defineFunction({
@@ -1687,7 +1857,7 @@ export const connector = defineConnector({
   name: "attio",
   label: "Attio",
   namespace: "attio",
-  version: "1.1.0",
+  version: "1.2.0",
   apiVersion: "v2",
   baseUrl: "https://api.attio.com/v2",
   auth: {"kind": "bearer", "token": "api_key"},
@@ -1710,6 +1880,8 @@ export const connector = defineConnector({
     getRecord,
     searchRecords,
     createRecord,
+    updateRecord,
+    replaceRecordValues,
     mergeRecords,
     deleteRecord,
     listNotes,
@@ -1727,6 +1899,8 @@ export const connector = defineConnector({
     queryEntries,
     getEntry,
     createEntry,
+    updateEntry,
+    replaceEntryValues,
     deleteEntry,
     listWorkspaceMembers,
     getWorkspaceMember,

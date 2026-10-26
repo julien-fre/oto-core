@@ -150,5 +150,5 @@ def test_noms_importables():
 def test_chaque_fonction_decrite_est_une_methode_publique_dune_ressource():
     functions = [f["name"] for f in yaml.safe_load(DESCRIPTION.read_text(encoding="utf-8"))["functions"]]
     public = sum(1 for members in EXPECTED_MEMBERS.values() for n in members if not n.startswith("_"))
-    assert len(functions) == len(set(functions)) == 43
-    assert public == 48, "43 described, 5 left to the client (tests/test_attio_description.py, LEFT_OUT)"
+    assert len(functions) == len(set(functions)) == 47
+    assert public == 48, "47 functions describe 45 methods (two methods, one function per verb: BY_VERB), 3 left to the client (tests/test_attio_description.py, LEFT_OUT)"

@@ -13,18 +13,27 @@
 # its key under data, beside the constants the client adds there (format markdown for a note, format plaintext and the
 # author's type for a comment). Described since 1.1.0, as the client sends them: create_record, merge_records,
 # create_note, create_list, update_list, create_entry, create_comment (in a thread), create_attribute_option,
-# create_attribute_status; create_attribute since 1.0.0 ({"data": definition}). Named gaps, kept by the test:
+# create_attribute_status; create_attribute since 1.0.0 ({"data": definition}); since 1.2.0, update_record,
+# replace_record_values, update_entry and replace_entry_values. Named gaps, kept by the test:
 # - create_list requires api_slug, workspace_access and workspace_member_access, which the client fills when the call
 #   omits them (a slug made from the name, full-access, []): Attio requires all three.
 # - create_entry requires entry_values, which the client fills with {} (Attio requires it).
 # - update_list takes at least one value to change: the client would send an empty {"data": {}}.
+# - update_record and replace_record_values take at least one value, update_entry and replace_entry_values at least
+#   one entry value: the client would send an empty map.
 # - create_comment takes thread_id only. The client's other anchors, parent_object with parent_record_id and list_id
 #   with entry_id, are sent as such, where Attio's reference reads record: {object, record_id} and entry: {list,
 #   entry_id} and refuses any other key: they stay in the client.
 #
+# Two functions per method, since 1.2.0: a gap to "one function per method, under its name", decided by Alexis on
+# 2026-10-26. update_record and update_entry take an argument, overwrite_multiselect, that picks the HTTP method, PATCH
+# (the multiselect values given are added to those there) or PUT (they replace them). Each is described by one function
+# per verb, the argument fixed by the function and never taken: update_record (PATCH, overwrite_multiselect false) and
+# replace_record_values (PUT, true) for records.update; update_entry (PATCH, false) and replace_entry_values (PUT, true)
+# for entries.update. Replacing is what frees a unique value (a domain, an email address) left on a record to be merged:
+# sensitive, with a confirmation, since the multiselect values it replaces are lost.
+#
 # Not described, and why (the methods stay in the client):
-# - update_record and update_entry: an argument (overwrite_multiselect) picks the method, PATCH (multiselect values
-#   added) or PUT (replaced); one function per method, the format has one method per function.
 # - create_task and update_task: the assignee and the linked record go inside a list ({"assignees": [{...}]}), which
 #   the nested body does not say; the client also completes a date deadline to midnight, and create_task reads the
 #   first workspace member as the default assignee (a second request).
@@ -38,7 +47,7 @@
 # side. Creating and changing are writes, served on the act side; Attio has no DELETE on an attribute, an option or a
 # status (they can be archived). Every delete is sensitive, with a confirmation: a record, a note, a task, a list entry,
 # a comment (a thread's first comment deletes the whole thread); so is merging two records, which replaces both by a
-# third one.
+# third one, and replacing the values of a record or an entry, which drops the multiselect values it replaces.
 #
 # No address that opens content without a login reaches the agent: a call recording's video_url, a signed download
 # link valid one hour, and a workspace member's avatar_url, a public picture, are stripped (output.strip), and the
@@ -70,7 +79,7 @@ connector:
   name: attio
   label: Attio
   namespace: attio
-  version: 1.1.0
+  version: 1.2.0
   api_version: v2
   base_url: https://api.attio.com/v2
   auth: { kind: bearer, token: api_key }
@@ -201,6 +210,60 @@ functions:
       method: POST
       path: "/objects/{object}/records"
       body: { data: { values: values } }
+    cost: *request
+
+  - name: update_record
+    class: write
+    description: >-
+      Change values of a record. values maps each attribute api_slug (from
+      list_attributes) to its value: a single value replaces the one there;
+      for a multiselect (domains, email_addresses), the values given are added
+      to those already there, and [] changes nothing. Attributes not given
+      stay. To replace or empty a multiselect, replace_record_values.
+    input:
+      type: object
+      additionalProperties: false
+      required: [object, record_id, values]
+      properties:
+        object: *object
+        record_id: *record_id
+        values: &record_values { type: object, minProperties: 1, personal: true, description: "Attribute values by api_slug." }
+    examples:
+      - { title: Rename a company, input: { object: companies, record_id: 0f1e2d3c-4b5a-4968-8776-655443322110, values: { name: Acme Group } } }
+      - { title: Add a domain, input: { object: companies, record_id: 0f1e2d3c-4b5a-4968-8776-655443322110, values: { domains: [acme-group.example] } } }
+    call:
+      method: PATCH
+      path: "/objects/{object}/records/{record_id}"
+      body: { data: { values: values } }
+    cost: *request
+
+  - name: replace_record_values
+    class: sensitive
+    description: >-
+      Replace values of a record. For each multiselect attribute given
+      (domains, email_addresses), the values given replace those there, which
+      are lost; [] empties it. A single value replaces the one there, as with
+      update_record; attributes not given stay. The way to free a unique value
+      (a domain, an email address) left on a record to be merged: replace that
+      attribute without it, then another record can take it. To add to a
+      multiselect, update_record.
+    input:
+      type: object
+      additionalProperties: false
+      required: [object, record_id, values]
+      properties:
+        object: *object
+        record_id: *record_id
+        values: *record_values
+    examples:
+      - { title: Keep one domain, input: { object: companies, record_id: 0f1e2d3c-4b5a-4968-8776-655443322110, values: { domains: [acme.example] } } }
+      - { title: Free the domains of a company to merge, input: { object: companies, record_id: 1f2e3d4c-5b6a-4778-8887-766554433221, values: { domains: [] } } }
+    call:
+      method: PUT
+      path: "/objects/{object}/records/{record_id}"
+      body: { data: { values: values } }
+    confirm:
+      summary: "Replace values of Attio record {record_id} of {object} with {values}: the multiselect values there are lost."
     cost: *request
 
   - name: merge_records
@@ -545,6 +608,56 @@ functions:
       method: POST
       path: "/lists/{list_id_or_slug}/entries"
       body: { data: { parent_record_id: parent_record_id, parent_object: parent_object, entry_values: entry_values } }
+    cost: *request
+
+  - name: update_entry
+    class: write
+    description: >-
+      Change values of a list entry. entry_values maps the list's own
+      attributes (api_slug from list_attributes, target lists) to their
+      values: a single value replaces the one there ({"stage": "Won"}); for a
+      multiselect, the values given are added to those already there, and []
+      changes nothing. Attributes not given stay. To replace or empty a
+      multiselect, replace_entry_values.
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug, entry_id, entry_values]
+      properties:
+        list_id_or_slug: *list
+        entry_id: *entry_id
+        entry_values: &changed_entry_values { type: object, minProperties: 1, personal: true, description: "The list's attribute values by api_slug." }
+    examples:
+      - { title: Move a deal to Won, input: { list_id_or_slug: sales_pipeline, entry_id: 3c4d5e6f-7081-4c9d-8e1f-2a3b4c5d6e7f, entry_values: { stage: Won } } }
+    call:
+      method: PATCH
+      path: "/lists/{list_id_or_slug}/entries/{entry_id}"
+      body: { data: { entry_values: entry_values } }
+    cost: *request
+
+  - name: replace_entry_values
+    class: sensitive
+    description: >-
+      Replace values of a list entry. For each multiselect attribute of the
+      list given, the values given replace those there, which are lost; []
+      empties it. A single value replaces the one there, as with update_entry;
+      attributes not given stay. To add to a multiselect, update_entry.
+    input:
+      type: object
+      additionalProperties: false
+      required: [list_id_or_slug, entry_id, entry_values]
+      properties:
+        list_id_or_slug: *list
+        entry_id: *entry_id
+        entry_values: *changed_entry_values
+    examples:
+      - { title: Empty a multiselect, input: { list_id_or_slug: sales_pipeline, entry_id: 3c4d5e6f-7081-4c9d-8e1f-2a3b4c5d6e7f, entry_values: { regions: [] } } }
+    call:
+      method: PUT
+      path: "/lists/{list_id_or_slug}/entries/{entry_id}"
+      body: { data: { entry_values: entry_values } }
+    confirm:
+      summary: "Replace values of entry {entry_id} in Attio list {list_id_or_slug} with {entry_values}: the multiselect values there are lost."
     cost: *request
 
   - name: delete_entry
