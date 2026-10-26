@@ -65,9 +65,46 @@ describe("linkedin_unipile definitions", () => {
       for (const path of fn.output?.strip ?? []) expect(path.endsWith("profile_url")).toBe(false)
   })
 
+  it("should serve the eight searches on the read side, with the client's timeouts", () => {
+    const structured = [
+      linkedinUnipile.searchPeople, linkedinUnipile.searchCompanies, linkedinUnipile.searchSalesNavigatorPeople,
+      linkedinUnipile.searchSalesNavigatorCompanies, linkedinUnipile.searchRecruiterPeople,
+    ]
+    const byUrl = [linkedinUnipile.searchByUrl, linkedinUnipile.searchSalesNavigatorByUrl, linkedinUnipile.searchRecruiterByUrl]
+    for (const fn of [...structured, ...byUrl]) {
+      expect(fn.class).toBe("read")
+      expect(fn.act).toBe(false)
+      expect("pagination" in fn).toBe(false)
+    }
+    for (const fn of structured) {
+      expect(fn.timeoutMs).toBe(60_000)
+      expect(fn.description).toContain("call resolve_facet first")
+      expect(fn.schema.dependentSchemas).toEqual({ cursor: { maxProperties: 1 } })
+    }
+    for (const fn of byUrl) expect(fn.timeoutMs).toBe(75_000)
+    expect(linkedinUnipile.searchRecruiterPeople.schema.properties.skills.items.properties.name.pattern).toBe("^[0-9]+$")
+  })
+
+  it("should strip the pictures of members, companies and conversations from the earlier reads", () => {
+    for (const fn of [linkedinUnipile.getMe, linkedinUnipile.getProfile]) {
+      expect(fn.output?.strip).toContain("public_picture_url")
+      expect(fn.output?.strip).toContain("specifics.experience.company.picture_url")
+    }
+    expect(linkedinUnipile.listRelations.output?.strip).toEqual(["user.public_picture_url"])
+    expect(linkedinUnipile.listChats.output?.strip).toContain("image_url")
+    expect(linkedinUnipile.listChatMessages.output?.strip).toEqual([
+      "sender.public_picture_url", "quoted.sender.public_picture_url", "forwarded.sender.public_picture_url",
+    ])
+    for (const fn of [linkedinUnipile.getMe, linkedinUnipile.getCompany, linkedinUnipile.listChats, linkedinUnipile.getPost, linkedinUnipile.searchPeople])
+      for (const path of fn.output?.strip ?? []) expect(path.endsWith("profile_url")).toBe(false)
+  })
+
   it("should mark what names a person as personal", () => {
     expect(linkedinUnipile.resolveFacet.schema.properties.keywords).toMatchObject({ personal: true })
     expect(linkedinUnipile.endorseProfile.schema.properties.profile_id).toMatchObject({ personal: true })
     expect(linkedinUnipile.getJobApplicant.schema.properties.applicant_id).toMatchObject({ personal: true })
+    expect(linkedinUnipile.searchPeople.schema.properties.keywords).toMatchObject({ personal: true })
+    expect(linkedinUnipile.searchPeople.schema.properties.advanced_keywords).toMatchObject({ personal: true })
+    expect(linkedinUnipile.searchByUrl.schema.properties.url).toMatchObject({ personal: true })
   })
 })

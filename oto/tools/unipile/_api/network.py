@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 from ..const import cursor_with_limit
 from ..errors import UnipileError
+from ..open_addresses import without_open_addresses
 
 
 # SYNTHETIC invitations cursor: `off:<offset>:<page fingerprint>`.
@@ -91,9 +92,9 @@ class _NetworkMixin:
             params["cursor"] = cursor_with_limit(cursor, limit) if limit else cursor
         if limit:
             params["limit"] = limit
-        return self._norm(self._request(
+        return without_open_addresses("list_relations", self._norm(self._request(
             "GET", self._acct("/users/me/relations"), params=params
-        ))
+        )), listed=True)
 
     def list_invitations(self, direction: str = "received",
                          limit: Optional[int] = None,
@@ -148,9 +149,9 @@ class _NetworkMixin:
             params["limit"] = limit
         if offset:
             params["offset"] = offset
-        out = self._norm(self._request(
+        out = without_open_addresses("list_invitations", self._norm(self._request(
             "GET", self._acct("/users/me/relation-requests"), params=params
-        ))
+        )), listed=True)
         # Cursor fabricated ONLY if upstream doesn't return one (today it
         # never does): the day Unipile returns a real one, it wins.
         # Empty page = end of list → no cursor, the caller stops.
@@ -183,9 +184,9 @@ class _NetworkMixin:
         body: dict[str, Any] = {"user_id": provider_id}
         if message:
             body["message"] = message
-        return self._request(
+        return without_open_addresses("send_invitation", self._request(
             "POST", self._acct("/users/me/relation-requests"), json=body
-        )
+        ))
 
     def handle_invitation(
         self, invitation_id: str, shared_secret: str, action: str = "accept"

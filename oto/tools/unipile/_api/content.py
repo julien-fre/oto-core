@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 from ..const import FEED_QUERY_ID
 from ..feed import _unpack_cursor, parse_feed
+from ..open_addresses import without_open_addresses
 
 
 class _ContentMixin:
@@ -42,9 +43,9 @@ class _ContentMixin:
         ))
 
     def get_post(self, post_id: str) -> dict:
-        return self._request(
+        return without_open_addresses("get_post", self._request(
             "GET", self._acct(f"/posts/{quote(post_id, safe='')}")
-        )
+        ))
 
     def list_comments(self, post_id: str, offset: Optional[int] = None,
                       limit: Optional[int] = None,
@@ -153,7 +154,7 @@ class _ContentMixin:
     def get_own_profile(self) -> dict:
         """Profile of the connected account. v2: `GET /users/me` (no #153 guard:
         the returned id ≠ the literal "me")."""
-        return self._request("GET", self._acct("/users/me"))
+        return without_open_addresses("get_me", self._request("GET", self._acct("/users/me")))
 
     def list_followers(self, user_id: Optional[str] = None,
                       cursor: Optional[str] = None,

@@ -764,9 +764,9 @@ def test_linkedin_sends_act_and_reads_do_not():
     module = connector_module(check(_load(LINKEDIN), LINKEDIN)).source
     for name in ("sendInvitation", "sendMessage", "endorseProfile"):
         assert f'export const {name} = defineFunction({{\n  name: ' in module
-    # Les trois envois (invitation, message, recommandation) côté action ; seize lectures et le choix d'un contrat,
-    # une écriture qui reste du côté lecture.
-    assert module.count("  act: true,\n") == 3 and module.count("  act: false,\n") == 17
+    # Les trois envois (invitation, message, recommandation) côté action ; vingt-quatre lectures et le choix d'un
+    # contrat, une écriture qui reste du côté lecture.
+    assert module.count("  act: true,\n") == 3 and module.count("  act: false,\n") == 25
 
 
 # --- Règle 10 : le signal de refus du service ----------------------------------------
@@ -923,7 +923,9 @@ def test_linkedin_company_page_has_its_own_timeout():
     module = connector_module(check(_load(LINKEDIN), LINKEDIN)).source
     company = module.split("export const getCompany = ")[1].split("export const ")[0]
     assert "  timeoutMs: 60000,\n" in company
-    assert module.count("  timeoutMs: ") == 2 and "  timeoutMs: 120000,\n" in module
+    # Le connecteur, la page d'entreprise, et les huit recherches (60 s structurées, 75 s par adresse, comme le client).
+    assert module.count("  timeoutMs: ") == 10 and "  timeoutMs: 120000,\n" in module
+    assert module.count("  timeoutMs: 60000,\n") == 6 and module.count("  timeoutMs: 75000,\n") == 3
 
 
 # --- Règle 12 : le coût, pire cas et quantité relue ------------------------------------

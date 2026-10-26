@@ -18,11 +18,13 @@
 #   on whether the provider sorts messaging by inbox, with a fallback on 501;
 #   list_chats takes the inbox route, the one the client declares for LinkedIn;
 # - the attendee names that list_chats can add (contacts book, several calls);
-# - search: one method for three products (classic, Sales Navigator,
-#   Recruiter) and two categories, each its own path; a search by pasted URL
-#   on another endpoint; facets given by name resolved into ids (one call
-#   each), and encoded in a shape that depends on the product and the facet;
-#   a page by cursor sent with an empty body;
+# - in search: the resolution of facets given by name (one call each; the
+#   search functions take ids, resolved first by resolve_facet), the
+#   exclusion of a location or an employer (the client never sends one), the
+#   filters its product does not take (skills outside Recruiter, keywords by
+#   field outside the classic people search, which Unipile refuses), the
+#   Recruiter companies search (no such endpoint: the client refuses it), and
+#   the readable error that replaces a search by URL that never answers;
 # - member_action: the route and the body depend on the pair product and
 #   action (a Sales Navigator lead list, a Recruiter pipeline), and the client
 #   refuses the other pairs locally;
@@ -34,16 +36,27 @@
 # resolve_facet returns the facet candidates as Unipile lists them; the client
 # keeps only id and name.
 #
+# Search: one client method (search) for three products and two targets,
+# described as one function per pair that Unipile serves, five, and one per
+# product for a search by pasted URL, three: a deliberate departure from "one
+# function per method, under its name", decided by Alexis on 2026-10-24. The
+# eight search functions all describe search; each takes facet ids already
+# resolved, in the shape of its product. The next page is the cursor alone,
+# sent with an empty body as the client sends it; no pagination is declared.
+#
 # No address that opens content without a login reaches the agent: the
-# picture of a member, a company or a school (public_picture_url,
-# picture_url) and the tracking pixel of a job posting are stripped from the
-# Recruiter answers (output.strip), and the client strips them the same way.
-# Profile addresses (profile_url), behind a LinkedIn login, stay.
+# picture of a member, a company, a school, an organisation or a conversation
+# (public_picture_url, picture_url, image_url, logo_url…) and the tracking
+# pixel of a job posting are stripped from the answers (output.strip), and the
+# client strips them the same way (oto.tools.unipile.open_addresses). Profile
+# addresses (profile_url), behind a LinkedIn login, stay; so do the addresses
+# of the Unipile API itself (a message attachment, private_picture_download_url),
+# behind its key.
 connector:
   name: linkedin_unipile
   label: LinkedIn (Unipile)
   namespace: linkedin_unipile
-  version: 1.2.0
+  version: 1.3.0
   api_version: v2
   base_url: https://api.unipile.com/v2/{account_id}
   auth: { kind: api_key, in: header, name: X-API-KEY, key: api_key }
@@ -82,6 +95,46 @@ functions:
     examples:
       - { title: Who is connected, input: {} }
     call: { method: GET, path: /users/me }
+    # Member, company, school and organisation pictures open without a login: they never reach the agent.
+    output: &profile_output
+      strip: [public_picture_url, public_picture_url_large, background_picture_url,
+              specifics.experience.company.picture_url, specifics.education.school.picture_url,
+              specifics.certifications.organization.picture_url, specifics.volunteer_experience.organization.picture_url,
+              specifics.projects.contributors.public_picture_url,
+              specifics.recommendations.given.user.public_picture_url, specifics.recommendations.received.user.public_picture_url,
+              specifics.interests.companies.public_picture_url, specifics.interests.schools.public_picture_url,
+              specifics.interests.groups.public_picture_url, specifics.interests.newsletters.public_picture_url,
+              specifics.interests.top_voices.public_picture_url, specifics.relation_request.user.public_picture_url,
+              specifics.recruiting_profile.events.last_updated_by.public_picture_url,
+              specifics.recruiting_profile.notes.author.public_picture_url,
+              specifics.recruiting_profile.notes.comments.author.public_picture_url]
+      sample:
+        object: UserProfile
+        id: u-0
+        first_name: Jane
+        profile_url: "https://www.example.test/in/u-0"
+        public_picture_url: "https://media.example.test/u-0.jpg"
+        public_picture_url_large: "https://media.example.test/u-0-large.jpg"
+        background_picture_url: "https://media.example.test/u-0-bg.jpg"
+        specifics:
+          experience: [{ position: Engineer, company: { name: Sample Co, picture_url: "https://media.example.test/c-0.png" } }]
+          education: [{ degree: MSc, school: { name: Sample School, picture_url: "https://media.example.test/s-0.png" } }]
+          certifications: [{ name: Sample cert, organization: { name: Sample Org, picture_url: "https://media.example.test/o-0.png" } }]
+          volunteer_experience: [{ role: Mentor, organization: { name: Sample Org, picture_url: "https://media.example.test/o-1.png" } }]
+          projects: [{ name: Sample project, contributors: [{ first_name: Max, public_picture_url: "https://media.example.test/m-0.jpg" }] }]
+          recommendations:
+            given: [{ text: Sample, user: { first_name: Lee, public_picture_url: "https://media.example.test/u-1.jpg" } }]
+            received: [{ text: Sample, user: { first_name: Kim, public_picture_url: "https://media.example.test/u-2.jpg" } }]
+          interests:
+            companies: [{ name: Sample Co, public_picture_url: "https://media.example.test/c-1.png" }]
+            schools: [{ name: Sample School, public_picture_url: "https://media.example.test/s-1.png" }]
+            groups: [{ name: Sample group, public_picture_url: "https://media.example.test/g-0.png" }]
+            newsletters: [{ name: Sample letter, public_picture_url: "https://media.example.test/n-0.png" }]
+            top_voices: [{ first_name: Ada, public_picture_url: "https://media.example.test/v-0.jpg" }]
+          relation_request: { user: { first_name: Bo, public_picture_url: "https://media.example.test/u-3.jpg" } }
+          recruiting_profile:
+            events: [{ last_updated_by: { first_name: Cy, public_picture_url: "https://media.example.test/u-4.jpg" } }]
+            notes: [{ author: { first_name: Di, public_picture_url: "https://media.example.test/u-5.jpg" }, comments: [{ author: { first_name: Ed, public_picture_url: "https://media.example.test/u-6.jpg" } }] }]
 
   - name: get_profile
     class: read
@@ -126,6 +179,7 @@ functions:
       method: GET
       path: "/users/{identifier}"
       query: { with_sections: with_sections }
+    output: *profile_output
 
   - name: get_company
     class: read
@@ -151,6 +205,17 @@ functions:
     call: { method: GET, path: "/linkedin/company/{identifier}" }
     # Company pages can hang while LinkedIn queues the request: fail at 60 s, as the Python client does.
     timeout_s: 60
+    # The pictures of the company, of its acquirer and of its investors open without a login: they never reach the agent.
+    output:
+      strip: [public_picture_url, acquired_by.public_picture_url, funding.crunchbase.last_round.lead_investors.logo_url]
+      sample:
+        object: CompanyProfile
+        id: c-0
+        name: Sample Co
+        profile_url: "https://www.example.test/company/c-0"
+        public_picture_url: "https://media.example.test/c-0.png"
+        acquired_by: { name: Parent Co, public_picture_url: "https://media.example.test/c-1.png" }
+        funding: { crunchbase: { last_round: { lead_investors: [{ name: Sample Fund, logo_url: "https://media.example.test/f-0.png" }] } } }
 
   - name: list_relations
     class: read
@@ -172,7 +237,13 @@ functions:
       path: /users/me/relations
       query: { limit: limit, cursor: cursor }
     pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 10 }
-    output: { items: data }
+    # The picture of a member opens without a login: it never reaches the agent.
+    output:
+      items: data
+      strip: [user.public_picture_url]
+      sample:
+        data:
+          - user: { first_name: Jane, profile_url: "https://www.example.test/in/u-0", public_picture_url: "https://media.example.test/u-0.jpg" }
 
   - name: list_invitations
     class: read
@@ -196,7 +267,14 @@ functions:
       method: GET
       path: /users/me/relation-requests
       query: { type: direction, limit: limit, offset: offset }
-    output: { items: data }
+    # The picture of a member opens without a login: it never reaches the agent.
+    output:
+      items: data
+      strip: [user.public_picture_url]
+      sample:
+        data:
+          - id: i-0
+            user: { first_name: Jane, profile_url: "https://www.example.test/in/u-0", public_picture_url: "https://media.example.test/u-0.jpg" }
 
   - name: get_post
     class: read
@@ -214,6 +292,28 @@ functions:
     refusals:
       - { code: post_not_found, when: 404, message: "No LinkedIn post with this id, or it is not visible to this account." }
     call: { method: GET, path: "/posts/{post_id}" }
+    # Author, event, article and company pictures open without a login: they never reach the agent.
+    output:
+      strip: [author.public_picture_url, reposted_by.public_picture_url, event.public_picture_url,
+              specifics.article.picture_url, specifics.job_posting.company.picture_url,
+              quoted_post.author.public_picture_url, quoted_post.event.public_picture_url,
+              quoted_post.specifics.article.picture_url, quoted_post.specifics.job_posting.company.picture_url]
+      sample:
+        id: post-0
+        text: Sample
+        share_url: "https://www.example.test/posts/post-0"
+        author: { first_name: Jane, profile_url: "https://www.example.test/in/u-0", public_picture_url: "https://media.example.test/u-0.jpg" }
+        reposted_by: { first_name: Lee, public_picture_url: "https://media.example.test/u-1.jpg" }
+        event: { title: Sample event, public_picture_url: "https://media.example.test/e-0.png" }
+        specifics:
+          article: { title: Sample article, picture_url: "https://media.example.test/a-0.png" }
+          job_posting: { title: Engineer, company: { name: Sample Co, picture_url: "https://media.example.test/c-0.png" } }
+        quoted_post:
+          author: { first_name: Kim, public_picture_url: "https://media.example.test/u-2.jpg" }
+          event: { title: Other event, public_picture_url: "https://media.example.test/e-1.png" }
+          specifics:
+            article: { title: Other article, picture_url: "https://media.example.test/a-1.png" }
+            job_posting: { title: Analyst, company: { name: Other Co, picture_url: "https://media.example.test/c-1.png" } }
 
   - name: list_chats
     class: read
@@ -241,7 +341,25 @@ functions:
       path: "/inboxes/{inbox}/chats"
       query: { limit: limit, cursor: cursor }
     pagination: { kind: cursor, request_param: cursor, next: next_cursor, max_pages: 10 }
-    output: { items: data }
+    # Conversation and member pictures open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [image_url, public_picture_url, user.public_picture_url, participants.user.public_picture_url,
+              last_message.sender.public_picture_url, last_message.quoted.sender.public_picture_url,
+              last_message.forwarded.sender.public_picture_url]
+      sample:
+        data:
+          - id: ch-0
+            name: Jane Doe
+            image_url: "https://media.example.test/ch-0.png"
+            public_picture_url: "https://media.example.test/ch-0.jpg"
+            user: { first_name: Jane, profile_url: "https://www.example.test/in/u-0", public_picture_url: "https://media.example.test/u-0.jpg" }
+            participants: [{ user: { first_name: Lee, public_picture_url: "https://media.example.test/u-1.jpg" } }]
+            last_message:
+              text: Sample
+              sender: { first_name: Jane, public_picture_url: "https://media.example.test/u-0.jpg" }
+              quoted: { sender: { first_name: Kim, public_picture_url: "https://media.example.test/u-2.jpg" } }
+              forwarded: { sender: { first_name: Bo, public_picture_url: "https://media.example.test/u-3.jpg" } }
 
   - name: list_chat_messages
     class: read
@@ -264,7 +382,18 @@ functions:
       method: GET
       path: "/chats/{chat_id}/messages"
       query: { limit: limit }
-    output: { items: data }
+    # The pictures of the senders open without a login: they never reach the agent. An attachment's
+    # address points to the Unipile API, behind its key: it stays.
+    output:
+      items: data
+      strip: [sender.public_picture_url, quoted.sender.public_picture_url, forwarded.sender.public_picture_url]
+      sample:
+        data:
+          - id: m-0
+            text: Sample
+            sender: { first_name: Jane, profile_url: "https://www.example.test/in/u-0", public_picture_url: "https://media.example.test/u-0.jpg" }
+            quoted: { sender: { first_name: Kim, public_picture_url: "https://media.example.test/u-2.jpg" } }
+            forwarded: { sender: { first_name: Bo, public_picture_url: "https://media.example.test/u-3.jpg" } }
 
   - name: send_invitation
     class: sensitive
@@ -290,6 +419,12 @@ functions:
       method: POST
       path: /users/me/relation-requests
       body: { user_id: provider_id, message: message }
+    # The picture of the invited member opens without a login: it never reaches the agent.
+    output:
+      strip: [user.public_picture_url]
+      sample:
+        id: i-0
+        user: { first_name: Jane, profile_url: "https://www.example.test/in/u-0", public_picture_url: "https://media.example.test/u-0.jpg" }
 
   - name: send_message
     class: sensitive
@@ -345,6 +480,471 @@ functions:
       path: /linkedin/search/parameters
       query: { type: facet_type, keywords: keywords, limit: limit }
     output: { items: data }
+
+  # --- Search: one function per product and target -----------------------------
+  # The eight search functions all describe the client's search (see the header).
+
+  - name: search_people
+    class: read
+    description: >-
+      Search LinkedIn members with the classic product. Facets take ids already
+      resolved: call resolve_facet first (LOCATION, COMPANY, INDUSTRY), keep the
+      relevant ids, then search with them; a name instead of an id is refused.
+      Classic filters include only, never exclude. The classic product often
+      gives no total: an absent next_cursor does not prove the population is
+      swept. For the next page, pass back next_cursor alone,
+      without any other argument: the cursor carries the whole search. LinkedIn
+      throttles searches per account: space the calls.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        keywords: { type: string, minLength: 1, personal: true, description: "Keywords (a name, a job title…)." }
+        advanced_keywords:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          personal: true
+          description: "Keywords by field."
+          properties:
+            first_name: { type: string, minLength: 1 }
+            last_name: { type: string, minLength: 1 }
+            title: { type: string, minLength: 1 }
+            company: { type: string, minLength: 1 }
+            school: { type: string, minLength: 1 }
+        location:
+          type: array
+          minItems: 1
+          items: { type: string, pattern: "^[0-9]+$" }
+          description: "LOCATION facet ids, from resolve_facet."
+        current_company:
+          type: array
+          minItems: 1
+          items: { type: string, pattern: "^[0-9]+$" }
+          description: "COMPANY facet ids of the current employer, from resolve_facet."
+        industry:
+          type: array
+          minItems: 1
+          items: { type: string, pattern: "^[0-9]+$" }
+          description: "INDUSTRY facet ids, from resolve_facet."
+        network_distance:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { enum: [1, 2, 3] }
+          description: "Connection degrees: 1 first, 2 second, 3 third and beyond."
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page, passed alone." }
+      dependentSchemas:
+        cursor: { maxProperties: 1 }
+    examples:
+      - { title: Engineers in a city, input: { keywords: data engineer, location: ["105015875"] } }
+      - { title: First-degree relations at a company, input: { current_company: ["1441"], network_distance: [1] } }
+      - { title: By name, input: { advanced_keywords: { first_name: Jane, last_name: Doe } } }
+      - { title: Next page, input: { cursor: eyJsaW1pdCI6MTAsInN0YXJ0IjoxMH0 } }
+    call:
+      method: POST
+      path: /linkedin/search/people
+      query: { cursor: cursor }
+      body: { keywords: keywords, advanced_keywords: advanced_keywords, location: location, current_company: current_company, industry: industry, network_distance: network_distance }
+    timeout_s: 60
+    # The pictures of a member open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [public_picture_url, public_picture_url_large]
+
+  - name: search_companies
+    class: read
+    description: >-
+      Search LinkedIn companies with the classic product. Facets take ids
+      already resolved: call resolve_facet first (LOCATION, INDUSTRY), keep the
+      relevant ids, then search with them; a name instead of an id is refused.
+      Classic filters include only, never exclude. For the next page, pass back
+      next_cursor alone, without any other argument: the cursor carries the
+      whole search. LinkedIn throttles searches per account: space the calls.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        keywords: { type: string, minLength: 1, description: "Keywords (a company name, an activity…)." }
+        location:
+          type: array
+          minItems: 1
+          items: { type: string, pattern: "^[0-9]+$" }
+          description: "LOCATION facet ids, from resolve_facet."
+        industry:
+          type: array
+          minItems: 1
+          items: { type: string, pattern: "^[0-9]+$" }
+          description: "INDUSTRY facet ids, from resolve_facet."
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page, passed alone." }
+      dependentSchemas:
+        cursor: { maxProperties: 1 }
+    examples:
+      - { title: Companies of an industry in a city, input: { keywords: software, location: ["105015875"], industry: ["4"] } }
+      - { title: Next page, input: { cursor: eyJsaW1pdCI6MTAsInN0YXJ0IjoxMH0 } }
+    call:
+      method: POST
+      path: /linkedin/search/companies
+      query: { cursor: cursor }
+      body: { keywords: keywords, location: location, industry: industry }
+    timeout_s: 60
+    # The pictures of a company open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [public_picture_url, public_picture_url_large]
+
+  - name: search_sales_navigator_people
+    class: read
+    description: >-
+      Search LinkedIn members (leads) with Sales Navigator, under the selected
+      contract. Facets take ids already resolved: call resolve_facet first
+      (LOCATION, COMPANY, INDUSTRY), keep the relevant ids, then search with
+      them; a name instead of an id is refused. Industries can be included or
+      excluded; locations and employers are included only. A facet may not be
+      applied by LinkedIn without any error: a zero on a faceted search does not
+      prove an empty pool. For the next page, pass back next_cursor alone,
+      without any other argument: the cursor carries the whole search.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        keywords: { type: string, minLength: 1, personal: true, description: "Keywords (a name, a job title…)." }
+        location:
+          type: object
+          additionalProperties: false
+          required: [include]
+          description: "LOCATION facet ids to include, from resolve_facet."
+          properties:
+            include: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+        current_company:
+          type: object
+          additionalProperties: false
+          required: [include]
+          description: "COMPANY facet ids of the current employer to include, from resolve_facet."
+          properties:
+            include: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+        industry:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          description: "INDUSTRY facet ids to include or exclude, from resolve_facet."
+          properties:
+            include: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+            exclude: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+        network_distance:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { enum: [1, 2, 3] }
+          description: "Connection degrees: 1 first, 2 second, 3 third and beyond."
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page, passed alone." }
+      dependentSchemas:
+        cursor: { maxProperties: 1 }
+    examples:
+      - { title: Leads in a city outside an industry, input: { keywords: head of sales, location: { include: ["105015875"] }, industry: { exclude: ["4"] } } }
+      - { title: Leads at a company, input: { current_company: { include: ["1441"] } } }
+      - { title: Next page, input: { cursor: eyJsaW1pdCI6MjUsInN0YXJ0IjoyNX0 } }
+    call:
+      method: POST
+      path: /linkedin/sales-navigator/search/people
+      query: { cursor: cursor }
+      body: { keywords: keywords, location: location, current_company: current_company, industry: industry, network_distance: network_distance }
+    timeout_s: 60
+    # Member, company, school and organisation pictures open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [public_picture_url, public_picture_url_large, work_experience.company.picture_url, education.school.picture_url, volunteering.organization.picture_url]
+      sample:
+        data:
+          - id: l-0
+            first_name: Jane
+            profile_url: "https://www.example.test/in/l-0"
+            public_picture_url: "https://media.example.test/l-0.jpg"
+            public_picture_url_large: "https://media.example.test/l-0-large.jpg"
+            work_experience: [{ position: Engineer, company: { name: Sample Co, picture_url: "https://media.example.test/c-0.png" } }]
+            education: [{ degree: MSc, school: { name: Sample School, picture_url: "https://media.example.test/s-0.png" } }]
+            volunteering: [{ role: Mentor, organization: { name: Sample Org, picture_url: "https://media.example.test/o-0.png" } }]
+
+  - name: search_sales_navigator_companies
+    class: read
+    description: >-
+      Search LinkedIn companies (accounts) with Sales Navigator, under the
+      selected contract. Facets take ids already resolved: call resolve_facet
+      first (LOCATION, INDUSTRY), keep the relevant ids, then search with them;
+      a name instead of an id is refused. Industries can be included or
+      excluded; locations are included only. For the next page, pass back
+      next_cursor alone, without any other argument: the cursor carries the
+      whole search.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        keywords: { type: string, minLength: 1, description: "Keywords (a company name, an activity…)." }
+        location:
+          type: object
+          additionalProperties: false
+          required: [include]
+          description: "LOCATION facet ids of the headquarters to include, from resolve_facet."
+          properties:
+            include: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+        industry:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          description: "INDUSTRY facet ids to include or exclude, from resolve_facet."
+          properties:
+            include: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+            exclude: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page, passed alone." }
+      dependentSchemas:
+        cursor: { maxProperties: 1 }
+    examples:
+      - { title: Accounts of an industry in a city, input: { keywords: logistics, location: { include: ["105015875"] }, industry: { include: ["4"] } } }
+      - { title: Next page, input: { cursor: eyJsaW1pdCI6MjUsInN0YXJ0IjoyNX0 } }
+    call:
+      method: POST
+      path: /linkedin/sales-navigator/search/companies
+      query: { cursor: cursor }
+      body: { keywords: keywords, location: location, industry: industry }
+    timeout_s: 60
+    # The pictures of a company open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [public_picture_url, public_picture_url_large]
+
+  - name: search_recruiter_people
+    class: read
+    description: >-
+      Search LinkedIn members (candidates) with Recruiter, under the selected
+      contract. Facets take ids already resolved: call resolve_facet first
+      (LOCATION, COMPANY, INDUSTRY, SKILL), keep the relevant ids, then search
+      with them; a name instead of an id is refused. A skill is given as
+      {name: <SKILL id>}: the field is called name but carries the id, never the
+      label; add priority DOESNT_HAVE to exclude it. Industries can be included
+      or excluded; locations and employers are included only. Recruiter has no
+      companies search. For the next page, pass back next_cursor alone, without
+      any other argument: the cursor carries the whole search.
+    input:
+      type: object
+      additionalProperties: false
+      properties:
+        keywords: { type: string, minLength: 1, personal: true, description: "Keywords (a name, a job title…)." }
+        location:
+          type: array
+          minItems: 1
+          description: "LOCATION facets, each by its id from resolve_facet."
+          items:
+            type: object
+            additionalProperties: false
+            required: [id]
+            properties:
+              id: { type: string, pattern: "^[0-9]+$" }
+        current_company:
+          type: array
+          minItems: 1
+          description: "COMPANY facets of the current employer, each by its id from resolve_facet."
+          items:
+            type: object
+            additionalProperties: false
+            required: [id]
+            properties:
+              id: { type: string, pattern: "^[0-9]+$" }
+        industry:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          description: "INDUSTRY facet ids to include or exclude, from resolve_facet."
+          properties:
+            include: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+            exclude: { type: array, minItems: 1, items: { type: string, pattern: "^[0-9]+$" } }
+        network_distance:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { enum: [1, 2, 3] }
+          description: "Connection degrees: 1 first, 2 second, 3 third and beyond."
+        skills:
+          type: array
+          minItems: 1
+          description: "SKILL facets: the id from resolve_facet in name; priority DOESNT_HAVE excludes the skill."
+          items:
+            type: object
+            additionalProperties: false
+            required: [name]
+            properties:
+              name: { type: string, pattern: "^[0-9]+$", description: "The SKILL facet id (not its label)." }
+              priority: { enum: [DOESNT_HAVE] }
+        cursor: { type: string, minLength: 1, description: "next_cursor of the previous page, passed alone." }
+      dependentSchemas:
+        cursor: { maxProperties: 1 }
+    examples:
+      - { title: Candidates with a skill in a city, input: { keywords: data engineer, location: [{ id: "105015875" }], skills: [{ name: "1234" }] } }
+      - { title: Excluding a skill and an industry, input: { skills: [{ name: "1234" }, { name: "5678", priority: DOESNT_HAVE }], industry: { exclude: ["4"] } } }
+      - { title: Next page, input: { cursor: eyJsaW1pdCI6MjUsInN0YXJ0IjoyNX0 } }
+    call:
+      method: POST
+      path: /linkedin/recruiter/search/people
+      query: { cursor: cursor }
+      body: { keywords: keywords, location: location, current_company: current_company, industry: industry, network_distance: network_distance, skills: skills }
+    timeout_s: 60
+    # Member, company, school and organisation pictures open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [public_picture_url, public_picture_url_large, work_experience.company.picture_url, education.school.picture_url, certifications.organization.picture_url, volunteering.organization.picture_url, projects.contributors.public_picture_url, recommendations.user.public_picture_url]
+      sample:
+        data:
+          - id: r-0
+            first_name: Jane
+            profile_url: "https://www.example.test/in/r-0"
+            public_picture_url: "https://media.example.test/r-0.jpg"
+            public_picture_url_large: "https://media.example.test/r-0-large.jpg"
+            work_experience: [{ position: Engineer, company: { name: Sample Co, picture_url: "https://media.example.test/c-0.png" } }]
+            education: [{ degree: MSc, school: { name: Sample School, picture_url: "https://media.example.test/s-0.png" } }]
+            certifications: [{ name: Sample cert, organization: { name: Sample Org, picture_url: "https://media.example.test/o-0.png" } }]
+            volunteering: [{ role: Mentor, organization: { name: Sample Org, picture_url: "https://media.example.test/o-1.png" } }]
+            projects: [{ name: Sample project, contributors: [{ first_name: Max, public_picture_url: "https://media.example.test/m-0.jpg" }] }]
+            recommendations: [{ text: Sample, user: { first_name: Lee, public_picture_url: "https://media.example.test/u-0.jpg" } }]
+
+  # --- Search by a pasted URL: one function per product -------------------------
+
+  - name: search_by_url
+    class: read
+    description: >-
+      Run a classic LinkedIn search from its URL, pasted from the browser
+      (linkedin.com/search/results/…): the filters are those of the URL. The
+      results can be members, companies, posts or jobs, as the URL says. For
+      the next page, pass next_cursor alone to search_people or
+      search_companies, as the URL's target. Prefer the structured search to
+      control the filters.
+    input:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: { type: string, pattern: "^https://", personal: true, description: "LinkedIn search URL, pasted from the browser." }
+    examples:
+      - { title: A pasted search, input: { url: "https://www.linkedin.com/search/results/people/?keywords=data%20engineer" } }
+    call:
+      method: POST
+      path: /linkedin/search
+      body: { url: url }
+    # The search by URL can hang on LinkedIn's side: fail at 75 s, as the Python client does.
+    timeout_s: 75
+    # Member, company, author and event pictures open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [public_picture_url, public_picture_url_large, company.public_picture_url, author.public_picture_url, reposted_by.public_picture_url, event.public_picture_url, quoted_post.author.public_picture_url, quoted_post.event.public_picture_url]
+      sample:
+        data:
+          - id: p-0
+            first_name: Jane
+            profile_url: "https://www.example.test/in/p-0"
+            public_picture_url: "https://media.example.test/p-0.jpg"
+            public_picture_url_large: "https://media.example.test/p-0-large.jpg"
+          - id: post-0
+            text: Sample
+            company: { name: Sample Co, public_picture_url: "https://media.example.test/c-0.png" }
+            author: { first_name: Lee, profile_url: "https://www.example.test/in/a-0", public_picture_url: "https://media.example.test/a-0.jpg" }
+            reposted_by: { first_name: Max, public_picture_url: "https://media.example.test/m-0.jpg" }
+            event: { title: Sample event, public_picture_url: "https://media.example.test/e-0.png" }
+            quoted_post:
+              author: { first_name: Kim, public_picture_url: "https://media.example.test/k-0.jpg" }
+              event: { title: Other event, public_picture_url: "https://media.example.test/e-1.png" }
+
+  - name: search_sales_navigator_by_url
+    class: read
+    description: >-
+      Run a Sales Navigator search from its URL, pasted from the browser
+      (linkedin.com/sales/search/…), under the selected contract: the filters
+      are those of the URL. For the next page, pass next_cursor alone to
+      search_sales_navigator_people or search_sales_navigator_companies, as the
+      URL's target. Prefer the structured search to control the filters.
+    input:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: { type: string, pattern: "^https://", personal: true, description: "Sales Navigator search URL, pasted from the browser." }
+    examples:
+      - { title: A pasted Sales Navigator search, input: { url: "https://www.linkedin.com/sales/search/people?query=(keywords%3Ahead%20of%20sales)" } }
+    call:
+      method: POST
+      path: /linkedin/sales-navigator/search
+      body: { url: url }
+    timeout_s: 75
+    # Member, company, school, organisation and account pictures open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [public_picture_url, public_picture_url_large, work_experience.company.picture_url, education.school.picture_url, volunteering.organization.picture_url, associated_account.public_picture_url, recommended_lead.public_picture_url, recommended_lead.public_picture_url_large, recommended_lead.work_experience.company.picture_url, recommended_lead.education.school.picture_url, recommended_lead.volunteering.organization.picture_url]
+      sample:
+        data:
+          - id: l-0
+            first_name: Jane
+            profile_url: "https://www.example.test/in/l-0"
+            public_picture_url: "https://media.example.test/l-0.jpg"
+            public_picture_url_large: "https://media.example.test/l-0-large.jpg"
+            work_experience: [{ position: Engineer, company: { name: Sample Co, picture_url: "https://media.example.test/c-0.png" } }]
+            education: [{ degree: MSc, school: { name: Sample School, picture_url: "https://media.example.test/s-0.png" } }]
+            volunteering: [{ role: Mentor, organization: { name: Sample Org, picture_url: "https://media.example.test/o-0.png" } }]
+            associated_account: { name: Sample Co, public_picture_url: "https://media.example.test/c-1.png" }
+            recommended_lead:
+              first_name: Lee
+              public_picture_url: "https://media.example.test/u-0.jpg"
+              public_picture_url_large: "https://media.example.test/u-0-large.jpg"
+              work_experience: [{ position: Analyst, company: { name: Other Co, picture_url: "https://media.example.test/c-2.png" } }]
+              education: [{ degree: BSc, school: { name: Other School, picture_url: "https://media.example.test/s-1.png" } }]
+              volunteering: [{ role: Coach, organization: { name: Other Org, picture_url: "https://media.example.test/o-1.png" } }]
+
+  - name: search_recruiter_by_url
+    class: read
+    description: >-
+      Run a Recruiter search from its URL, pasted from the browser
+      (linkedin.com/talent/search/…), under the selected contract: the filters
+      are those of the URL. Unreliable: an expired search context makes the
+      call hang until it fails; prefer search_recruiter_people. For the next
+      page, pass next_cursor alone to search_recruiter_people.
+    input:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: { type: string, pattern: "^https://", personal: true, description: "Recruiter search URL, pasted from the browser." }
+    examples:
+      - { title: A pasted Recruiter search, input: { url: "https://www.linkedin.com/talent/search?searchContextId=0000-sample" } }
+    call:
+      method: POST
+      path: /linkedin/recruiter/search
+      body: { url: url }
+    timeout_s: 75
+    # Member, company, school and organisation pictures open without a login: they never reach the agent.
+    output:
+      items: data
+      strip: [public_picture_url, public_picture_url_large, work_experience.company.picture_url, education.school.picture_url, certifications.organization.picture_url, volunteering.organization.picture_url, projects.contributors.public_picture_url, recommendations.user.public_picture_url, profile.public_picture_url, profile.public_picture_url_large, profile.work_experience.company.picture_url, profile.education.school.picture_url, profile.certifications.organization.picture_url, profile.volunteering.organization.picture_url, profile.projects.contributors.public_picture_url, profile.recommendations.user.public_picture_url]
+      sample:
+        data:
+          - id: r-0
+            first_name: Jane
+            profile_url: "https://www.example.test/in/r-0"
+            public_picture_url: "https://media.example.test/r-0.jpg"
+            public_picture_url_large: "https://media.example.test/r-0-large.jpg"
+            work_experience: [{ position: Engineer, company: { name: Sample Co, picture_url: "https://media.example.test/c-0.png" } }]
+            education: [{ degree: MSc, school: { name: Sample School, picture_url: "https://media.example.test/s-0.png" } }]
+            certifications: [{ name: Sample cert, organization: { name: Sample Org, picture_url: "https://media.example.test/o-0.png" } }]
+            volunteering: [{ role: Mentor, organization: { name: Sample Org, picture_url: "https://media.example.test/o-1.png" } }]
+            projects: [{ name: Sample project, contributors: [{ first_name: Max, public_picture_url: "https://media.example.test/m-0.jpg" }] }]
+            recommendations: [{ text: Sample, user: { first_name: Lee, public_picture_url: "https://media.example.test/u-0.jpg" } }]
+          - id: r-1
+            profile:
+              first_name: Kim
+              profile_url: "https://www.example.test/in/r-1"
+              public_picture_url: "https://media.example.test/r-1.jpg"
+              public_picture_url_large: "https://media.example.test/r-1-large.jpg"
+              work_experience: [{ position: Analyst, company: { name: Other Co, picture_url: "https://media.example.test/c-1.png" } }]
+              education: [{ degree: BSc, school: { name: Other School, picture_url: "https://media.example.test/s-1.png" } }]
+              certifications: [{ name: Other cert, organization: { name: Other Org, picture_url: "https://media.example.test/o-2.png" } }]
+              volunteering: [{ role: Coach, organization: { name: Other Org, picture_url: "https://media.example.test/o-3.png" } }]
+              projects: [{ name: Other project, contributors: [{ first_name: Ada, public_picture_url: "https://media.example.test/m-1.jpg" }] }]
+              recommendations: [{ text: Other, user: { first_name: Bo, public_picture_url: "https://media.example.test/u-1.jpg" } }]
 
   # --- Premium contracts (Recruiter, Sales Navigator) --------------------------
 

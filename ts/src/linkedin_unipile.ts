@@ -20,6 +20,7 @@ export const getMe = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["public_picture_url", "public_picture_url_large", "background_picture_url", "specifics.experience.company.picture_url", "specifics.education.school.picture_url", "specifics.certifications.organization.picture_url", "specifics.volunteer_experience.organization.picture_url", "specifics.projects.contributors.public_picture_url", "specifics.recommendations.given.user.public_picture_url", "specifics.recommendations.received.user.public_picture_url", "specifics.interests.companies.public_picture_url", "specifics.interests.schools.public_picture_url", "specifics.interests.groups.public_picture_url", "specifics.interests.newsletters.public_picture_url", "specifics.interests.top_voices.public_picture_url", "specifics.relation_request.user.public_picture_url", "specifics.recruiting_profile.events.last_updated_by.public_picture_url", "specifics.recruiting_profile.notes.author.public_picture_url", "specifics.recruiting_profile.notes.comments.author.public_picture_url"] },
 })
 
 export const getProfile = defineFunction({
@@ -86,6 +87,7 @@ export const getProfile = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["public_picture_url", "public_picture_url_large", "background_picture_url", "specifics.experience.company.picture_url", "specifics.education.school.picture_url", "specifics.certifications.organization.picture_url", "specifics.volunteer_experience.organization.picture_url", "specifics.projects.contributors.public_picture_url", "specifics.recommendations.given.user.public_picture_url", "specifics.recommendations.received.user.public_picture_url", "specifics.interests.companies.public_picture_url", "specifics.interests.schools.public_picture_url", "specifics.interests.groups.public_picture_url", "specifics.interests.newsletters.public_picture_url", "specifics.interests.top_voices.public_picture_url", "specifics.relation_request.user.public_picture_url", "specifics.recruiting_profile.events.last_updated_by.public_picture_url", "specifics.recruiting_profile.notes.author.public_picture_url", "specifics.recruiting_profile.notes.comments.author.public_picture_url"] },
 })
 
 export const getCompany = defineFunction({
@@ -118,6 +120,7 @@ export const getCompany = defineFunction({
     headers: {},
   },
   timeoutMs: 60000,
+  output: { strip: ["public_picture_url", "acquired_by.public_picture_url", "funding.crunchbase.last_round.lead_investors.logo_url"] },
 })
 
 export const listRelations = defineFunction({
@@ -156,7 +159,7 @@ export const listRelations = defineFunction({
     headers: {},
   },
   pagination: { kind: "cursor", requestParam: "cursor", next: "next_cursor", maxPages: 10 },
-  output: { items: "data" },
+  output: { items: "data", strip: ["user.public_picture_url"] },
 })
 
 export const listInvitations = defineFunction({
@@ -188,7 +191,7 @@ export const listInvitations = defineFunction({
     body: {},
     headers: {},
   },
-  output: { items: "data" },
+  output: { items: "data", strip: ["user.public_picture_url"] },
 })
 
 export const getPost = defineFunction({
@@ -217,6 +220,7 @@ export const getPost = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["author.public_picture_url", "reposted_by.public_picture_url", "event.public_picture_url", "specifics.article.picture_url", "specifics.job_posting.company.picture_url", "quoted_post.author.public_picture_url", "quoted_post.event.public_picture_url", "quoted_post.specifics.article.picture_url", "quoted_post.specifics.job_posting.company.picture_url"] },
 })
 
 export const listChats = defineFunction({
@@ -267,7 +271,7 @@ export const listChats = defineFunction({
     headers: {},
   },
   pagination: { kind: "cursor", requestParam: "cursor", next: "next_cursor", maxPages: 10 },
-  output: { items: "data" },
+  output: { items: "data", strip: ["image_url", "public_picture_url", "user.public_picture_url", "participants.user.public_picture_url", "last_message.sender.public_picture_url", "last_message.quoted.sender.public_picture_url", "last_message.forwarded.sender.public_picture_url"] },
 })
 
 export const listChatMessages = defineFunction({
@@ -299,7 +303,7 @@ export const listChatMessages = defineFunction({
     body: {},
     headers: {},
   },
-  output: { items: "data" },
+  output: { items: "data", strip: ["sender.public_picture_url", "quoted.sender.public_picture_url", "forwarded.sender.public_picture_url"] },
 })
 
 export const sendInvitation = defineFunction({
@@ -332,6 +336,7 @@ export const sendInvitation = defineFunction({
     body: {"user_id": "provider_id", "message": "message"},
     headers: {},
   },
+  output: { strip: ["user.public_picture_url"] },
   confirm: { summary: "Send a LinkedIn invitation to {provider_id} from the connected account; it cannot be withdrawn here." },
 })
 
@@ -417,6 +422,427 @@ export const resolveFacet = defineFunction({
     headers: {},
   },
   output: { items: "data" },
+})
+
+export const searchPeople = defineFunction({
+  name: "linkedin_unipile.search_people",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Search LinkedIn members with the classic product. Facets take ids already resolved: call resolve_facet first (LOCATION, COMPANY, INDUSTRY), keep the relevant ids, then search with them; a name instead of an id is refused. Classic filters include only, never exclude. The classic product often gives no total: an absent next_cursor does not prove the population is swept. For the next page, pass back next_cursor alone, without any other argument: the cursor carries the whole search. LinkedIn throttles searches per account: space the calls.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "keywords": {"type": "string", "minLength": 1, "personal": true, "description": "Keywords (a name, a job title…)."},
+      "advanced_keywords": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "personal": true,
+        "description": "Keywords by field.",
+        "properties": {
+          "first_name": {"type": "string", "minLength": 1},
+          "last_name": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "company": {"type": "string", "minLength": 1},
+          "school": {"type": "string", "minLength": 1}
+        }
+      },
+      "location": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"type": "string", "pattern": "^[0-9]+$"},
+        "description": "LOCATION facet ids, from resolve_facet."
+      },
+      "current_company": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"type": "string", "pattern": "^[0-9]+$"},
+        "description": "COMPANY facet ids of the current employer, from resolve_facet."
+      },
+      "industry": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"type": "string", "pattern": "^[0-9]+$"},
+        "description": "INDUSTRY facet ids, from resolve_facet."
+      },
+      "network_distance": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {"enum": [1, 2, 3]},
+        "description": "Connection degrees: 1 first, 2 second, 3 third and beyond."
+      },
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page, passed alone."}
+    },
+    "dependentSchemas": {"cursor": {"maxProperties": 1}}
+  },
+  examples: [
+    { title: "Engineers in a city", input: {"keywords": "data engineer", "location": ["105015875"]} },
+    { title: "First-degree relations at a company", input: {"current_company": ["1441"], "network_distance": [1]} },
+    { title: "By name", input: {"advanced_keywords": {"first_name": "Jane", "last_name": "Doe"}} },
+    { title: "Next page", input: {"cursor": "eyJsaW1pdCI6MTAsInN0YXJ0IjoxMH0"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/linkedin/search/people",
+    pathParams: [],
+    query: {"cursor": "cursor"},
+    body: {"keywords": "keywords", "advanced_keywords": "advanced_keywords", "location": "location", "current_company": "current_company", "industry": "industry", "network_distance": "network_distance"},
+    headers: {},
+  },
+  timeoutMs: 60000,
+  output: { items: "data", strip: ["public_picture_url", "public_picture_url_large"] },
+})
+
+export const searchCompanies = defineFunction({
+  name: "linkedin_unipile.search_companies",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Search LinkedIn companies with the classic product. Facets take ids already resolved: call resolve_facet first (LOCATION, INDUSTRY), keep the relevant ids, then search with them; a name instead of an id is refused. Classic filters include only, never exclude. For the next page, pass back next_cursor alone, without any other argument: the cursor carries the whole search. LinkedIn throttles searches per account: space the calls.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "keywords": {"type": "string", "minLength": 1, "description": "Keywords (a company name, an activity…)."},
+      "location": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"type": "string", "pattern": "^[0-9]+$"},
+        "description": "LOCATION facet ids, from resolve_facet."
+      },
+      "industry": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"type": "string", "pattern": "^[0-9]+$"},
+        "description": "INDUSTRY facet ids, from resolve_facet."
+      },
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page, passed alone."}
+    },
+    "dependentSchemas": {"cursor": {"maxProperties": 1}}
+  },
+  examples: [
+    { title: "Companies of an industry in a city", input: {"keywords": "software", "location": ["105015875"], "industry": ["4"]} },
+    { title: "Next page", input: {"cursor": "eyJsaW1pdCI6MTAsInN0YXJ0IjoxMH0"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/linkedin/search/companies",
+    pathParams: [],
+    query: {"cursor": "cursor"},
+    body: {"keywords": "keywords", "location": "location", "industry": "industry"},
+    headers: {},
+  },
+  timeoutMs: 60000,
+  output: { items: "data", strip: ["public_picture_url", "public_picture_url_large"] },
+})
+
+export const searchSalesNavigatorPeople = defineFunction({
+  name: "linkedin_unipile.search_sales_navigator_people",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Search LinkedIn members (leads) with Sales Navigator, under the selected contract. Facets take ids already resolved: call resolve_facet first (LOCATION, COMPANY, INDUSTRY), keep the relevant ids, then search with them; a name instead of an id is refused. Industries can be included or excluded; locations and employers are included only. A facet may not be applied by LinkedIn without any error: a zero on a faceted search does not prove an empty pool. For the next page, pass back next_cursor alone, without any other argument: the cursor carries the whole search.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "keywords": {"type": "string", "minLength": 1, "personal": true, "description": "Keywords (a name, a job title…)."},
+      "location": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["include"],
+        "description": "LOCATION facet ids to include, from resolve_facet.",
+        "properties": {"include": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}}}
+      },
+      "current_company": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["include"],
+        "description": "COMPANY facet ids of the current employer to include, from resolve_facet.",
+        "properties": {"include": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}}}
+      },
+      "industry": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "INDUSTRY facet ids to include or exclude, from resolve_facet.",
+        "properties": {
+          "include": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}},
+          "exclude": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}}
+        }
+      },
+      "network_distance": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {"enum": [1, 2, 3]},
+        "description": "Connection degrees: 1 first, 2 second, 3 third and beyond."
+      },
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page, passed alone."}
+    },
+    "dependentSchemas": {"cursor": {"maxProperties": 1}}
+  },
+  examples: [
+    { title: "Leads in a city outside an industry", input: {"keywords": "head of sales", "location": {"include": ["105015875"]}, "industry": {"exclude": ["4"]}} },
+    { title: "Leads at a company", input: {"current_company": {"include": ["1441"]}} },
+    { title: "Next page", input: {"cursor": "eyJsaW1pdCI6MjUsInN0YXJ0IjoyNX0"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/linkedin/sales-navigator/search/people",
+    pathParams: [],
+    query: {"cursor": "cursor"},
+    body: {"keywords": "keywords", "location": "location", "current_company": "current_company", "industry": "industry", "network_distance": "network_distance"},
+    headers: {},
+  },
+  timeoutMs: 60000,
+  output: { items: "data", strip: ["public_picture_url", "public_picture_url_large", "work_experience.company.picture_url", "education.school.picture_url", "volunteering.organization.picture_url"] },
+})
+
+export const searchSalesNavigatorCompanies = defineFunction({
+  name: "linkedin_unipile.search_sales_navigator_companies",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Search LinkedIn companies (accounts) with Sales Navigator, under the selected contract. Facets take ids already resolved: call resolve_facet first (LOCATION, INDUSTRY), keep the relevant ids, then search with them; a name instead of an id is refused. Industries can be included or excluded; locations are included only. For the next page, pass back next_cursor alone, without any other argument: the cursor carries the whole search.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "keywords": {"type": "string", "minLength": 1, "description": "Keywords (a company name, an activity…)."},
+      "location": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["include"],
+        "description": "LOCATION facet ids of the headquarters to include, from resolve_facet.",
+        "properties": {"include": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}}}
+      },
+      "industry": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "INDUSTRY facet ids to include or exclude, from resolve_facet.",
+        "properties": {
+          "include": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}},
+          "exclude": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}}
+        }
+      },
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page, passed alone."}
+    },
+    "dependentSchemas": {"cursor": {"maxProperties": 1}}
+  },
+  examples: [
+    { title: "Accounts of an industry in a city", input: {"keywords": "logistics", "location": {"include": ["105015875"]}, "industry": {"include": ["4"]}} },
+    { title: "Next page", input: {"cursor": "eyJsaW1pdCI6MjUsInN0YXJ0IjoyNX0"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/linkedin/sales-navigator/search/companies",
+    pathParams: [],
+    query: {"cursor": "cursor"},
+    body: {"keywords": "keywords", "location": "location", "industry": "industry"},
+    headers: {},
+  },
+  timeoutMs: 60000,
+  output: { items: "data", strip: ["public_picture_url", "public_picture_url_large"] },
+})
+
+export const searchRecruiterPeople = defineFunction({
+  name: "linkedin_unipile.search_recruiter_people",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Search LinkedIn members (candidates) with Recruiter, under the selected contract. Facets take ids already resolved: call resolve_facet first (LOCATION, COMPANY, INDUSTRY, SKILL), keep the relevant ids, then search with them; a name instead of an id is refused. A skill is given as {name: <SKILL id>}: the field is called name but carries the id, never the label; add priority DOESNT_HAVE to exclude it. Industries can be included or excluded; locations and employers are included only. Recruiter has no companies search. For the next page, pass back next_cursor alone, without any other argument: the cursor carries the whole search.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "keywords": {"type": "string", "minLength": 1, "personal": true, "description": "Keywords (a name, a job title…)."},
+      "location": {
+        "type": "array",
+        "minItems": 1,
+        "description": "LOCATION facets, each by its id from resolve_facet.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {"id": {"type": "string", "pattern": "^[0-9]+$"}}
+        }
+      },
+      "current_company": {
+        "type": "array",
+        "minItems": 1,
+        "description": "COMPANY facets of the current employer, each by its id from resolve_facet.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {"id": {"type": "string", "pattern": "^[0-9]+$"}}
+        }
+      },
+      "industry": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "INDUSTRY facet ids to include or exclude, from resolve_facet.",
+        "properties": {
+          "include": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}},
+          "exclude": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9]+$"}}
+        }
+      },
+      "network_distance": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {"enum": [1, 2, 3]},
+        "description": "Connection degrees: 1 first, 2 second, 3 third and beyond."
+      },
+      "skills": {
+        "type": "array",
+        "minItems": 1,
+        "description": "SKILL facets: the id from resolve_facet in name; priority DOESNT_HAVE excludes the skill.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {"type": "string", "pattern": "^[0-9]+$", "description": "The SKILL facet id (not its label)."},
+            "priority": {"enum": ["DOESNT_HAVE"]}
+          }
+        }
+      },
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page, passed alone."}
+    },
+    "dependentSchemas": {"cursor": {"maxProperties": 1}}
+  },
+  examples: [
+    { title: "Candidates with a skill in a city", input: {"keywords": "data engineer", "location": [{"id": "105015875"}], "skills": [{"name": "1234"}]} },
+    { title: "Excluding a skill and an industry", input: {"skills": [{"name": "1234"}, {"name": "5678", "priority": "DOESNT_HAVE"}], "industry": {"exclude": ["4"]}} },
+    { title: "Next page", input: {"cursor": "eyJsaW1pdCI6MjUsInN0YXJ0IjoyNX0"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/linkedin/recruiter/search/people",
+    pathParams: [],
+    query: {"cursor": "cursor"},
+    body: {"keywords": "keywords", "location": "location", "current_company": "current_company", "industry": "industry", "network_distance": "network_distance", "skills": "skills"},
+    headers: {},
+  },
+  timeoutMs: 60000,
+  output: { items: "data", strip: ["public_picture_url", "public_picture_url_large", "work_experience.company.picture_url", "education.school.picture_url", "certifications.organization.picture_url", "volunteering.organization.picture_url", "projects.contributors.public_picture_url", "recommendations.user.public_picture_url"] },
+})
+
+export const searchByUrl = defineFunction({
+  name: "linkedin_unipile.search_by_url",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Run a classic LinkedIn search from its URL, pasted from the browser (linkedin.com/search/results/…): the filters are those of the URL. The results can be members, companies, posts or jobs, as the URL says. For the next page, pass next_cursor alone to search_people or search_companies, as the URL's target. Prefer the structured search to control the filters.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["url"],
+    "properties": {
+      "url": {
+        "type": "string",
+        "pattern": "^https://",
+        "personal": true,
+        "description": "LinkedIn search URL, pasted from the browser."
+      }
+    }
+  },
+  examples: [
+    { title: "A pasted search", input: {"url": "https://www.linkedin.com/search/results/people/?keywords=data%20engineer"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/linkedin/search",
+    pathParams: [],
+    query: {},
+    body: {"url": "url"},
+    headers: {},
+  },
+  timeoutMs: 75000,
+  output: { items: "data", strip: ["public_picture_url", "public_picture_url_large", "company.public_picture_url", "author.public_picture_url", "reposted_by.public_picture_url", "event.public_picture_url", "quoted_post.author.public_picture_url", "quoted_post.event.public_picture_url"] },
+})
+
+export const searchSalesNavigatorByUrl = defineFunction({
+  name: "linkedin_unipile.search_sales_navigator_by_url",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Run a Sales Navigator search from its URL, pasted from the browser (linkedin.com/sales/search/…), under the selected contract: the filters are those of the URL. For the next page, pass next_cursor alone to search_sales_navigator_people or search_sales_navigator_companies, as the URL's target. Prefer the structured search to control the filters.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["url"],
+    "properties": {
+      "url": {
+        "type": "string",
+        "pattern": "^https://",
+        "personal": true,
+        "description": "Sales Navigator search URL, pasted from the browser."
+      }
+    }
+  },
+  examples: [
+    { title: "A pasted Sales Navigator search", input: {"url": "https://www.linkedin.com/sales/search/people?query=(keywords%3Ahead%20of%20sales)"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/linkedin/sales-navigator/search",
+    pathParams: [],
+    query: {},
+    body: {"url": "url"},
+    headers: {},
+  },
+  timeoutMs: 75000,
+  output: { items: "data", strip: ["public_picture_url", "public_picture_url_large", "work_experience.company.picture_url", "education.school.picture_url", "volunteering.organization.picture_url", "associated_account.public_picture_url", "recommended_lead.public_picture_url", "recommended_lead.public_picture_url_large", "recommended_lead.work_experience.company.picture_url", "recommended_lead.education.school.picture_url", "recommended_lead.volunteering.organization.picture_url"] },
+})
+
+export const searchRecruiterByUrl = defineFunction({
+  name: "linkedin_unipile.search_recruiter_by_url",
+  connector: "linkedin_unipile",
+  class: "read",
+  act: false,
+  description: "Run a Recruiter search from its URL, pasted from the browser (linkedin.com/talent/search/…), under the selected contract: the filters are those of the URL. Unreliable: an expired search context makes the call hang until it fails; prefer search_recruiter_people. For the next page, pass next_cursor alone to search_recruiter_people.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["url"],
+    "properties": {
+      "url": {
+        "type": "string",
+        "pattern": "^https://",
+        "personal": true,
+        "description": "Recruiter search URL, pasted from the browser."
+      }
+    }
+  },
+  examples: [
+    { title: "A pasted Recruiter search", input: {"url": "https://www.linkedin.com/talent/search?searchContextId=0000-sample"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/linkedin/recruiter/search",
+    pathParams: [],
+    query: {},
+    body: {"url": "url"},
+    headers: {},
+  },
+  timeoutMs: 75000,
+  output: { items: "data", strip: ["public_picture_url", "public_picture_url_large", "work_experience.company.picture_url", "education.school.picture_url", "certifications.organization.picture_url", "volunteering.organization.picture_url", "projects.contributors.public_picture_url", "recommendations.user.public_picture_url", "profile.public_picture_url", "profile.public_picture_url_large", "profile.work_experience.company.picture_url", "profile.education.school.picture_url", "profile.certifications.organization.picture_url", "profile.volunteering.organization.picture_url", "profile.projects.contributors.public_picture_url", "profile.recommendations.user.public_picture_url"] },
 })
 
 export const listContracts = defineFunction({
@@ -722,7 +1148,7 @@ export const connector = defineConnector({
   name: "linkedin_unipile",
   label: "LinkedIn (Unipile)",
   namespace: "linkedin_unipile",
-  version: "1.2.0",
+  version: "1.3.0",
   apiVersion: "v2",
   baseUrl: "https://api.unipile.com/v2/{account_id}",
   auth: {"kind": "api_key", "in": "header", "name": "X-API-KEY", "key": "api_key"},
@@ -753,6 +1179,14 @@ export const connector = defineConnector({
     sendInvitation,
     sendMessage,
     resolveFacet,
+    searchPeople,
+    searchCompanies,
+    searchSalesNavigatorPeople,
+    searchSalesNavigatorCompanies,
+    searchRecruiterPeople,
+    searchByUrl,
+    searchSalesNavigatorByUrl,
+    searchRecruiterByUrl,
     listContracts,
     selectContract,
     inmailBalance,

@@ -18,9 +18,10 @@ families:
 # Client décrit sous un autre nom, ou en partie seulement.
 described_by:
   # La description linkedin_unipile couvre tout le client : le transport commun, profils, entreprises, relations,
-  # invitations, posts, messagerie, la recherche (facettes), le fil d'actualité et les produits premium (contrats,
-  # InMail, offres d'emploi, candidats, projets Recruiter). Restent au client, nommées dans la description, les méthodes
-  # que le format ne sait pas dire (search, member_action, get_feed).
+  # invitations, posts, messagerie, la recherche (facettes, et `search` en huit fonctions, écart décidé par Alexis),
+  # le fil d'actualité, les produits premium (contrats, InMail, offres d'emploi, candidats, projets Recruiter) et les
+  # adresses ouvertes retirées des réponses. Restent au client, nommées dans la description, les méthodes que le format
+  # ne sait pas dire (member_action, get_feed).
   unipile/client.py: linkedin_unipile
   unipile/const.py: linkedin_unipile
   unipile/errors.py: linkedin_unipile
@@ -32,6 +33,7 @@ described_by:
   unipile/_api/search.py: linkedin_unipile
   unipile/_api/premium.py: linkedin_unipile
   unipile/feed.py: linkedin_unipile
+  unipile/open_addresses.py: linkedin_unipile
   google/gmail: gmail
   google/drive: google_drive
   google/calendar: google_calendar

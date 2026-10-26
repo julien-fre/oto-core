@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 from ..const import _SCRAPE_TIMEOUT, _sections_param, _slug_from_company_url
 from ..errors import UnipileError
+from ..open_addresses import without_open_addresses
 
 
 class _ProfilesMixin:
@@ -54,7 +55,7 @@ class _ProfilesMixin:
                 f"received {got!r} (object={(data or {}).get('object')!r}). "
                 "Response rejected — retry."
             )
-        return data
+        return without_open_addresses("get_profile", data)
 
     def _get_company_raw(self, identifier: str) -> dict:
         """Raw company GET + #153 anti-mismatch guard. Raises as is
@@ -70,7 +71,7 @@ class _ProfilesMixin:
                 f"received {got!r} (object={(data or {}).get('object')!r}). "
                 "Response rejected — retry."
             )
-        return data
+        return without_open_addresses("get_company", data)
 
     def _resolve_company_slugs(self, name: str, limit: int = 5) -> list[str]:
         """#176: search companies by name → candidate `public_identifier`s,

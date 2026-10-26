@@ -13,6 +13,7 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 from ..errors import UnipileError
+from ..open_addresses import without_open_addresses
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class _MessagingMixin:
                 params=params),
             lambda: self._request("GET", self._acct("/chats"), params=params),
             "list_chats"))
+        without_open_addresses("list_chats", data, listed=True)
         if with_attendee_names:
             self._annotate_chat_attendees(data)
         return data
@@ -168,10 +170,10 @@ class _MessagingMixin:
 
     def list_messages(self, chat_id: str, limit: int = 50) -> dict:
         params = {"limit": limit}
-        return self._norm(self._request(
+        return without_open_addresses("list_chat_messages", self._norm(self._request(
             "GET", self._acct(f"/chats/{quote(chat_id, safe='')}/messages"),
             params=params,
-        ))
+        )), listed=True)
 
     def send_message(
         self,

@@ -12,6 +12,22 @@ from typing import Any, Optional
 
 from ..const import _API_PREFIX, _SCRAPE_TIMEOUT, _URL_SEARCH_TIMEOUT
 from ..errors import UnipileError
+from ..open_addresses import without_open_addresses
+
+# The function of the description `linkedin_unipile` that describes each search: one per
+# product and category (Recruiter has no companies search), and one per product by pasted URL.
+SEARCH_FUNCTIONS = {
+    ("classic", "people"): "search_people",
+    ("classic", "companies"): "search_companies",
+    ("sales_navigator", "people"): "search_sales_navigator_people",
+    ("sales_navigator", "companies"): "search_sales_navigator_companies",
+    ("recruiter", "people"): "search_recruiter_people",
+}
+SEARCH_BY_URL_FUNCTIONS = {
+    "classic": "search_by_url",
+    "sales_navigator": "search_sales_navigator_by_url",
+    "recruiter": "search_recruiter_by_url",
+}
 
 
 class _SearchMixin:
@@ -69,6 +85,14 @@ class _SearchMixin:
         `{include?, exclude?}`. The encoding shapes vary by PRODUCT and by
         FACET (verified live, see `_facet_field`) — the caller just passes names/ids."""
         prefix = _API_PREFIX.get(api, _API_PREFIX["classic"])
+        api_norm = api if api in _API_PREFIX else "classic"
+        cat = "companies" if category == "companies" else "people"
+        function = SEARCH_FUNCTIONS.get((api_norm, cat))
+        if function is None and not url:
+            raise UnipileError(
+                f"search: api={api!r} has no {cat} search (Unipile v2 serves people "
+                "only for Recruiter). Use category='people', or api='classic' / "
+                "'sales_navigator' for companies.")
         # #238: CURSOR-ONLY pagination. The cursor ALREADY encodes the whole request
         # (keywords + facets). We do NOT rebuild the body and do NOT re-resolve
         # the facets (each name→id = an upstream GET; stacked, they made the Recruiter
@@ -76,18 +100,18 @@ class _SearchMixin:
         # structured endpoint. (A search by `url` doesn't produce a
         # cursor → all pagination is structured.)
         if cursor:
-            cat = "companies" if category == "companies" else "people"
-            return self._norm(self._request(
+            return without_open_addresses(function, self._norm(self._request(
                 "POST", self._acct(f"{prefix}/{cat}"),
-                params={"cursor": cursor}, json={}, timeout=_SCRAPE_TIMEOUT))
+                params={"cursor": cursor}, json={}, timeout=_SCRAPE_TIMEOUT)), listed=True)
         params: dict[str, Any] = {}
 
         # Search by pasted URL: the product's from-url endpoint, body {url}.
         if url:
             try:
-                return self._norm(self._request(
-                    "POST", self._acct(prefix), params=params, json={"url": url},
-                    timeout=_URL_SEARCH_TIMEOUT))
+                return without_open_addresses(
+                    SEARCH_BY_URL_FUNCTIONS[api_norm], self._norm(self._request(
+                        "POST", self._acct(prefix), params=params, json={"url": url},
+                        timeout=_URL_SEARCH_TIMEOUT)), listed=True)
             except UnipileError as e:
                 # Network/timeout WITHOUT HTTP status = the from-url endpoint never
                 # answered → most likely an expired/dead searchContextId (#238).
@@ -101,8 +125,6 @@ class _SearchMixin:
                         "keywords/company/location) then paginate by cursor.") from e
                 raise
 
-        cat = "companies" if category == "companies" else "people"
-        api_norm = api if api in _API_PREFIX else "classic"
         path = f"{prefix}/{cat}"
         body: dict[str, Any] = {}
         if keywords:
@@ -143,10 +165,10 @@ class _SearchMixin:
                                    dict_input=isinstance(skills, dict))
             if sk is not None:
                 body["skills"] = sk
-        return self._norm(self._request(
+        return without_open_addresses(function, self._norm(self._request(
             "POST", self._acct(path), params=params, json=body,
             timeout=_SCRAPE_TIMEOUT,
-        ))
+        )), listed=True)
 
     def _facet_field(self, facet_type: str, value, api: str,
                      dict_input: bool = False):
