@@ -61,6 +61,7 @@ without_description:
   ubersuggest: { category: not_describable, reason: "transport MCP en JSON-RPC sur un seul point d'entrée ; client OAuth public obtenu par enregistrement dynamique" }
   wordpress: { category: not_describable, reason: "la racine REST se découvre à l'appel (/wp-json/ ou ?rest_route=) ; téléversement de média en corps binaire" }
   zeendoc: { category: not_describable, reason: "session ouverte par le login d'un compte utilisateur, portée par un cookie ; texte et fichiers servis par des pages de l'application, document absent signalé par une redirection" }
+  zohosign: { category: not_describable, reason: "consentement lié au data center : l'adresse d'autorisation change d'hôte par région (accounts.zoho.com.au, accounts.zohocloud.ca), ce qu'aucun gabarit ne dit et qu'aucune table par réglage ne donne pour authorize_url ; création depuis un modèle en corps formulaire, un document JSON dans un champ" }
   google/bigquery: { category: not_describable, reason: "SDK de Google, pas de requête HTTP décrite" }
   # De principe : client d'un service d'oto, pas d'un tiers.
   datastore: { category: oto_service, reason: "client d'un service d'oto (son serveur MCP), pas d'un tiers" }
