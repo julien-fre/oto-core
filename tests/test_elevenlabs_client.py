@@ -190,3 +190,27 @@ def test_upstream_error_is_typed(cli, capture):
         cli.create_speech("voice1", "text")
     assert e.value.status_code == 401
     assert e.value.body["detail"]["status"] == "quota_exceeded"
+
+
+def test_transcribe_sends_multipart_and_returns_json(cli, capture):
+    capture["responses"].append(_Resp(200, body={"text": "Bonjour", "language_code": "fra"}))
+    out = cli.transcribe_speech(b"webm-bytes", filename="clip.webm", content_type="audio/webm",
+                                language_code="fr")
+    assert capture["method"] == "POST"
+    assert capture["url"] == el.BASE_URL + "/v1/speech-to-text"
+    assert capture["kwargs"]["data"] == {"model_id": el.TRANSCRIBE_MODEL, "language_code": "fr"}
+    assert capture["kwargs"]["files"] == {"file": ("clip.webm", b"webm-bytes", "audio/webm")}
+    assert "params" not in capture["kwargs"] and "json" not in capture["kwargs"]
+    assert out == {"text": "Bonjour", "language_code": "fra"}
+
+
+@pytest.mark.parametrize("bad", [b"", "text", None])
+def test_transcribe_needs_bytes(cli, bad):
+    with pytest.raises(ValueError):
+        cli.transcribe_speech(bad)
+
+
+def test_transcribe_bounded(cli, monkeypatch):
+    monkeypatch.setattr(el, "MAX_TRANSCRIBE_BYTES", 4)
+    with pytest.raises(ValueError):
+        cli.transcribe_speech(b"12345")

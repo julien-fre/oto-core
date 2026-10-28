@@ -55,6 +55,11 @@ BASE_URL = "https://api.elevenlabs.io"
 _READ_TIMEOUT = (10, 60)
 _SPEECH_TIMEOUT = (10, 180)
 _MUSIC_TIMEOUT = (10, 600)
+#: Scribe, ElevenLabs' speech-to-text model.
+TRANSCRIBE_MODEL = "scribe_v2"
+#: The largest clip sent inline. The API takes far more; a caller that needs it
+#: uploads elsewhere. 25 MB is minutes of compressed speech.
+MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024
 
 DEFAULT_OUTPUT_FORMAT = "mp3_44100_128"
 
@@ -275,3 +280,25 @@ class ElevenLabsClient:
                 **audio_type(fmt),
             })
         return {"text": data.get("text"), "previews": previews}
+
+    # --- transcription -----------------------------------------------------
+
+    def transcribe_speech(self, audio: bytes, *, filename: str = "audio.webm",
+                          content_type: Optional[str] = None,
+                          model_id: str = TRANSCRIBE_MODEL,
+                          language_code: Optional[str] = None) -> Dict[str, Any]:
+        """Speech to text (Scribe): the words said in `audio`, a recorded clip
+        sent as multipart. `language_code` (ISO 639-1 or -3) pins the language;
+        omitted, the model detects it. Returns the JSON as is: `text`,
+        `language_code`, `language_probability`, `words` (each with its start
+        and end, in seconds). Billed per second of audio, not per character."""
+        if not isinstance(audio, (bytes, bytearray)) or not audio:
+            raise ValueError("`audio` must be non-empty bytes.")
+        if len(audio) > MAX_TRANSCRIBE_BYTES:
+            raise ValueError(f"`audio` is over {MAX_TRANSCRIBE_BYTES} bytes.")
+        form = _clean({"model_id": model_id, "language_code": language_code})
+        files = {"file": (filename, bytes(audio), content_type or "application/octet-stream")}
+        resp = self.session.request("POST", f"{BASE_URL}/v1/speech-to-text", data=form,
+                                    files=files, timeout=_SPEECH_TIMEOUT)
+        raise_for_upstream(resp, service="elevenlabs")
+        return resp.json()
