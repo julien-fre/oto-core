@@ -3,7 +3,8 @@
 # Only the JSON reads are described here. The four generations of the Python client
 # (create_speech, create_music, create_sound, create_voice_design) answer audio, as
 # bytes or as base64 inside JSON, which the format cannot say yet ("réponse autre
-# que JSON", docs/conception/format-de-description.md): they stay out of this file.
+# que JSON", docs/conception/format-de-description.md): they stay out of this file,
+# like transcribe_speech, whose input is a multipart audio upload.
 connector:
   name: elevenlabs
   label: ElevenLabs
