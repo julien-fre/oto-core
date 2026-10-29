@@ -23,6 +23,9 @@ What the caller needs to know, and cannot guess:
   cost field: `credits_spent` derives it from what the answer holds.
 - **Personal email** needs the account owner's consent in Pipecorn's settings (422
   otherwise).
+- **Profiles, accounts, technologies, jobs** (main host, synchronous): a person 1
+  credit and a company 1 credit when resolved, a technology stack 3 credits per
+  request, job postings 1 credit per job returned.
 - **Credit errors.** 402 `insufficient_credits` (balance too low, nothing spent), 403
   `workspace_limit_exceeded` (the member's weekly cap). Credit-spending routes are
   exempt from rate limits.
@@ -53,6 +56,8 @@ PHONE_TYPES = ("all", "mobile")
 CREDITS = {"email": 3, "personal_email": 9, "phone": 30}
 #: Line types a phone is billed on — and that `phone_type=["mobile"]` keeps.
 MOBILE_TYPES = frozenset({"mobile", "fixed_or_mobile"})
+#: The look-back windows the job postings accept, in days.
+HIRING_WINDOWS = (7, 30, 60, 90, 180)
 
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
 # An enrichment id lands in the path: a UUID, so that no value can reshape the URL.
@@ -209,6 +214,105 @@ class PipecornClient:
             raise ValueError("`enrichment_id` must be the id an enrichment returned "
                              f"(a UUID); got {enrichment_id!r}.")
         return self._call("GET", f"{self.BASE_URL}/contacts/{ident}")
+
+    # --- profiles, accounts, technologies, jobs (synchronous, main host) -------
+
+    def enrich_person(self, *, linkedin_url: Optional[str] = None,
+                      first_name: Optional[str] = None, last_name: Optional[str] = None,
+                      company_name: Optional[str] = None) -> Dict[str, Any]:
+        """`POST /leads/single_enrich` — one person's profile from Pipecorn's database
+        (title, current and past positions with each company's domain, headline,
+        location, tenure). By `linkedin_url`, or `first_name` + `last_name` +
+        `company_name`. No email or phone here (that is the enrichment). 1 credit when
+        a person is resolved, nothing on a miss."""
+        if linkedin_url:
+            body: Dict[str, Any] = {"linkedin_url": linkedin_url.strip()}
+        elif first_name and last_name and company_name:
+            body = {"first_name": first_name.strip(), "last_name": last_name.strip(),
+                    "company_name": company_name.strip()}
+        else:
+            raise ValueError("A person needs `linkedin_url`, or `first_name`, `last_name` "
+                             "and `company_name`.")
+        return self._call("POST", f"{self.BASE_URL}/leads/single_enrich", json=body)
+
+    def enrich_account(self, *, domain: Optional[str] = None, name: Optional[str] = None,
+                       linkedin_url: Optional[str] = None,
+                       country_code: Optional[str] = None) -> Dict[str, Any]:
+        """`POST /accounts/single_enrich` — one company's firmographics from Pipecorn's
+        database (industry, headcount and its growth, department headcount, revenue
+        range, headquarters, funding, web traffic). By `domain`, `name` and/or the
+        company's `linkedin_url` (the more, the closer the match); `country_code` (ISO
+        alpha-2) narrows a name. 1 credit when a company is resolved, nothing on a
+        miss."""
+        body = self._company(domain, name, linkedin_url,
+                             keys=("domain", "name", "company_linkedin_url"))
+        if country_code is not None:
+            code = str(country_code).strip().upper()
+            if not _COUNTRY.match(code):
+                raise ValueError(f"`country_code` must be ISO alpha-2 (FR, US…); got "
+                                 f"{country_code!r}.")
+            body["country_code"] = code
+        return self._call("POST", f"{self.BASE_URL}/accounts/single_enrich", json=body)
+
+    def company_stack(self, *, domain: Optional[str] = None, name: Optional[str] = None,
+                      linkedin_url: Optional[str] = None) -> Dict[str, Any]:
+        """`POST /accounts/company_stack` — the technologies a company uses:
+        `technologies` (names) and `technologies_with_confidence` [{name, confidence}].
+        3 credits per request."""
+        body = self._company(domain, name, linkedin_url)
+        return self._call("POST", f"{self.BASE_URL}/accounts/company_stack", json=body)
+
+    def company_hiring(self, *, domain: Optional[str] = None, name: Optional[str] = None,
+                       linkedin_url: Optional[str] = None,
+                       posted_within_days: Optional[int] = None,
+                       limit: Optional[int] = None,
+                       full_description: Optional[bool] = None,
+                       job_title_keywords: Optional[List[str]] = None,
+                       excluded_job_title_keywords: Optional[List[str]] = None,
+                       job_country_codes: Optional[List[str]] = None) -> Dict[str, Any]:
+        """`POST /accounts/company_hiring` — a company's open job postings: `total_jobs`,
+        `truncated`, `company`, `jobs` [{job_title, job_url, job_location,
+        employment_statuses, date_posted, description, hiring_team}]. 1 credit PER JOB
+        returned (`limit`, at most 100, bounds it); none found, nothing spent.
+        `posted_within_days`: 7, 30 (default), 60, 90 or 180."""
+        body = self._company(domain, name, linkedin_url)
+        if posted_within_days is not None:
+            if posted_within_days not in HIRING_WINDOWS:
+                raise ValueError("`posted_within_days` must be one of "
+                                 f"{', '.join(map(str, HIRING_WINDOWS))}; got "
+                                 f"{posted_within_days!r}.")
+            body["posted_within_days"] = posted_within_days
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+                raise ValueError(f"`limit` must be an integer from 1 to 100; got {limit!r}.")
+            body["limit"] = limit
+        if full_description is not None:
+            body["full_description"] = bool(full_description)
+        for name_, values in (("job_title_keywords", job_title_keywords),
+                              ("excluded_job_title_keywords", excluded_job_title_keywords)):
+            if values is not None:
+                if isinstance(values, str) or not isinstance(values, (list, tuple)) \
+                        or not all(isinstance(v, str) and v.strip() for v in values):
+                    raise ValueError(f"`{name_}` must be a list of texts; got {values!r}.")
+                body[name_] = [v.strip() for v in values]
+        if job_country_codes is not None:
+            codes = [str(c).strip().upper() for c in job_country_codes]
+            if not codes or not all(_COUNTRY.match(c) for c in codes):
+                raise ValueError("`job_country_codes` must be a non-empty list of ISO "
+                                 f"alpha-2 codes; got {job_country_codes!r}.")
+            body["job_country_codes"] = codes
+        return self._call("POST", f"{self.BASE_URL}/accounts/company_hiring", json=body)
+
+    @staticmethod
+    def _company(domain, name, linkedin_url,
+                 keys=("company_domain", "company_name", "company_linkedin_url")
+                 ) -> Dict[str, Any]:
+        """A company by any of domain, name, LinkedIn page — at least one."""
+        body = {k: v.strip() for k, v in zip(keys, (domain, name, linkedin_url))
+                if isinstance(v, str) and v.strip()}
+        if not body:
+            raise ValueError("A company needs `domain`, `name` or `linkedin_url`.")
+        return body
 
     def _body(self, enrichment_type, linkedin_url, firstname, lastname, domain,
               company_name, phone_type, phone_country_codes, custom) -> Dict[str, Any]:

@@ -180,3 +180,56 @@ def test_credits_spent_reads_an_async_result():
     result = {"status": "finished", "phone": ["+33612345678"],
               "phone_details": [{"number": "+33612345678", "type": "mobile"}]}
     assert credits_spent(result, ["phone"]) == 30
+
+
+# --- profiles, accounts, technologies, jobs ---------------------------------------
+
+APP = "https://app.pipecorn.com/api/v2"
+
+
+def test_person_by_profile_or_by_name_at_a_company(client):
+    client.enrich_person(linkedin_url=" https://www.linkedin.com/in/x/ ")
+    assert _sent(client)[:2] == ("POST", f"{APP}/leads/single_enrich")
+    assert _sent(client)[2]["json"] == {"linkedin_url": "https://www.linkedin.com/in/x/"}
+    client.enrich_person(first_name="Ada", last_name="Lovelace", company_name="Acme")
+    assert _sent(client)[2]["json"] == {"first_name": "Ada", "last_name": "Lovelace",
+                                        "company_name": "Acme"}
+
+
+def test_person_needs_a_way_in(client):
+    with pytest.raises(ValueError, match="company_name"):
+        client.enrich_person(first_name="Ada", last_name="Lovelace")
+    client.session.request.assert_not_called()
+
+
+def test_account_body_names_its_own_keys(client):
+    client.enrich_account(domain="acme.com", name="Acme", country_code="fr")
+    assert _sent(client)[:2] == ("POST", f"{APP}/accounts/single_enrich")
+    assert _sent(client)[2]["json"] == {"domain": "acme.com", "name": "Acme",
+                                        "country_code": "FR"}
+
+
+def test_stack_and_hiring_take_company_keys(client):
+    client.company_stack(domain="acme.com")
+    assert _sent(client)[:2] == ("POST", f"{APP}/accounts/company_stack")
+    assert _sent(client)[2]["json"] == {"company_domain": "acme.com"}
+    client.company_hiring(name="Acme", posted_within_days=90, limit=20,
+                          job_title_keywords=["sales"], job_country_codes=["fr"])
+    assert _sent(client)[:2] == ("POST", f"{APP}/accounts/company_hiring")
+    assert _sent(client)[2]["json"] == {"company_name": "Acme", "posted_within_days": 90,
+                                        "limit": 20, "job_title_keywords": ["sales"],
+                                        "job_country_codes": ["FR"]}
+
+
+@pytest.mark.parametrize("kwargs, match", [
+    ({}, "domain"),
+    ({"domain": "acme.com", "posted_within_days": 14}, "posted_within_days"),
+    ({"domain": "acme.com", "limit": 0}, "limit"),
+    ({"domain": "acme.com", "limit": 101}, "limit"),
+    ({"domain": "acme.com", "job_title_keywords": "sales"}, "job_title_keywords"),
+    ({"domain": "acme.com", "job_country_codes": ["FRA"]}, "job_country_codes"),
+])
+def test_hiring_refuses_before_any_call(client, kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        client.company_hiring(**kwargs)
+    client.session.request.assert_not_called()
