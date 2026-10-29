@@ -250,3 +250,14 @@ def test_every_example_replays_as_described(capture, cli, fn, args):
     expected = [pair for api, arg in (call.get("query") or {}).items() if arg in args
                 for pair in _encoded(api, args[arg])]
     assert sorted(capture["kwargs"]["params"] or []) == sorted(expected)
+
+
+def test_per_page_is_capped_where_the_yaml_caps_it(cli):
+    """100 on most lists, 500 on client invoices and quotes: refused in the client,
+    before any call, as the yaml declares."""
+    with pytest.raises(ValueError, match="100 at most"):
+        cli.list_labels(per_page=101)
+    with pytest.raises(ValueError, match="500 at most"):
+        cli.list_quotes(per_page=501)
+    with pytest.raises(ValueError, match="500 at most"):
+        cli.list_client_invoices(per_page=501)

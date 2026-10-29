@@ -190,9 +190,14 @@ class QontoClient:
         raise_for_upstream(last, service="qonto")
         return last.json() if last.content else {}
 
-    def _page(self, page: Optional[int], per_page: Optional[int]) -> Dict[str, Any]:
-        return {"page": self._positive("page", page),
-                "per_page": self._positive("per_page", per_page)}
+    def _page(self, page: Optional[int], per_page: Optional[int],
+              most: int = 100) -> Dict[str, Any]:
+        """`per_page` is capped where the yaml caps it (100; 500 for client invoices
+        and quotes): an out-of-range value is refused here, not left to Qonto."""
+        size = self._positive("per_page", per_page)
+        if size is not None and size > most:
+            raise ValueError(f"`per_page` must be {most} at most; got {size}.")
+        return {"page": self._positive("page", page), "per_page": size}
 
     # --- probe --------------------------------------------------------------
 
@@ -417,7 +422,7 @@ class QontoClient:
             "filter[due_date_to]": self._when("due_date_to", due_date_to),
             "exclude_imported": self._flag(exclude_imported),
             "sort_by": self._choice("sort_by", sort_by, ("created_at:asc", "created_at:desc")),
-            **self._page(page, per_page),
+            **self._page(page, per_page, most=500),
         })
 
     def get_client_invoice(self, client_invoice_id: str) -> Any:
@@ -450,7 +455,7 @@ class QontoClient:
             "filter[created_at_from]": self._when("created_at_from", created_at_from),
             "filter[created_at_to]": self._when("created_at_to", created_at_to),
             "sort_by": self._choice("sort_by", sort_by, ("created_at:asc", "created_at:desc")),
-            **self._page(page, per_page),
+            **self._page(page, per_page, most=500),
         })
 
     def list_clients(self, *, name: Optional[str] = None,
