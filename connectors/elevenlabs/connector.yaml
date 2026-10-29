@@ -9,7 +9,7 @@ connector:
   name: elevenlabs
   label: ElevenLabs
   namespace: elevenlabs
-  version: 1.0.0
+  version: 1.0.1
   api_version: v1 (voices on v2)
   base_url: https://api.elevenlabs.io
   auth:

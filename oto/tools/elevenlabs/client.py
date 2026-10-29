@@ -1,6 +1,7 @@
 """ElevenLabs API client (https://elevenlabs.io/docs/api-reference) — voices,
-models and the account's credit balance, and four generations: speech (with
-or without per-character timings), music, sound effects and voice design.
+models and the account's credit balance, four generations: speech (with or
+without per-character timings), music, sound effects and voice design — and
+speech to text (Scribe), which transcribes a recorded clip.
 
 Authenticated by the **`xi-api-key`** header. Host `https://api.elevenlabs.io`;
 every path carries its version (`/v1/…`, `/v2/voices`). Reads return the parsed
@@ -11,7 +12,9 @@ it) is the caller's business.
 ## Protocol facts that shape a caller
 
 - **Every generation spends the account's credits** (characters for speech,
-  per second for music and sound). A POST is never retried here: there is no
+  per second for music and sound), and so does a **transcription**, per second
+  of audio: the size cap below bounds the bytes, not the duration — a caller
+  that meters spending must know the clip's length. A POST is never retried here: there is no
   idempotency key, a replay would bill twice.
 - **A key may be restricted** to some endpoints when it is created. A
   restricted key without `user_read` cannot read the balance (`probe`), and one
@@ -64,6 +67,8 @@ MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024
 DEFAULT_OUTPUT_FORMAT = "mp3_44100_128"
 
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# Scribe: a model id, and an ISO 639-1 or 639-3 language code (2 or 3 letters).
+_LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}$")
 _OUTPUT_FORMAT = re.compile(r"^(mp3|pcm|ulaw|alaw|opus|wav)_\d{4,5}(_\d{2,3})?$")
 
 # The container each codec comes back in, and the extension a file of it takes.
@@ -296,6 +301,13 @@ class ElevenLabsClient:
             raise ValueError("`audio` must be non-empty bytes.")
         if len(audio) > MAX_TRANSCRIBE_BYTES:
             raise ValueError(f"`audio` is over {MAX_TRANSCRIBE_BYTES} bytes.")
+        if not isinstance(model_id, str) or not _ID.match(model_id):
+            raise ValueError(f"`model_id` must be a model id (e.g. {TRANSCRIBE_MODEL}); "
+                             f"got {model_id!r}.")
+        if language_code is not None and (
+                not isinstance(language_code, str) or not _LANGUAGE_CODE.match(language_code)):
+            raise ValueError("`language_code` must be an ISO 639-1 or 639-3 code in lower "
+                             f"case (fr, en, fra); got {language_code!r}.")
         form = _clean({"model_id": model_id, "language_code": language_code})
         files = {"file": (filename, bytes(audio), content_type or "application/octet-stream")}
         resp = self.session.request("POST", f"{BASE_URL}/v1/speech-to-text", data=form,

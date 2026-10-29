@@ -214,3 +214,11 @@ def test_transcribe_bounded(cli, monkeypatch):
     monkeypatch.setattr(el, "MAX_TRANSCRIBE_BYTES", 4)
     with pytest.raises(ValueError):
         cli.transcribe_speech(b"12345")
+
+
+@pytest.mark.parametrize("champ, valeur", [
+    ("model_id", "scribe v2"), ("model_id", ""), ("language_code", "FR"),
+    ("language_code", "french"), ("language_code", "f")])
+def test_transcribe_refuses_a_malformed_model_or_language(cli, champ, valeur):
+    with pytest.raises(ValueError, match=champ):
+        cli.transcribe_speech(b"x", **{champ: valeur})
