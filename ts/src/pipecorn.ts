@@ -142,6 +142,208 @@ export const getAccountInfo = defineFunction({
   },
 })
 
+export const enrichPerson = defineFunction({
+  name: "pipecorn.enrich_person",
+  connector: "pipecorn",
+  class: "write",
+  act: true,
+  description: "One person's profile from Pipecorn's database: title, current and past positions with each company's domain, headline, location, tenure. By linkedin_url, or first_name, last_name and company_name. No email nor phone: every contact field is removed (a contact is submit_enrichment's, and a third party's personal email is never served). Pipecorn bills 1 credit when a person is resolved, nothing on a miss (404).",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "anyOf": [{"required": ["linkedin_url"]}, {"required": ["first_name", "last_name", "company_name"]}],
+    "not": {
+      "anyOf": [
+        {"required": ["linkedin_url", "first_name"]},
+        {"required": ["linkedin_url", "last_name"]},
+        {"required": ["linkedin_url", "company_name"]}
+      ]
+    },
+    "properties": {
+      "linkedin_url": {
+        "type": "string",
+        "pattern": "^https://([a-z]{2,3}\\.)?linkedin\\.com/in/\\S+$",
+        "personal": true,
+        "description": "The person's LinkedIn profile URL."
+      },
+      "first_name": {"type": "string", "pattern": "^\\S(.*\\S)?$", "personal": true},
+      "last_name": {"type": "string", "pattern": "^\\S(.*\\S)?$", "personal": true},
+      "company_name": {"type": "string", "pattern": "^\\S(.*\\S)?$", "description": "The person's current company."}
+    }
+  },
+  examples: [
+    { title: "A profile by LinkedIn URL", input: {"linkedin_url": "https://www.linkedin.com/in/janedoe/"} },
+    { title: "A profile by name at a company", input: {"first_name": "Jane", "last_name": "Doe", "company_name": "Example"} },
+  ],
+  refusals: [
+    { code: "person_not_found", when: 404, message: "Pipecorn resolved no person from these inputs; nothing was billed." },
+  ],
+  request: {
+    method: "POST",
+    path: "/leads/single_enrich",
+    pathParams: [],
+    query: {},
+    body: {"linkedin_url": "linkedin_url", "first_name": "first_name", "last_name": "last_name", "company_name": "company_name"},
+    headers: {},
+  },
+  output: { strip: ["email", "emails", "work_email", "personal_email", "personal_emails", "phone", "phones", "mobile_phone", "phone_numbers"] },
+  cost: { per: "request", unit: "credits" },
+})
+
+export const enrichAccount = defineFunction({
+  name: "pipecorn.enrich_account",
+  connector: "pipecorn",
+  class: "write",
+  act: true,
+  description: "One company's firmographics from Pipecorn's database: industry, headcount and its growth, department headcount, revenue range, headquarters, funding, web traffic. By domain, name and/or the company's linkedin_url (the more, the closer the match); country_code narrows a name. Contact fields are removed. Pipecorn bills 1 credit when a company is resolved, nothing on a miss (404).",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "anyOf": [{"required": ["domain"]}, {"required": ["name"]}, {"required": ["linkedin_url"]}],
+    "properties": {
+      "domain": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$",
+        "description": "Company website domain, without scheme: example.com."
+      },
+      "name": {"type": "string", "pattern": "^\\S(.*\\S)?$"},
+      "linkedin_url": {
+        "type": "string",
+        "pattern": "^https://([a-z]{2,3}\\.)?linkedin\\.com/company/\\S+$",
+        "description": "The company's LinkedIn page."
+      },
+      "country_code": {"type": "string", "pattern": "^[A-Z]{2}$", "description": "ISO alpha-2 (FR, US): narrows a name."}
+    }
+  },
+  examples: [
+    { title: "A company by domain", input: {"domain": "example.com"} },
+    { title: "A company by name, in one country", input: {"name": "Example", "country_code": "FR"} },
+  ],
+  refusals: [
+    { code: "company_not_found", when: 404, message: "Pipecorn resolved no company from these inputs; nothing was billed." },
+  ],
+  request: {
+    method: "POST",
+    path: "/accounts/single_enrich",
+    pathParams: [],
+    query: {},
+    body: {"domain": "domain", "name": "name", "company_linkedin_url": "linkedin_url", "country_code": "country_code"},
+    headers: {},
+  },
+  output: { strip: ["email", "emails", "work_email", "personal_email", "personal_emails", "phone", "phones", "mobile_phone", "phone_numbers"] },
+  cost: { per: "request", unit: "credits" },
+})
+
+export const companyStack = defineFunction({
+  name: "pipecorn.company_stack",
+  connector: "pipecorn",
+  class: "write",
+  act: true,
+  description: "The technologies a company uses, from Pipecorn's database: technologies (names) and technologies_with_confidence [{name, confidence}]. By domain, name and/or the company's linkedin_url. Pipecorn bills 3 credits per request.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "anyOf": [{"required": ["domain"]}, {"required": ["name"]}, {"required": ["linkedin_url"]}],
+    "properties": {
+      "domain": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$",
+        "description": "Company website domain, without scheme: example.com."
+      },
+      "name": {"type": "string", "pattern": "^\\S(.*\\S)?$"},
+      "linkedin_url": {
+        "type": "string",
+        "pattern": "^https://([a-z]{2,3}\\.)?linkedin\\.com/company/\\S+$",
+        "description": "The company's LinkedIn page."
+      }
+    }
+  },
+  examples: [
+    { title: "The technologies of a company", input: {"domain": "example.com"} },
+  ],
+  refusals: [
+    { code: "company_not_found", when: 404, message: "Pipecorn resolved no company from these inputs." },
+  ],
+  request: {
+    method: "POST",
+    path: "/accounts/company_stack",
+    pathParams: [],
+    query: {},
+    body: {"company_domain": "domain", "company_name": "name", "company_linkedin_url": "linkedin_url"},
+    headers: {},
+  },
+  cost: { per: "request", quantity: 3, unit: "credits" },
+})
+
+export const companyHiring = defineFunction({
+  name: "pipecorn.company_hiring",
+  connector: "pipecorn",
+  class: "write",
+  act: true,
+  description: "A company's open job postings: total_jobs, truncated, company, jobs [{job_title, job_url, job_location, employment_statuses, date_posted, description, hiring_team}], the hiring team without contact fields. By domain, name and/or the company's linkedin_url. posted_within_days: 7, 30 (Pipecorn's default), 60, 90 or 180. Pipecorn bills 1 credit per job returned, nothing when none is found: bound it with limit (at most 100). job_title_keywords and excluded_job_title_keywords filter titles, job_country_codes places; full_description returns each description in full.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "anyOf": [{"required": ["domain"]}, {"required": ["name"]}, {"required": ["linkedin_url"]}],
+    "properties": {
+      "domain": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$",
+        "description": "Company website domain, without scheme: example.com."
+      },
+      "name": {"type": "string", "pattern": "^\\S(.*\\S)?$"},
+      "linkedin_url": {
+        "type": "string",
+        "pattern": "^https://([a-z]{2,3}\\.)?linkedin\\.com/company/\\S+$",
+        "description": "The company's LinkedIn page."
+      },
+      "posted_within_days": {"type": "integer", "enum": [7, 30, 60, 90, 180]},
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "At most this many jobs, each billed 1 credit."
+      },
+      "full_description": {"type": "boolean"},
+      "job_title_keywords": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {"type": "string", "pattern": "^\\S(.*\\S)?$"}
+      },
+      "excluded_job_title_keywords": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {"type": "string", "pattern": "^\\S(.*\\S)?$"}
+      },
+      "job_country_codes": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {"type": "string", "pattern": "^[A-Z]{2}$"},
+        "description": "ISO alpha-2 codes (FR, US) of the jobs' places."
+      }
+    }
+  },
+  examples: [
+    { title: "Sales jobs of a company in France, at most 20", input: {"domain": "example.com", "job_title_keywords": ["sales"], "job_country_codes": ["FR"], "limit": 20} },
+  ],
+  refusals: [
+    { code: "company_not_found", when: 404, message: "Pipecorn resolved no company from these inputs; nothing was billed." },
+  ],
+  request: {
+    method: "POST",
+    path: "/accounts/company_hiring",
+    pathParams: [],
+    query: {},
+    body: {"company_domain": "domain", "company_name": "name", "company_linkedin_url": "linkedin_url", "posted_within_days": "posted_within_days", "limit": "limit", "full_description": "full_description", "job_title_keywords": "job_title_keywords", "excluded_job_title_keywords": "excluded_job_title_keywords", "job_country_codes": "job_country_codes"},
+    headers: {},
+  },
+  output: { strip: ["jobs.hiring_team.email", "jobs.hiring_team.emails", "jobs.hiring_team.work_email", "jobs.hiring_team.personal_email", "jobs.hiring_team.personal_emails", "jobs.hiring_team.phone", "jobs.hiring_team.phones", "jobs.hiring_team.mobile_phone", "jobs.hiring_team.phone_numbers"] },
+  cost: { per: "request", quantity: 100, unit: "credits" },
+})
+
 export const connector = defineConnector({
   name: "pipecorn",
   label: "Pipecorn",
@@ -170,5 +372,9 @@ export const connector = defineConnector({
     getEnrichment,
     getCredits,
     getAccountInfo,
+    enrichPerson,
+    enrichAccount,
+    companyStack,
+    companyHiring,
   ],
 })

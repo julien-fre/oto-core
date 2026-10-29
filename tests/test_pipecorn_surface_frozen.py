@@ -27,8 +27,13 @@ LEFT_TO_THE_CLIENT = {"enrich_contact", "probe"}
 EXPECTED_MEMBERS = {
     '_body': "(self, enrichment_type, linkedin_url, firstname, lastname, domain, company_name, phone_type, phone_country_codes, custom) -> 'Dict[str, Any]'",
     '_call': "(self, method: 'str', url: 'str', *, json: 'Optional[dict]' = None, headers: 'Optional[dict]' = None, timeout=(10, 60)) -> 'Any'",
+    '_company': "(domain, name, linkedin_url, keys=('company_domain', 'company_name', 'company_linkedin_url')) -> 'Dict[str, Any]'",
     '_kinds': "(enrichment_type: 'Any') -> 'List[str]'",
+    'company_hiring': "(self, *, domain: 'Optional[str]' = None, name: 'Optional[str]' = None, linkedin_url: 'Optional[str]' = None, posted_within_days: 'Optional[int]' = None, limit: 'Optional[int]' = None, full_description: 'Optional[bool]' = None, job_title_keywords: 'Optional[List[str]]' = None, excluded_job_title_keywords: 'Optional[List[str]]' = None, job_country_codes: 'Optional[List[str]]' = None, timeout=(10, 60)) -> 'Dict[str, Any]'",
+    'company_stack': "(self, *, domain: 'Optional[str]' = None, name: 'Optional[str]' = None, linkedin_url: 'Optional[str]' = None, timeout=(10, 60)) -> 'Dict[str, Any]'",
+    'enrich_account': "(self, *, domain: 'Optional[str]' = None, name: 'Optional[str]' = None, linkedin_url: 'Optional[str]' = None, country_code: 'Optional[str]' = None, timeout=(10, 60)) -> 'Dict[str, Any]'",
     'enrich_contact': "(self, enrichment_type: 'List[str]', *, linkedin_url: 'Optional[str]' = None, firstname: 'Optional[str]' = None, lastname: 'Optional[str]' = None, domain: 'Optional[str]' = None, company_name: 'Optional[str]' = None, phone_type: 'Optional[str]' = None, phone_country_codes: 'Optional[List[str]]' = None, custom: 'Optional[Dict[str, Any]]' = None, idempotency_key: 'Optional[str]' = None, timeout=(10, 60)) -> 'Dict[str, Any]'",
+    'enrich_person': "(self, *, linkedin_url: 'Optional[str]' = None, first_name: 'Optional[str]' = None, last_name: 'Optional[str]' = None, company_name: 'Optional[str]' = None, timeout=(10, 60)) -> 'Dict[str, Any]'",
     'get_enrichment': "(self, enrichment_id: 'str') -> 'Dict[str, Any]'",
     'get_account_info': "(self) -> 'Dict[str, Any]'",
     'get_credits': "(self) -> 'Dict[str, Any]'",
@@ -53,15 +58,20 @@ def test_constructeur_fige():
 
 
 def test_noms_importables():
-    assert pkg.__all__ == ["PipecornClient", "PipecornUnreadable", "credits_spent", "found_kinds"]
+    assert pkg.__all__ == ["PipecornClient", "PipecornUnreadable", "credits_spent", "found_kinds",
+                           "without_contacts"]
     for name in ("PipecornClient", "PipecornUnreadable", "credits_spent", "found_kinds",
-                 "BASE_URL", "SYNC_URL", "HTTP_TIMEOUT", "ENRICHMENT_TYPES", "PHONE_TYPES",
-                 "CREDITS", "MOBILE_TYPES", "PERSONAL_EMAIL_REFUSED"):
+                 "without_contacts", "BASE_URL", "SYNC_URL", "HTTP_TIMEOUT", "ENRICHMENT_TYPES",
+                 "PHONE_TYPES", "CREDITS", "MOBILE_TYPES", "PERSONAL_EMAIL_REFUSED",
+                 "LOOKUP_CREDITS", "HIRING_WINDOWS"):
         assert hasattr(mod, name), name
     assert str(inspect.signature(mod.found_kinds)) == \
         "(result: 'Any', asked: 'Optional[Iterable[str]]' = None) -> 'Dict[str, bool]'"
     assert str(inspect.signature(mod.credits_spent)) == \
         "(result: 'Any', asked: 'Optional[Iterable[str]]' = None) -> 'int'"
+    assert str(inspect.signature(mod.without_contacts)) == "(answer: 'Any') -> 'Any'"
+    assert mod.LOOKUP_CREDITS == {"enrich_person": 1, "enrich_account": 1, "company_stack": 3,
+                                  "company_hiring": 1}
 
 
 def test_une_fonction_decrite_est_une_methode_du_meme_nom():

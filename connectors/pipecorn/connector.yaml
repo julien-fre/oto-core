@@ -1,17 +1,19 @@
 # yaml-language-server: $schema=../connector.schema.json
 # Pipecorn API v2 (https://docs.pipecorn.com, as the Python client oto.tools.pipecorn reads it, 2026-10-29): a
-# waterfall enrichment of ONE contact (a professional email, a mobile phone) run by Pipecorn across its own providers,
-# and the account's balance. The function names, the argument names and the keys sent to Pipecorn are the client's;
-# tests/test_pipecorn_description.py reads the client to keep both equal.
+# waterfall enrichment of ONE contact (a professional email, a mobile phone) run by Pipecorn across its own providers;
+# synchronous reads of its database (a person's profile, a company's firmographics, its technologies, its open job
+# postings); and the account's balance. The function names, the argument names and the keys sent to Pipecorn are the
+# client's; tests/test_pipecorn_description.py reads the client to keep both equal.
 #
 # Two hosts. The synchronous enrichment (enrich_contact) is served on https://api.pipecorn.com/v2 only; the same path
 # on the main host, https://app.pipecorn.com/api/v2, is the asynchronous one (submit_enrichment), and every other route
-# (result, credits, account) lives on the main host. A description has one root: this one is the main host, and
-# describes the asynchronous enrichment. Stay the client's, named: enrich_contact (the other host), and probe (the
-# client's name for get_credits, the same request).
+# (result, profile, company, technologies, jobs, credits, account) lives on the main host. A description has one
+# root: this one is the main host, and describes the asynchronous enrichment. Stay the client's, named: enrich_contact
+# (the other host), and probe (the client's name for get_credits, the same request).
 #
-# Four functions: submit an enrichment, read its result, read the balance, read the account. submit_enrichment is a
-# write: it spends Pipecorn credits on a person. The three others are free reads.
+# Eight functions: submit an enrichment, read its result, read the balance, read the account (free reads); and four
+# synchronous lookups, enrich_person, enrich_account, company_stack, company_hiring. submit_enrichment and the four
+# lookups are writes: each spends Pipecorn credits, on a person or a company.
 #
 # Asynchronous: submit_enrichment answers at once {enrichment_id, status: pending}; get_enrichment reads it with the
 # enrichment_id alone, status pending, finished (every asked kind done, found or not) or failed (the credits ran out
@@ -25,18 +27,28 @@
 # element of a list of objects, and the kinds are a list of texts at the top of the body. No answer says the credits
 # spent: nothing is settled here; the billing service settles each kind at what the finished result found.
 #
+# Cost of the synchronous lookups, the same grid, in credits: enrich_person and enrich_account 1 per request, billed
+# only when a person or a company is resolved (a 404 is a miss, nothing billed); company_stack 3 per request;
+# company_hiring 1 per job returned, nothing when none is found. The format counts no integer argument: the worst
+# case of company_hiring is limit's ceiling, 100. No answer says the credits spent: nothing is settled.
+#
 # Refused, named: personal_email (a third party's personal email), whatever the key, for good; the client refuses it
-# before any call. Left to the client, named: phone_type, which the client sends as a one-element
-# list (the format sends an argument as given), and custom, a free object Pipecorn echoes back.
+# before any call; and, from the answers of the four lookups, every contact field (output.strip: a profile, an account
+# or a hiring team is priced for no email nor phone; the client's without_contacts removes any key naming an email or a
+# phone, at any depth, where the format names keys one by one). Left to the client, named: phone_type, which the
+# client sends as a one-element list (the format sends an argument as given); custom, a free object Pipecorn
+# echoes back; and the timeout of the four lookups, a caller's own tighter wait (timeout_s below is the default).
 #
 # Gaps with the client, named (narrower here): linkedin_url is a LinkedIn profile address; a phone needs it; an email
 # needs it, or firstname, lastname and a domain or a company_name (Pipecorn answers 422 otherwise, before any credit is
 # spent); phone_country_codes in upper case (the client upper-cases them); the enrichment_id a UUID without spaces (the
-# client trims it).
+# client trims it); for the lookups, a profile's linkedin_url a /in/ address and a company's a /company/ one, a person
+# by its profile OR by its names (the client sends the profile alone), names and keywords without surrounding spaces
+# (the client trims them), country codes in upper case, keyword lists of one element or more, unique.
 #
 # No secret and no address that opens content without a login reaches the agent: the answers carry the contact found
-# (names, email, phones, LinkedIn address), never the key. Nothing is stripped. linkedin_url, firstname and lastname
-# name a person.
+# (names, email, phones, LinkedIn address), never the key. linkedin_url, firstname and lastname (first_name and
+# last_name for enrich_person) name a person; a company's linkedin_url does not.
 #
 # Errors, as the client reads them. 401: the key is unknown, marks the account credential_rejected. 402
 # insufficient_credits (balance too low, nothing spent) and 403 workspace_limit_exceeded (the member's weekly cap), also
@@ -194,3 +206,180 @@ functions:
     examples:
       - { title: The account, input: {} }
     call: { method: GET, path: /account }
+
+  # --- Synchronous lookups: a profile, a company, its technologies, its job postings ----------------------------
+
+  - name: enrich_person
+    class: write
+    description: >-
+      One person's profile from Pipecorn's database: title, current and past
+      positions with each company's domain, headline, location, tenure. By
+      linkedin_url, or first_name, last_name and company_name. No email nor
+      phone: every contact field is removed (a contact is submit_enrichment's,
+      and a third party's personal email is never served). Pipecorn bills 1
+      credit when a person is resolved, nothing on a miss (404).
+    input:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - { required: [linkedin_url] }
+        - { required: [first_name, last_name, company_name] }
+      # One way in: the client sends the profile alone when it has one.
+      not: { anyOf: [{ required: [linkedin_url, first_name] }, { required: [linkedin_url, last_name] },
+                     { required: [linkedin_url, company_name] }] }
+      properties:
+        linkedin_url: { type: string, pattern: "^https://([a-z]{2,3}\\.)?linkedin\\.com/in/\\S+$", personal: true, description: "The person's LinkedIn profile URL." }
+        first_name: { type: string, pattern: "^\\S(.*\\S)?$", personal: true }
+        last_name: { type: string, pattern: "^\\S(.*\\S)?$", personal: true }
+        company_name: { type: string, pattern: "^\\S(.*\\S)?$", description: "The person's current company." }
+    examples:
+      - title: A profile by LinkedIn URL
+        input: { linkedin_url: "https://www.linkedin.com/in/janedoe/" }
+      - title: A profile by name at a company
+        input: { first_name: Jane, last_name: Doe, company_name: Example }
+    refusals:
+      - { code: person_not_found, when: 404, message: "Pipecorn resolved no person from these inputs; nothing was billed." }
+    call:
+      method: POST
+      path: /leads/single_enrich
+      body: { linkedin_url: linkedin_url, first_name: first_name, last_name: last_name, company_name: company_name }
+    output:
+      strip: &contacts [email, emails, work_email, personal_email, personal_emails, phone, phones, mobile_phone,
+                        phone_numbers]
+    cost: { per: request, unit: credits }
+
+  - name: enrich_account
+    class: write
+    description: >-
+      One company's firmographics from Pipecorn's database: industry,
+      headcount and its growth, department headcount, revenue range,
+      headquarters, funding, web traffic. By domain, name and/or the
+      company's linkedin_url (the more, the closer the match); country_code
+      narrows a name. Contact fields are removed. Pipecorn bills 1 credit when
+      a company is resolved, nothing on a miss (404).
+    input:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - { required: [domain] }
+        - { required: [name] }
+        - { required: [linkedin_url] }
+      properties:
+        domain: { type: string, pattern: "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$", description: "Company website domain, without scheme: example.com." }
+        name: { type: string, pattern: "^\\S(.*\\S)?$" }
+        linkedin_url: { type: string, pattern: "^https://([a-z]{2,3}\\.)?linkedin\\.com/company/\\S+$", description: "The company's LinkedIn page." }
+        country_code: { type: string, pattern: "^[A-Z]{2}$", description: "ISO alpha-2 (FR, US): narrows a name." }
+    examples:
+      - title: A company by domain
+        input: { domain: example.com }
+      - title: A company by name, in one country
+        input: { name: Example, country_code: FR }
+    refusals:
+      - { code: company_not_found, when: 404, message: "Pipecorn resolved no company from these inputs; nothing was billed." }
+    call:
+      method: POST
+      path: /accounts/single_enrich
+      body: { domain: domain, name: name, company_linkedin_url: linkedin_url, country_code: country_code }
+    output: { strip: *contacts }
+    cost: { per: request, unit: credits }
+
+  - name: company_stack
+    class: write
+    description: >-
+      The technologies a company uses, from Pipecorn's database: technologies
+      (names) and technologies_with_confidence [{name, confidence}]. By domain,
+      name and/or the company's linkedin_url. Pipecorn bills 3 credits per
+      request.
+    input:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - { required: [domain] }
+        - { required: [name] }
+        - { required: [linkedin_url] }
+      properties:
+        domain: { type: string, pattern: "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$", description: "Company website domain, without scheme: example.com." }
+        name: { type: string, pattern: "^\\S(.*\\S)?$" }
+        linkedin_url: { type: string, pattern: "^https://([a-z]{2,3}\\.)?linkedin\\.com/company/\\S+$", description: "The company's LinkedIn page." }
+    examples:
+      - title: The technologies of a company
+        input: { domain: example.com }
+    refusals:
+      - { code: company_not_found, when: 404, message: "Pipecorn resolved no company from these inputs." }
+    call:
+      method: POST
+      path: /accounts/company_stack
+      body: { company_domain: domain, company_name: name, company_linkedin_url: linkedin_url }
+    cost: { per: request, quantity: 3, unit: credits }
+
+  - name: company_hiring
+    class: write
+    description: >-
+      A company's open job postings: total_jobs, truncated, company, jobs
+      [{job_title, job_url, job_location, employment_statuses, date_posted,
+      description, hiring_team}], the hiring team without contact fields. By
+      domain, name and/or the company's linkedin_url. posted_within_days: 7,
+      30 (Pipecorn's default), 60, 90 or 180. Pipecorn bills 1 credit per job
+      returned, nothing when none is found: bound it with limit (at most 100).
+      job_title_keywords and excluded_job_title_keywords filter titles,
+      job_country_codes places; full_description returns each description in
+      full.
+    input:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - { required: [domain] }
+        - { required: [name] }
+        - { required: [linkedin_url] }
+      properties:
+        domain: { type: string, pattern: "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$", description: "Company website domain, without scheme: example.com." }
+        name: { type: string, pattern: "^\\S(.*\\S)?$" }
+        linkedin_url: { type: string, pattern: "^https://([a-z]{2,3}\\.)?linkedin\\.com/company/\\S+$", description: "The company's LinkedIn page." }
+        posted_within_days: { type: integer, enum: [7, 30, 60, 90, 180] }
+        limit: { type: integer, minimum: 1, maximum: 100, description: "At most this many jobs, each billed 1 credit." }
+        full_description: { type: boolean }
+        job_title_keywords: &keywords
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, pattern: "^\\S(.*\\S)?$" }
+        excluded_job_title_keywords: *keywords
+        job_country_codes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, pattern: "^[A-Z]{2}$" }
+          description: "ISO alpha-2 codes (FR, US) of the jobs' places."
+    examples:
+      - title: Sales jobs of a company in France, at most 20
+        input: { domain: example.com, job_title_keywords: [sales], job_country_codes: [FR], limit: 20 }
+    refusals:
+      - { code: company_not_found, when: 404, message: "Pipecorn resolved no company from these inputs; nothing was billed." }
+    call:
+      method: POST
+      path: /accounts/company_hiring
+      body:
+        company_domain: domain
+        company_name: name
+        company_linkedin_url: linkedin_url
+        posted_within_days: posted_within_days
+        limit: limit
+        full_description: full_description
+        job_title_keywords: job_title_keywords
+        excluded_job_title_keywords: excluded_job_title_keywords
+        job_country_codes: job_country_codes
+    output:
+      strip: [jobs.hiring_team.email, jobs.hiring_team.emails, jobs.hiring_team.work_email,
+              jobs.hiring_team.personal_email, jobs.hiring_team.personal_emails, jobs.hiring_team.phone,
+              jobs.hiring_team.phones, jobs.hiring_team.mobile_phone, jobs.hiring_team.phone_numbers]
+      sample:
+        total_jobs: 1
+        jobs:
+          - job_title: Account Executive
+            hiring_team:
+              - { name: Jane Doe, email: jane@example.test, emails: [jane@example.test], work_email: jane@example.test,
+                  personal_email: jane.doe@example.test, personal_emails: [jane.doe@example.test], phone: "+10000000000",
+                  phones: ["+10000000000"], mobile_phone: "+10000000000", phone_numbers: ["+10000000000"] }
+    # The format counts no integer argument: the worst case is limit's ceiling, 100 credits. No answer field counts
+    # the jobs returned (total_jobs counts the matches, truncated or not): nothing is settled.
+    cost: { per: request, quantity: 100, unit: credits }

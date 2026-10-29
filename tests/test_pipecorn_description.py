@@ -3,12 +3,15 @@
 Une fonction par méthode du client, sous son nom, sauf deux, nommées dans la description : `enrich_contact`
 (l'enrichissement synchrone, servi sur un autre hôte, quand une description n'a qu'une racine) et `probe` (le nom que
 le client donne à `get_credits`, la même requête). Les arguments sont ceux que la méthode nomme, sauf `phone_type`
-(que le client envoie en liste d'un élément) et `custom` (un objet libre que Pipecorn renvoie), laissés au client.
+(que le client envoie en liste d'un élément), `custom` (un objet libre que Pipecorn renvoie) et le `timeout` des
+quatre recherches synchrones (le délai propre de l'appelant), laissés au client.
 Écarts nommés, gardés ici (`NARROWER`) : une adresse de profil LinkedIn, requise pour un téléphone ; un email sans
 profil a ses deux noms et un domaine ou une société ; les codes pays en capitales ; chaque sorte une fois.
-Refusé, des deux côtés : l'email personnel d'un tiers.
+Refusé, des deux côtés : l'email personnel d'un tiers ; et, des réponses des quatre recherches synchrones (profil,
+société, technologies, offres), tout champ de contact (`output.strip`, `without_contacts` côté client).
 Coût : au pire une trouvaille par sorte demandée (`results`), le prix par sorte restant au service qui facture ;
-asynchrone, relevé par `get_enrichment` avec le seul `enrichment_id`.
+asynchrone, relevé par `get_enrichment` avec le seul `enrichment_id`. Les recherches synchrones, en crédits : 1 par
+requête (profil, société), 3 (technologies), au pire 100 pour les offres (le plafond de `limit`, un crédit par offre).
 """
 from __future__ import annotations
 
@@ -31,14 +34,23 @@ from oto.tools.pipecorn.client import PipecornClient
 PIPECORN = CONNECTORS / "pipecorn" / "connector.yaml"
 
 ID = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a"
-CLASSES = {"read": {"get_enrichment", "get_credits", "get_account_info"}, "write": {"submit_enrichment"},
+LOOKUPS = {"enrich_person", "enrich_account", "company_stack", "company_hiring"}
+CLASSES = {"read": {"get_enrichment", "get_credits", "get_account_info"}, "write": {"submit_enrichment"} | LOOKUPS,
            "sensitive": set()}
 LEFT_TO_THE_CLIENT = {"enrich_contact", "probe"}
-LEFT_ARGUMENTS = {"submit_enrichment": {"phone_type", "custom"}}
+LEFT_ARGUMENTS = {"submit_enrichment": {"phone_type", "custom"},
+                  **{name: {"timeout"} for name in LOOKUPS}}
 URL = "https://www.linkedin.com/in/janedoe/"
+COMPANY_PAGE = "https://www.linkedin.com/company/example/"
 VALUES = {"enrichment_type": ["phone", "email"], "linkedin_url": URL, "firstname": "Jane", "lastname": "Doe",
           "domain": "example.com", "company_name": "Example", "phone_country_codes": ["FR", "BE"],
-          "idempotency_key": "k-1", "enrichment_id": ID}
+          "idempotency_key": "k-1", "enrichment_id": ID, "first_name": "Jane", "last_name": "Doe", "name": "Example",
+          "country_code": "FR", "posted_within_days": 90, "limit": 20, "full_description": True,
+          "job_title_keywords": ["sales"], "excluded_job_title_keywords": ["intern"], "job_country_codes": ["FR"]}
+#: A company's LinkedIn page, not a profile.
+COMPANY_VALUES = {"linkedin_url": COMPANY_PAGE}
+#: A person by its profile OR by its names: the client sends the profile alone.
+ONE_WAY_IN = {"enrich_person": [("linkedin_url",), ("first_name", "last_name", "company_name")]}
 NARROWER = {
     "submit_enrichment": [
         {"enrichment_type": ["phone"], "linkedin_url": "jane"},
@@ -46,6 +58,19 @@ NARROWER = {
         {"enrichment_type": ["email"], "firstname": "Jane", "domain": "example.com", "linkedin_url": "jane"},
         {"enrichment_type": ["phone", "phone"], "linkedin_url": URL},
         {"enrichment_type": ["phone"], "linkedin_url": URL, "phone_country_codes": ["fr"]},
+    ],
+    "enrich_person": [
+        {"linkedin_url": URL, "first_name": "Jane"},
+        {"first_name": "Jane", "last_name": "Doe"},
+        {"linkedin_url": COMPANY_PAGE},
+        {"first_name": " Jane", "last_name": "Doe", "company_name": "Example"},
+    ],
+    "enrich_account": [{}, {"linkedin_url": URL}, {"domain": "example.com", "country_code": "fr"}],
+    "company_stack": [{}, {"name": "Example "}],
+    "company_hiring": [
+        {"domain": "example.com", "job_title_keywords": []},
+        {"domain": "example.com", "job_country_codes": ["fr"]},
+        {"domain": "example.com", "excluded_job_title_keywords": [" intern"]},
     ],
 }
 
@@ -75,6 +100,15 @@ def _answer(body=None):
     r.text = r.content.decode()
     r.json.return_value = copy.deepcopy(body)
     return r
+
+
+def _argument_sets(name: str, function: dict) -> list[dict]:
+    """Every argument the function takes, each with its value — split by way in where there is only one."""
+    values = {**VALUES, **(COMPANY_VALUES if name in LOOKUPS - {"enrich_person"} else {})}
+    everything = {a: values[a] for a in function["input"]["properties"]}
+    if name not in ONE_WAY_IN:
+        return [everything]
+    return [{a: everything[a] for a in way} for way in ONE_WAY_IN[name]]
 
 
 def _sent_by_the_client(name: str, arguments: dict) -> dict:
@@ -117,7 +151,7 @@ def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
 def test_one_function_per_client_method_under_its_name_but_two_named():
     assert set(_functions()) == _public_methods() - LEFT_TO_THE_CLIENT
     comment = PIPECORN.read_text(encoding="utf-8").split("\nconnector:", 1)[0]
-    for name in LEFT_TO_THE_CLIENT | {"phone_type", "custom", "personal_email"}:
+    for name in LEFT_TO_THE_CLIENT | {"phone_type", "custom", "personal_email", "timeout"}:
         assert name in comment, name
 
 
@@ -145,9 +179,9 @@ def test_each_function_takes_the_arguments_its_client_method_names():
 
 def test_each_argument_goes_where_the_client_sends_it():
     for name, function in _functions().items():
-        everything = {a: VALUES[a] for a in function["input"]["properties"]}
-        assert _valid(function, everything), name
-        assert _client_view(_sent_by_the_client(name, everything)) == _described(function, everything), name
+        for arguments in _argument_sets(name, function):
+            assert _valid(function, arguments), (name, arguments)
+            assert _client_view(_sent_by_the_client(name, arguments)) == _described(function, arguments), name
 
 
 def test_each_example_sends_what_the_client_sends_for_it():
@@ -173,7 +207,7 @@ def test_a_third_party_personal_email_is_refused_by_the_schema_and_the_client():
         _sent_by_the_client("submit_enrichment", {"enrichment_type": ["personal_email"], "linkedin_url": URL})
 
 
-def test_submit_is_a_paid_write_collected_by_get_enrichment_and_the_others_are_free_reads():
+def test_submit_and_the_lookups_are_paid_writes_and_the_others_are_free_reads():
     functions = _functions()
     assert {c: {n for n, f in functions.items() if f["class"] == c} for c in CLASSES} == CLASSES
     submit = functions["submit_enrichment"]
@@ -188,9 +222,45 @@ def test_submit_is_a_paid_write_collected_by_get_enrichment_and_the_others_are_f
         assert words in " ".join(submit["description"].split()), words
 
 
+def test_each_lookup_declares_pipecorn_s_grid_in_credits():
+    """Profil et société : 1 crédit par requête (rien sur un échec, 404) ; technologies : 3 ; offres : 1 par offre
+    rendue, au pire le plafond de `limit` (100) — le format ne compte pas un argument entier."""
+    functions = _functions()
+    assert {n: functions[n]["cost"] for n in LOOKUPS} == {
+        "enrich_person": {"per": "request", "unit": "credits"},
+        "enrich_account": {"per": "request", "unit": "credits"},
+        "company_stack": {"per": "request", "quantity": 3, "unit": "credits"},
+        "company_hiring": {"per": "request", "quantity": 100, "unit": "credits"},
+    }
+    assert functions["company_hiring"]["input"]["properties"]["limit"]["maximum"] == 100
+    assert list(pipecorn_client.HIRING_WINDOWS) == functions["company_hiring"]["input"]["properties"][
+        "posted_within_days"]["enum"]
+    for name, words in (("enrich_person", "1 credit when a person is resolved, nothing on a miss"),
+                        ("enrich_account", "1 credit when a company is resolved, nothing on a miss"),
+                        ("company_stack", "3 credits per request"),
+                        ("company_hiring", "1 credit per job returned")):
+        assert words in " ".join(functions[name]["description"].split()), name
+        assert "async" not in functions[name], name
+
+
+def test_no_lookup_serves_a_contact_field():
+    """Un profil, une société ou l'équipe d'une offre n'est payé pour aucun contact : chaque champ d'email ou de
+    téléphone que la description retire est un de ceux que `without_contacts` retire, et le même jeu partout."""
+    functions = _functions()
+    contacts = functions["enrich_person"]["output"]["strip"]
+    assert functions["enrich_account"]["output"]["strip"] == contacts
+    assert functions["company_hiring"]["output"]["strip"] == [f"jobs.hiring_team.{k}" for k in contacts]
+    assert {"email", "personal_email", "personal_emails", "phone", "mobile_phone"} <= set(contacts)
+    assert pipecorn_client.without_contacts({k: "x" for k in contacts}) == {}
+    assert "output" not in functions["company_stack"]
+
+
 def test_every_field_that_names_a_person_is_personal():
-    properties = _functions()["submit_enrichment"]["input"]["properties"]
-    assert {p for p, s in properties.items() if s.get("personal")} == {"linkedin_url", "firstname", "lastname"}
+    functions = _functions()
+    personal = {n: {p for p, s in f["input"]["properties"].items() if s.get("personal")} for n, f in functions.items()}
+    assert {n: p for n, p in personal.items() if p} == {
+        "submit_enrichment": {"linkedin_url", "firstname", "lastname"},
+        "enrich_person": {"linkedin_url", "first_name", "last_name"}}
 
 
 def test_the_probe_reads_the_enrichment_balance_and_costs_nothing():

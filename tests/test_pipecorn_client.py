@@ -1,12 +1,14 @@
 """PipecornClient: the hosts, the body sent, the local refusals, the cost read, an unreadable
-answer."""
+answer; the synchronous lookups (profile, account, technologies, jobs) and the contact
+fields removed from what they answer."""
 from unittest.mock import MagicMock
 
 import pytest
 
 from oto.tools.common.errors import UpstreamHTTPError
 from oto.tools.http.client import RedirectRefused
-from oto.tools.pipecorn import PipecornClient, PipecornUnreadable, credits_spent, found_kinds
+from oto.tools.pipecorn import (PipecornClient, PipecornUnreadable, credits_spent, found_kinds,
+                                without_contacts)
 from oto.tools.common.credentials import MissingCredential
 
 
@@ -212,3 +214,96 @@ def test_credits_spent_reads_an_async_result():
     result = {"status": "finished", "phone": ["+33612345678"],
               "phone_details": [{"number": "+33612345678", "type": "mobile"}]}
     assert credits_spent(result, ["phone"]) == 30
+
+
+# --- profiles, accounts, technologies, jobs ---------------------------------------
+
+APP = "https://app.pipecorn.com/api/v2"
+
+
+def test_person_by_profile_or_by_name_at_a_company(client):
+    client.enrich_person(linkedin_url=" https://www.linkedin.com/in/x/ ")
+    assert _sent(client)[:2] == ("POST", f"{APP}/leads/single_enrich")
+    assert _sent(client)[2]["json"] == {"linkedin_url": "https://www.linkedin.com/in/x/"}
+    client.enrich_person(first_name="Ada", last_name="Lovelace", company_name="Acme")
+    assert _sent(client)[2]["json"] == {"first_name": "Ada", "last_name": "Lovelace",
+                                        "company_name": "Acme"}
+
+
+def test_person_needs_a_way_in(client):
+    with pytest.raises(ValueError, match="company_name"):
+        client.enrich_person(first_name="Ada", last_name="Lovelace")
+    client.session.request.assert_not_called()
+
+
+def test_account_body_names_its_own_keys(client):
+    client.enrich_account(domain="acme.com", name="Acme", country_code="fr")
+    assert _sent(client)[:2] == ("POST", f"{APP}/accounts/single_enrich")
+    assert _sent(client)[2]["json"] == {"domain": "acme.com", "name": "Acme",
+                                        "country_code": "FR"}
+
+
+def test_stack_and_hiring_take_company_keys(client):
+    client.company_stack(domain="acme.com")
+    assert _sent(client)[:2] == ("POST", f"{APP}/accounts/company_stack")
+    assert _sent(client)[2]["json"] == {"company_domain": "acme.com"}
+    client.company_hiring(name="Acme", posted_within_days=90, limit=20,
+                          job_title_keywords=["sales"], job_country_codes=["fr"])
+    assert _sent(client)[:2] == ("POST", f"{APP}/accounts/company_hiring")
+    assert _sent(client)[2]["json"] == {"company_name": "Acme", "posted_within_days": 90,
+                                        "limit": 20, "job_title_keywords": ["sales"],
+                                        "job_country_codes": ["FR"]}
+
+
+@pytest.mark.parametrize("method, kwargs", [
+    ("enrich_person", {"linkedin_url": "https://www.linkedin.com/in/x/"}),
+    ("enrich_account", {"domain": "acme.com"}),
+    ("company_stack", {"domain": "acme.com"}),
+    ("company_hiring", {"domain": "acme.com"}),
+])
+def test_a_lookup_waits_the_callers_timeout_else_the_clients(client, method, kwargs):
+    getattr(client, method)(**kwargs)
+    assert _sent(client)[2]["timeout"] == (10, 60)
+    getattr(client, method)(**kwargs, timeout=(7, 23))
+    assert _sent(client)[2]["timeout"] == (7, 23)
+
+
+@pytest.mark.parametrize("kwargs, match", [
+    ({}, "domain"),
+    ({"domain": "acme.com", "posted_within_days": 14}, "posted_within_days"),
+    ({"domain": "acme.com", "limit": 0}, "limit"),
+    ({"domain": "acme.com", "limit": 101}, "limit"),
+    ({"domain": "acme.com", "limit": True}, "limit"),
+    ({"domain": "acme.com", "job_title_keywords": "sales"}, "job_title_keywords"),
+    ({"domain": "acme.com", "job_country_codes": ["FRA"]}, "job_country_codes"),
+])
+def test_hiring_refuses_before_any_call(client, kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        client.company_hiring(**kwargs)
+    client.session.request.assert_not_called()
+
+
+def test_a_synchronous_lookup_is_never_redirected_nor_retried(client):
+    client.session.request.return_value = _resp(500, {"error": "boom"})
+    with pytest.raises(UpstreamHTTPError):
+        client.enrich_account(domain="acme.com")
+    assert client.session.request.call_count == 1
+    assert _sent(client)[2]["allow_redirects"] is False
+
+
+def test_without_contacts_removes_every_email_and_phone_at_any_depth():
+    """A profile, an account or a hiring team that carries a contact: removed, a third
+    party's personal email first — none of these lookups is priced for one."""
+    answer = {"full_name": "Jane Doe", "personal_email": "jane@example.test",
+              "Email": "jane@example.test", "emails": ["jane@example.test"],
+              "mobile_phone": "+33600000000", "phone_numbers": ["+33600000000"],
+              "positions": [{"title": "VP Sales", "company_domain": "example.test",
+                             "work_email": "jane@example.test"}],
+              "jobs": [{"job_title": "AE", "hiring_team": [
+                  {"name": "John Roe", "e-mail": "john@example.test", "phone": "+1555"}]}]}
+    assert without_contacts(answer) == {
+        "full_name": "Jane Doe",
+        "positions": [{"title": "VP Sales", "company_domain": "example.test"}],
+        "jobs": [{"job_title": "AE", "hiring_team": [{"name": "John Roe"}]}]}
+    assert without_contacts([{"phone": "1"}, "x"]) == [{}, "x"]
+    assert without_contacts(None) is None
