@@ -40,6 +40,7 @@ import * as origami from "./origami"
 import * as pappers from "./pappers"
 import * as pennylane from "./pennylane"
 import * as pennylaneFirm from "./pennylane_firm"
+import * as qonto from "./qonto"
 import * as salesforce from "./salesforce"
 import * as sellsy from "./sellsy"
 import * as serper from "./serper"
@@ -93,6 +94,7 @@ export { origami }
 export { pappers }
 export { pennylane }
 export { pennylaneFirm }
+export { qonto }
 export { salesforce }
 export { sellsy }
 export { serper }
@@ -149,6 +151,7 @@ export const connectors: readonly Connector[] = [
   pappers.connector,
   pennylane.connector,
   pennylaneFirm.connector,
+  qonto.connector,
   salesforce.connector,
   sellsy.connector,
   serper.connector,
