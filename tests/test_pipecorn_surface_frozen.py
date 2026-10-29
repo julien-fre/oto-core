@@ -17,12 +17,15 @@ import oto.tools.pipecorn as pkg
 import oto.tools.pipecorn.client as mod
 
 EXPECTED_MEMBERS = {
+    '_body': "(self, enrichment_type, linkedin_url, firstname, lastname, domain, company_name, phone_type, phone_country_codes, custom) -> 'Dict[str, Any]'",
     '_call': "(self, method: 'str', url: 'str', *, json: 'Optional[dict]' = None, headers: 'Optional[dict]' = None, timeout=(10, 60)) -> 'Any'",
     '_kinds': "(enrichment_type: 'Any') -> 'List[str]'",
     'enrich_contact': "(self, enrichment_type: 'List[str]', *, linkedin_url: 'Optional[str]' = None, firstname: 'Optional[str]' = None, lastname: 'Optional[str]' = None, domain: 'Optional[str]' = None, company_name: 'Optional[str]' = None, phone_type: 'Optional[str]' = None, phone_country_codes: 'Optional[List[str]]' = None, custom: 'Optional[Dict[str, Any]]' = None, idempotency_key: 'Optional[str]' = None, timeout=(10, 60)) -> 'Dict[str, Any]'",
+    'get_enrichment': "(self, enrichment_id: 'str') -> 'Dict[str, Any]'",
     'get_account_info': "(self) -> 'Dict[str, Any]'",
     'get_credits': "(self) -> 'Dict[str, Any]'",
     'probe': "(self) -> 'Any'",
+    'submit_enrichment': "(self, enrichment_type: 'List[str]', *, linkedin_url: 'Optional[str]' = None, firstname: 'Optional[str]' = None, lastname: 'Optional[str]' = None, domain: 'Optional[str]' = None, company_name: 'Optional[str]' = None, phone_type: 'Optional[str]' = None, phone_country_codes: 'Optional[List[str]]' = None, custom: 'Optional[Dict[str, Any]]' = None, idempotency_key: 'Optional[str]' = None) -> 'Dict[str, Any]'",
 }
 
 

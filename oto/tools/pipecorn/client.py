@@ -8,11 +8,12 @@ endpoint; responses are returned as-is.
 
 What the caller needs to know, and cannot guess:
 
-- **Two hosts.** The SYNCHRONOUS enrichment is served on `https://api.pipecorn.com/v2`
-  only. The same path on the main host (`https://app.pipecorn.com/api/v2`) is the
-  ASYNCHRONOUS enrichment: it does not fail, it answers `200` with
-  `status: "pending"` and no result. Every other route (credits, account) lives on
-  the main host. Hence `SYNC_URL` and `BASE_URL` below, never swapped.
+- **Two hosts, two ways.** The SYNCHRONOUS enrichment (`enrich_contact`) is served on
+  `https://api.pipecorn.com/v2` only. The same path on the main host
+  (`https://app.pipecorn.com/api/v2`) is the ASYNCHRONOUS one (`submit_enrichment`):
+  it answers `200` with `status: "pending"` and an `enrichment_id`, and the result is
+  read later on `GET /contacts/{id}` (`get_enrichment`). Every other route (credits,
+  account) lives on the main host. Hence `SYNC_URL` and `BASE_URL`, never swapped.
 - **What a lookup needs.** `phone` and `personal_email` need `linkedin_url`; `email`
   takes `linkedin_url`, or `firstname` + `lastname` + `domain` or `company_name`.
   Checked here before the call (Pipecorn answers 422, before any credit is spent).
@@ -54,10 +55,13 @@ CREDITS = {"email": 3, "personal_email": 9, "phone": 30}
 MOBILE_TYPES = frozenset({"mobile", "fixed_or_mobile"})
 
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
+# An enrichment id lands in the path: a UUID, so that no value can reshape the URL.
+_ENRICHMENT_ID = re.compile(r"^[0-9a-fA-F-]{36}$")
 
 
 def credits_spent(result: Any, asked: Optional[Iterable[str]] = None) -> int:
-    """The Pipecorn credits one synchronous enrichment answer cost: 3 for an email,
+    """The Pipecorn credits one finished enrichment cost (the synchronous answer, or
+    the `finished` result of an asynchronous one): 3 for an email,
     9 for a personal email, 30 when a mobile is among the phones; 0 on a miss.
     `asked` (the call's `enrichment_type`) bounds it: a field the call did not ask
     for is never counted, whatever the answer holds. A number the workspace
@@ -79,7 +83,8 @@ def credits_spent(result: Any, asked: Optional[Iterable[str]] = None) -> int:
 
 
 class PipecornClient:
-    """Pipecorn API v2: synchronous waterfall enrichment and the account's balance."""
+    """Pipecorn API v2: waterfall enrichment (synchronous, or submitted then polled)
+    and the account's balance."""
 
     BASE_URL = BASE_URL
     SYNC_URL = SYNC_URL
@@ -159,6 +164,56 @@ class PipecornClient:
         only the fields of the asked types. A miss is a 200 with empty fields
         (`phone_status: "not_found"`); `credits_spent` reads what it cost.
         """
+        body = self._body(enrichment_type, linkedin_url, firstname, lastname, domain,
+                          company_name, phone_type, phone_country_codes, custom)
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+        return self._call("POST", f"{self.SYNC_URL}/contacts/single_enrich", json=body,
+                          headers=headers, timeout=timeout)
+
+    def submit_enrichment(self, enrichment_type: List[str], *,
+                          linkedin_url: Optional[str] = None,
+                          firstname: Optional[str] = None,
+                          lastname: Optional[str] = None,
+                          domain: Optional[str] = None,
+                          company_name: Optional[str] = None,
+                          phone_type: Optional[str] = None,
+                          phone_country_codes: Optional[List[str]] = None,
+                          custom: Optional[Dict[str, Any]] = None,
+                          idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+        """`POST https://app.pipecorn.com/api/v2/contacts/single_enrich` — ASYNCHRONOUS
+        waterfall enrichment of ONE contact: queued, answered at once; the result is
+        read later with `get_enrichment`. Same arguments as `enrich_contact`; no
+        webhook (the result is polled). Credits are checked before queuing (402 / 403,
+        nothing queued) and spent when the enrichment finishes, on what it found.
+
+        Returns: `{enrichment_id, first_name, last_name, status: "pending",
+        status_url}`.
+        """
+        body = self._body(enrichment_type, linkedin_url, firstname, lastname, domain,
+                          company_name, phone_type, phone_country_codes, custom)
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+        return self._call("POST", f"{self.BASE_URL}/contacts/single_enrich", json=body,
+                          headers=headers)
+
+    def get_enrichment(self, enrichment_id: str) -> Dict[str, Any]:
+        """`GET /contacts/{enrichment_id}` — the result of an asynchronous enrichment.
+        Free, and exempt from the rate limit (poll it, backing off from 2 s to 30 s).
+
+        Returns: `status` `pending` (still running), `finished` (every asked type done,
+        found or not: `email`, `email_status`, `phone` — a list here, not `phones` —,
+        `phone_details`, `personal_email`, …) or `failed` (credits ran out while it
+        ran: `code` is `insufficient_credits` or `workspace_limit_exceeded`).
+        """
+        ident = enrichment_id.strip() if isinstance(enrichment_id, str) else ""
+        if not _ENRICHMENT_ID.match(ident):
+            raise ValueError("`enrichment_id` must be the id an enrichment returned "
+                             f"(a UUID); got {enrichment_id!r}.")
+        return self._call("GET", f"{self.BASE_URL}/contacts/{ident}")
+
+    def _body(self, enrichment_type, linkedin_url, firstname, lastname, domain,
+              company_name, phone_type, phone_country_codes, custom) -> Dict[str, Any]:
+        """The enrichment body, checked: what Pipecorn would refuse with a 422 is
+        refused here, before any call."""
         kinds = self._kinds(enrichment_type)
         if ("phone" in kinds or "personal_email" in kinds) and not linkedin_url:
             raise ValueError("`linkedin_url` is required for a phone or a personal email.")
@@ -190,9 +245,7 @@ class PipecornClient:
             if not isinstance(custom, dict):
                 raise ValueError("`custom` must be an object.")
             body["custom"] = custom
-        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
-        return self._call("POST", f"{self.SYNC_URL}/contacts/single_enrich", json=body,
-                          headers=headers, timeout=timeout)
+        return body
 
     @staticmethod
     def _kinds(enrichment_type: Any) -> List[str]:

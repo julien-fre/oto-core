@@ -138,3 +138,45 @@ def test_credits_spent_counts_only_what_was_asked():
     assert credits_spent(answer, ["phone"]) == 30
     assert credits_spent(answer, ["email"]) == 3
     assert credits_spent(answer) == 33
+
+
+# --- asynchronous: submitted on the app host, read back by id ---------------------
+
+ID = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a"
+
+
+def test_submit_goes_to_the_app_host_with_the_same_body(client):
+    client.submit_enrichment(["phone"], linkedin_url="https://www.linkedin.com/in/x/",
+                             phone_type="mobile", idempotency_key="k-2")
+    method, url, kw = _sent(client)
+    assert (method, url) == ("POST", "https://app.pipecorn.com/api/v2/contacts/single_enrich")
+    assert kw["json"] == {"enrichment_type": ["phone"],
+                          "linkedin_url": "https://www.linkedin.com/in/x/",
+                          "phone_type": ["mobile"]}
+    assert "webhook_url" not in kw["json"]
+    assert kw["headers"] == {"Idempotency-Key": "k-2"}
+
+
+def test_submit_refuses_what_pipecorn_would_before_any_call(client):
+    with pytest.raises(ValueError, match="linkedin_url"):
+        client.submit_enrichment(["phone"])
+    client.session.request.assert_not_called()
+
+
+def test_result_is_read_by_id_on_the_app_host(client):
+    client.get_enrichment(f" {ID} ")
+    assert _sent(client)[:2] == ("GET", f"https://app.pipecorn.com/api/v2/contacts/{ID}")
+
+
+@pytest.mark.parametrize("bad", ["", "../credits", "abc", None, 12])
+def test_result_id_never_reshapes_the_path(client, bad):
+    with pytest.raises(ValueError, match="enrichment_id"):
+        client.get_enrichment(bad)
+    client.session.request.assert_not_called()
+
+
+def test_credits_spent_reads_an_async_result():
+    # `GET /contacts/{id}` lists numbers under `phone`, details under `phone_details`.
+    result = {"status": "finished", "phone": ["+33612345678"],
+              "phone_details": [{"number": "+33612345678", "type": "mobile"}]}
+    assert credits_spent(result, ["phone"]) == 30
