@@ -26,7 +26,7 @@ EXPECTED_MEMBERS = {
     '_choices': "(name: 'str', values: 'Optional[List[str]]', allowed: 'Optional[tuple]' = None) -> 'Optional[List[str]]'",
     '_flag': "(value: 'Optional[bool]') -> 'Optional[str]'",
     '_get': "(self, path: 'str', params: 'Optional[Dict[str, Any]]' = None) -> 'Any'",
-    '_page': "(self, page: 'Optional[int]', per_page: 'Optional[int]') -> 'Dict[str, Any]'",
+    '_page': "(self, page: 'Optional[int]', per_page: 'Optional[int]', most: 'int' = 100) -> 'Dict[str, Any]'",
     '_path_id': "(name: 'str', value: 'Any') -> 'str'",
     '_period': "(name: 'str', value: 'Optional[str]') -> 'Optional[str]'",
     '_positive': "(name: 'str', value: 'Optional[int]') -> 'Optional[int]'",
