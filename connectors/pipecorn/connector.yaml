@@ -1,0 +1,196 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Pipecorn API v2 (https://docs.pipecorn.com, as the Python client oto.tools.pipecorn reads it, 2026-10-29): a
+# waterfall enrichment of ONE contact (a professional email, a mobile phone) run by Pipecorn across its own providers,
+# and the account's balance. The function names, the argument names and the keys sent to Pipecorn are the client's;
+# tests/test_pipecorn_description.py reads the client to keep both equal.
+#
+# Two hosts. The synchronous enrichment (enrich_contact) is served on https://api.pipecorn.com/v2 only; the same path
+# on the main host, https://app.pipecorn.com/api/v2, is the asynchronous one (submit_enrichment), and every other route
+# (result, credits, account) lives on the main host. A description has one root: this one is the main host, and
+# describes the asynchronous enrichment. Stay the client's, named: enrich_contact (the other host), and probe (the
+# client's name for get_credits, the same request).
+#
+# Four functions: submit an enrichment, read its result, read the balance, read the account. submit_enrichment is a
+# write: it spends Pipecorn credits on a person. The three others are free reads.
+#
+# Asynchronous: submit_enrichment answers at once {enrichment_id, status: pending}; get_enrichment reads it with the
+# enrichment_id alone, status pending, finished (every asked kind done, found or not) or failed (the credits ran out
+# while it ran). Free and exempt from the rate limit (poll it, backing off from 2 s to 30 s). No bound is documented on
+# how long a lookup runs: no within_s.
+#
+# Cost of submit_enrichment, Pipecorn's grid ("Credits vs limits"): per result FOUND, 3 credits a professional email,
+# 30 a phone, and a phone only when a MOBILE (mobile or fixed_or_mobile) is found; nothing on a miss nor on a failed
+# lookup (a personal email is refused, below). The worst case is one result per kind asked:
+# per item over enrichment_type, in results. The price of each kind is not weights: the format weighs a field of each
+# element of a list of objects, and the kinds are a list of texts at the top of the body. No answer says the credits
+# spent: nothing is settled here; the billing service settles each kind at what the finished result found.
+#
+# Refused, named: personal_email (a third party's personal email), whatever the key, for good; the client refuses it
+# before any call. Left to the client, named: phone_type, which the client sends as a one-element
+# list (the format sends an argument as given), and custom, a free object Pipecorn echoes back.
+#
+# Gaps with the client, named (narrower here): linkedin_url is a LinkedIn profile address; a phone needs it; an email
+# needs it, or firstname, lastname and a domain or a company_name (Pipecorn answers 422 otherwise, before any credit is
+# spent); phone_country_codes in upper case (the client upper-cases them); the enrichment_id a UUID without spaces (the
+# client trims it).
+#
+# No secret and no address that opens content without a login reaches the agent: the answers carry the contact found
+# (names, email, phones, LinkedIn address), never the key. Nothing is stripped. linkedin_url, firstname and lastname
+# name a person.
+#
+# Errors, as the client reads them. 401: the key is unknown, marks the account credential_rejected. 402
+# insufficient_credits (balance too low, nothing spent) and 403 workspace_limit_exceeded (the member's weekly cap), also
+# in the body of a failed result (200): mark the account quota_exhausted. 422: a refused input, nothing spent. 429:
+# retried. 5xx: not retried, a lookup may have been accepted.
+#
+# Probe: get_credits, free; credits.enrichment is the spendable balance, healthy at one credit or more.
+connector:
+  name: pipecorn
+  label: Pipecorn
+  namespace: pipecorn
+  version: 1.0.0
+  api_version: v2
+  base_url: https://app.pipecorn.com/api/v2
+  auth: { kind: api_key, in: header, name: X-API-KEY, key: api_key }
+  credential:
+    - { name: api_key, label: API key, secret: true }
+  # As oto 1: the user's or organization's own key, or a platform key on explicit grant.
+  modes: [platform, byo_user, byo_org]
+  # The client's read timeout (HTTP_TIMEOUT, 60 s).
+  timeout_s: 60
+  probe: { function: get_credits, balance: { path: credits.enrichment, min: 1, unit: credits } }
+  errors:
+    - { status: [200, 402], body: { path: code, equals: [insufficient_credits] }, code: credits_insufficient,
+        retryable: false, marks_account: quota_exhausted,
+        message: "Pipecorn: the account has not enough credits left for this lookup. Top up in Pipecorn." }
+    - { status: [200, 403], body: { path: code, equals: [workspace_limit_exceeded] }, code: workspace_limit_reached,
+        retryable: false, marks_account: quota_exhausted,
+        message: "Pipecorn: this key's weekly credit limit for its workspace is reached. A workspace admin raises it, or wait for the week to reset." }
+    - { status: 401, code: key_refused, retryable: false, marks_account: credential_rejected,
+        message: "Pipecorn does not know this API key: copy it again from Settings, API keys." }
+    - { status: 402, code: payment_required, retryable: false,
+        message: "Pipecorn answered Payment Required for this lookup." }
+    - { status: 403, code: forbidden, retryable: false,
+        message: "Pipecorn refused this call for this key." }
+    - { status: 404, code: not_found, retryable: false,
+        message: "Not found in Pipecorn for this key." }
+    - { status: 422, code: invalid_request, retryable: false,
+        message: "Pipecorn rejected the request before spending anything: check the inputs of the lookup." }
+    - { status: 429, code: rate_limited, retryable: true,
+        message: "Pipecorn rate limit reached: retry in a few seconds." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: false,
+        message: "Pipecorn failed or timed out. Reading a result or the balance can be retried; a submitted lookup may have been accepted: do not submit it again blindly." }
+
+functions:
+  - name: submit_enrichment
+    class: write
+    description: >-
+      Submit a Pipecorn waterfall enrichment of ONE person and return at once
+      {enrichment_id, first_name, last_name, status: pending, status_url}: read
+      the result with get_enrichment and the enrichment_id. enrichment_type
+      lists what to find: email (professional), phone. A phone needs
+      linkedin_url; an email takes linkedin_url, or firstname, lastname and a
+      domain or a company_name. phone_country_codes keeps phones to countries.
+      Pipecorn bills per result found: 3 credits a professional email, 30 a
+      phone, and a phone only when a mobile is found; nothing on a miss. A
+      third party's personal email is never looked up. A retry with the same
+      idempotency_key and body returns the stored answer instead of spending
+      again (24 hours).
+    input:
+      type: object
+      additionalProperties: false
+      required: [enrichment_type]
+      anyOf:
+        - { required: [linkedin_url] }
+        - { required: [firstname, lastname, domain] }
+        - { required: [firstname, lastname, company_name] }
+      if: { properties: { enrichment_type: { contains: { const: phone } } } }
+      then: { required: [linkedin_url] }
+      properties:
+        enrichment_type:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { enum: [email, phone] }
+        linkedin_url: { type: string, pattern: "^https://([a-z]{2,3}\\.)?linkedin\\.com/in/\\S+$", personal: true, description: "The person's LinkedIn profile URL; required for a phone." }
+        firstname: { type: string, minLength: 1, personal: true }
+        lastname: { type: string, minLength: 1, personal: true }
+        domain: { type: string, pattern: "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$", description: "Company website domain, without scheme: example.com." }
+        company_name: { type: string, minLength: 1 }
+        phone_country_codes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, pattern: "^[A-Z]{2}$" }
+          description: "ISO alpha-2 codes (FR, US) to keep phones to."
+        idempotency_key: { type: string, minLength: 1, description: "A retry with the same key and body returns the stored answer (kept 24 hours)." }
+    examples:
+      - title: The mobile phone of one person, by LinkedIn URL
+        input: { enrichment_type: [phone], linkedin_url: "https://www.linkedin.com/in/janedoe/" }
+      - title: The professional email of one person, by name and domain
+        input: { enrichment_type: [email], firstname: Jane, lastname: Doe, domain: example.com, idempotency_key: crm-12584 }
+    refusals:
+      - { code: enrichment_id_missing, when: "the response carries no enrichment_id",
+          message: "Pipecorn accepted the lookup but returned no enrichment id." }
+    expect:
+      - { kind: non_empty, refusal: enrichment_id_missing, path: enrichment_id }
+    call:
+      method: POST
+      path: /contacts/single_enrich
+      body:
+        enrichment_type: enrichment_type
+        linkedin_url: linkedin_url
+        firstname: firstname
+        lastname: lastname
+        domain: domain
+        company_name: company_name
+        phone_country_codes: phone_country_codes
+      headers: { Idempotency-Key: idempotency_key }
+    cost: { per: item, items: enrichment_type, unit: results }
+    async: { collect: get_enrichment, job_id: { from: enrichment_id, to: enrichment_id } }
+
+  - name: get_enrichment
+    class: read
+    description: >-
+      Read a Pipecorn enrichment by its enrichment_id, from submit_enrichment.
+      status is pending while Pipecorn looks; read again a few seconds later
+      (2 s, backing off to 30 s). finished: every asked kind is done, found or
+      not: email, email_status, phone (a list of numbers), phone_details
+      [{number, type}], phone_status. A number the workspace suppressed reads
+      "Contacts not shared". failed: the credits ran out while it ran (code
+      insufficient_credits or workspace_limit_exceeded), nothing found nor
+      billed. Free, and exempt from the rate limit.
+    input:
+      type: object
+      additionalProperties: false
+      required: [enrichment_id]
+      properties:
+        enrichment_id: { type: string, pattern: "^[0-9a-fA-F-]{36}$", description: "From submit_enrichment." }
+    examples:
+      - title: The result of an enrichment
+        input: { enrichment_id: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a }
+    refusals:
+      - { code: enrichment_not_found, when: 404, message: "No Pipecorn enrichment with this id for this key: a lookup is read with the key that submitted it." }
+    call: { method: GET, path: "/contacts/{enrichment_id}" }
+
+  - name: get_credits
+    class: read
+    description: >-
+      The balance of the Pipecorn account behind this key: credits.enrichment
+      is what lookups spend; the other credits.* are the plan's remaining
+      extraction quotas, limits.* their ceilings. Free.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: The balance, input: {} }
+    call: { method: GET, path: /credits }
+
+  - name: get_account_info
+    class: read
+    description: >-
+      The Pipecorn account behind this key: the plan, the email of the key's
+      owner, and whether its LinkedIn and Sales Navigator sessions are valid.
+      Free.
+    input: { type: object, additionalProperties: false, properties: {} }
+    examples:
+      - { title: The account, input: {} }
+    call: { method: GET, path: /account }
