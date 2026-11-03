@@ -1,4 +1,4 @@
-"""La description `crisp` 1.0.0 : la messagerie client de Crisp, en lecture seule, sans client Python.
+"""La description `crisp` 1.0.0 : la messagerie client de Crisp, en lecture seule ; son client : `test_crisp_client.py`.
 
 Gardes : chaque fonction est une lecture (`class: read`, jamais `act`) servie par un `GET` ; le compte est le jeton
 de site (identifiant et clé en Basic, en-tête `X-Crisp-Tier: website`) et l'identifiant du site est un réglage du
