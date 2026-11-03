@@ -39,6 +39,10 @@
 # they are simple values (additionalProperties: { type: [string, number, boolean], personal: true }), a date as a text.
 # A free key of another type (null, an object, a list; a number or a boolean for a lead) is refused before any call.
 # The enrichment flags of create_lead go only when true, as the client sends them.
+# What oto 1's row import (lemlist_push_rows, read on 2026-10-22) sends goes through this description: every value
+# is a text (numbers and booleans written as text, a list joined, an object refused, an empty cell omitted), and
+# the time zone of a lead is only a text, as for the client. tests/test_lemlist_description.py checks the whole
+# body, sent as is, key by key and all together, and that the schema refuses what the client refuses locally.
 #
 # A campaign created by the API is born running, not as a draft (measured by the client on 2026-08-31): nothing
 # sends until a sender, a step and a launched lead exist, and pause_campaign right after creating it keeps it quiet.

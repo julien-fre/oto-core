@@ -14,7 +14,9 @@
 # (connector pennylane), where one key is bound to one company.
 #
 # Covered: companies, fiscal years and the DMS (folders, files, file changes).
-# The DMS has no single-item read, no update, no delete and no move.
+# The DMS has no single-item read, no update, no delete and no move; for that
+# reason upload_dms_file is marked sensitive: the API cannot delete a file
+# from the DMS.
 #
 # Uploading a file into the DMS (multipart POST /companies/{company_id}/dms/files,
 # upload_dms_file) takes the id of a transit file of the caller, or of a file

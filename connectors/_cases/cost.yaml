@@ -1,6 +1,6 @@
 # Common cost cases: the pure cost functions give the same results in Python (oto.connectors.cost: worst_case,
 # settled_quantity, collection_of) and in the host package of oto 2 (costOf, settledQuantity, collectionOf), with the
-# semantics of docs/conception/format-de-description.md, « Coût d'un appel » and « Travail asynchrone ». With quantity,
+# semantics of docs/conception/cout-et-solde.md and docs/conception/travaux-longs.md. With quantity,
 # per: request and per: page count quantity units of unit per request sent, in the worst case and in the quantity settled
 # without settle (the requests sent times quantity).
 #

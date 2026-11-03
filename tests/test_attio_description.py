@@ -8,7 +8,7 @@ dans `{"data": {...}}`, est un corps emboîté : la constante du corps, puis cha
 (`_body`, la référence du format) ; il est jugé égal à celui du client pour chaque argument donné ou absent.
 Écarts nommés, gardés ici :
 - deux fonctions décrivent la même méthode (`BY_VERB`, écart à « une fonction par méthode, sous son nom » décidé par
-  Alexis) : `records.update` et `entries.update`, dont l'argument `overwrite_multiselect` choisit le verbe (PATCH
+  le mainteneur) : `records.update` et `entries.update`, dont l'argument `overwrite_multiselect` choisit le verbe (PATCH
   ajoute aux valeurs d'une multisélection, PUT les remplace), sont chacune une fonction par verbe, l'argument fixé par
   la fonction et jamais pris ; le client est appelé avec la valeur qui correspond à la fonction ;
 - les méthodes laissées au client (`LEFT_OUT`) : les tâches
@@ -76,7 +76,7 @@ FUNCTIONS = {
     "update_record": ("records", "update"), "replace_record_values": ("records", "update"),
     "update_entry": ("entries", "update"), "replace_entry_values": ("entries", "update"),
 }
-# L'écart décidé par Alexis : deux fonctions par méthode, une par verbe, l'argument qui choisit le verbe fixé par chacune
+# L'écart décidé par le mainteneur : deux fonctions par méthode, une par verbe, l'argument qui choisit le verbe fixé par chacune
 # (PATCH ajoute aux valeurs d'une multisélection, PUT les remplace) et passé au client tel que la fonction le fixe.
 BY_VERB = {
     "update_record": ("PATCH", {"overwrite_multiselect": False}),

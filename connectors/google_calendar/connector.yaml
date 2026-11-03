@@ -13,6 +13,7 @@
 # decided at each call, never left to a default.
 # Out of this file: a Google Meet link on a new event (its request needs a new
 # random id at each call, which a constant cannot carry).
+# Values come from the Python client and the public reference, not checked by a real call.
 connector:
   name: google_calendar
   label: Google Calendar

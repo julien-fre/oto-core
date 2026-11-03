@@ -1,5 +1,5 @@
 # Common cases of output.strip: the keys an answer loses before it reaches the agent, with the semantics of
-# docs/conception/format-de-description.md, « Le bloc functions », « Retirer de la sortie ».
+# docs/conception/sortie.md.
 #
 # Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the functions the
 # cases carry into one description, checked with the schema and the rules of every description (rule 18 included), then

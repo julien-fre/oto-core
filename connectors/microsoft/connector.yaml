@@ -9,7 +9,9 @@
 # rotates the refresh token: each refresh returns the one to keep.
 # Two access levels: read (Files.Read.All, Sites.Read.All) and full
 # (Files.ReadWrite.All, Sites.ReadWrite.All, which cover the read scopes).
-# Every function below reads: both levels serve them all.
+# Every function below reads: both levels serve them all. Each declares its scopes (Sites.Read.All for a site,
+# Files.Read.All for a drive or an item, User.Read for get_me), checked on 2026-10-16 against the Microsoft Graph
+# reference. The values come from the Python clients and the public references, not checked by a real call.
 connector:
   name: microsoft
   label: Microsoft 365 (SharePoint, OneDrive)

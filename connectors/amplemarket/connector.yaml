@@ -99,6 +99,8 @@
 #
 # Not covered: the Duo custom-signal webhook (a per-workspace URL, not an API
 # route) and call recordings (a binary download).
+#
+# Values checked against the public reference only: no real call was made.
 connector:
   name: amplemarket
   label: Amplemarket

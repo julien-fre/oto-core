@@ -1,5 +1,5 @@
 # Common cases of the error table: the entry an answer of the vendor selects, with the semantics of
-# docs/conception/format-de-description.md, « Signal de refus du service ». The first entry whose status covers the
+# docs/conception/signal-de-refus.md. The first entry whose status covers the
 # answer and whose body condition holds, when it has one, wins.
 #
 # A body condition reads the value at its dotted path (a list index as digits) in the JSON body of the answer:

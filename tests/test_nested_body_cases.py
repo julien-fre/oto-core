@@ -1,7 +1,7 @@
 """Les cas communs du corps emboîté (`connectors/_cases/nested_body.yaml`), joués côté Python, une ligne par cas.
 
 La lib n'envoie la requête d'aucune description : seul le moteur du paquet de l'hôte le fait. Les cas se jouent donc
-ici contre une référence écrite dans le test, qui dit la sémantique du format (« Le corps emboîté ») ; le paquet de
+ici contre une référence écrite dans le test, qui dit la sémantique du format (`docs/conception/corps-de-requete.md`) ; le paquet de
 l'hôte joue les mêmes cas, sortis par la fabrique dans `ts/src/nested-body-cases.ts`, contre son moteur. Les entrées
 rejetées le sont par le schéma d'entrée, avant tout envoi ; les fonctions refusées le sont par la fabrique (règle 22),
 avec leur code.

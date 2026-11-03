@@ -134,7 +134,7 @@ pas dire :
    elle n'est pas paginée (`background_paginated`). Les codes sont ceux des cas communs
    (`connectors/_cases/background.yaml`), jugés dans cet ordre ; `class`, `act`, `confirm`, `cost` et `output.file` ne
    changent pas ;
-22. le corps emboîté (`call.body` en table dont une valeur est elle-même une table, décidé par Alexis le 2026-10-26) :
+22. le corps emboîté (`call.body` en table dont une valeur est elle-même une table, décidé par le mainteneur le 2026-10-26) :
    une table emboîtée porte au moins une entrée (`body_nested_empty`) ; aucun chemin n'est à la fois constant
    (`constants.body`) et argument, ni l'un sous l'autre : la table et la constante ne se rejoignent que par des objets
    des deux côtés (`body_key_twice`, au premier niveau comme au-dessous) ; un corps multipart (`files`) n'a pas de table
@@ -215,8 +215,8 @@ BODY_REFUSALS = ("body_argument_unknown", "body_argument_not_strict", "body_argu
 # Les clés libres de l'argument du corps entier, à sa racine seulement : au lieu de `additionalProperties: false`,
 # chaque clé que `properties` ne déclare pas est marquée donnée personnelle (règle 15 : l'hôte ne journalise pas sa
 # valeur), de l'un des deux genres que la description choisit. Les clés déclarées gardent leur schéma.
-# - le texte (décidé par Alexis le 2026-10-22) : `{type: string, personal: true}` ;
-# - la valeur simple (décidé par Alexis le 2026-10-22) : un texte, un nombre ou un vrai/faux, pour des champs que le
+# - le texte (décidé par le mainteneur le 2026-10-22) : `{type: string, personal: true}` ;
+# - la valeur simple (décidé par le mainteneur le 2026-10-22) : un texte, un nombre ou un vrai/faux, pour des champs que le
 #   tiers type (les champs personnalisés d'un CRM). `number`, pas `integer` : un champ nombre du tiers prend une
 #   décimale, et JSON ne distingue pas `2` de `2.0`. Une date reste un texte ; `null`, un objet, une liste restent
 #   refusés. Les trois types dans cet ordre, l'écriture unique que les deux juges comparent telle quelle.

@@ -18,6 +18,10 @@
 # values. Out of this file: finding a spreadsheet (a Drive query on its MIME
 # type, on another host), creating one, and changing its structure, formatting
 # or sharing (spreadsheets.batchUpdate requests, Drive permissions).
+# The scopes of each Sheets method were checked on 2026-10-16 against the public reference: the reads
+# (spreadsheets.get, values.batchGet) accept spreadsheets.readonly; the writes (values.batchUpdate, values.append,
+# values.batchClear) require spreadsheets.
+# Values come from the Python client and the public reference, not checked by a real call.
 connector:
   name: google_sheets
   label: Google Sheets

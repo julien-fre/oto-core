@@ -4,7 +4,7 @@ Les lectures d'un appel (`list_conversations` sous `last_item`, `search_conversa
 `get_conversation_items`) retirent par `output.strip` `recording_url`, `recording_download_url` (signée, 48 heures) et
 son échéance ; l'audio se rend en fichier par `get_call_recording` (`output.file`, lien signé de 60 minutes téléchargé
 sans authentification), qui remplace `get_recording_link`. Même règle que `aircall` 1.1.0
-(docs/conception/format-de-description.md, « Retirer de la sortie », « Fichiers »).
+(docs/conception/sortie.md, docs/conception/fichiers.md).
 """
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ WEBHOOK_ANSWERS = ("list_webhooks", "get_webhook", "create_webhook", "update_web
 
 
 def test_no_webhook_answer_gives_the_signing_secret_1_2_0():
-    """1.2.0, decided by Alexis on 2026-10-23: a secret never reaches the agent; a webhook's signing secret is read
+    """1.2.0, decided by the maintainer on 2026-10-23: a secret never reaches the agent; a webhook's signing secret is read
     in Allo, and no description promises it."""
     description = _description()
     for name in WEBHOOK_ANSWERS:

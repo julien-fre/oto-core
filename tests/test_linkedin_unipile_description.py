@@ -5,7 +5,7 @@ gardes lisent le client lui-même pour les trois fichiers que 1.2.0 rattache (`_
 `feed.py`) : chaque méthode publique y est une fonction sous son nom, avec les arguments qu'elle nomme et la requête
 qu'elle envoie, ou une méthode que le format ne sait pas dire, nommée dans l'en-tête de la description (`NOT_DESCRIBED`).
 
-Écart assumé à la règle « une fonction par méthode, sous son nom », décidé par Alexis le 2026-10-24 : la méthode
+Écart assumé à la règle « une fonction par méthode, sous son nom », décidé par le mainteneur le 2026-10-24 : la méthode
 `search` est décrite par huit fonctions (`SEARCH`), une par couple produit et cible que sert Unipile (cinq : Recruiter
 n'a pas de recherche d'entreprises) et une par produit pour la recherche par adresse collée (trois). Chacune prend des
 identifiants de facettes déjà résolus par `resolve_facet`, dans la forme de son produit, et envoie ce qu'envoie
@@ -46,7 +46,7 @@ NOT_DESCRIBED = {
     "member_action": "member_action: the route and the body depend on the pair",
     "get_feed": "get_feed and parse_feed (the home feed)",
 }
-# L'écart décidé par Alexis : huit fonctions décrivent `search`.
+# L'écart décidé par le mainteneur : huit fonctions décrivent `search`.
 STRUCTURED = {f: pair for pair, f in SEARCH_FUNCTIONS.items()}
 BY_URL = {f: api for api, f in SEARCH_BY_URL_FUNCTIONS.items()}
 SEARCH = {"search": set(STRUCTURED) | set(BY_URL)}

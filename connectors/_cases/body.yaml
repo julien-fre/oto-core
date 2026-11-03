@@ -1,5 +1,5 @@
 # Common cases of the whole body: `call.body` that names one input argument, a strict object, instead of a map, with the
-# semantics of docs/conception/format-de-description.md, « Le bloc functions », « Le corps entier » (rule 20 of the
+# semantics of docs/conception/corps-de-requete.md, the whole body (rule 20 of the
 # fabrique). At its root only, the object may admit free keys instead of `additionalProperties: false`, each undeclared
 # key marked personal data: exactly `{ type: string, personal: true }`, a text, or
 # `{ type: [string, number, boolean], personal: true }`, a simple value (both decided 2026-10-22).

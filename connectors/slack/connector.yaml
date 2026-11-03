@@ -27,6 +27,9 @@
 # given, refuses a text that holds such a number (pattern) and caps it at 4,000 characters (maxLength); the agent writes
 # the time otherwise and splits a long text itself. Under these bounds the client sends exactly what the host sends.
 # update_message and post_ephemeral do not preprocess, in the client as here.
+# A number that follows an allowed emoji (:100:200:) is refused here where the client lets it through: a named gap.
+# tests/test_slack_description.py also freezes the client's routing to the user token, which this description does
+# not say; tests/test_slack_surface_frozen.py freezes the surface of the client.
 # Link previews (1.1.0): unfurl_links and unfurl_media go to chat.postMessage as given, only when the call gives
 # them, as the client sends them on every part it splits; absent, Slack's default holds, unchanged for oto 1.
 #

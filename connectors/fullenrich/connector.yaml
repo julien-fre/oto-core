@@ -30,6 +30,11 @@
 # to an address of the caller's choosing; forceResults (partial results, "not
 # recommended for regular use"); the credit balance, key check, reverse email
 # lookup and search endpoints, which the Python client does not call.
+#
+# Verified against the documentation only: no real call was made. enrich_fields
+# is required (at least one field per contact), so that the vendor applies no
+# default; the name of the batch, which the reference suggests deriving from the
+# person, is marked personal. No probe: the file has no read without an argument.
 connector:
   name: fullenrich
   label: FullEnrich

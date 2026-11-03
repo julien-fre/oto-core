@@ -83,7 +83,7 @@ PERSONAL = {
     "find_user_by_email": {"email"},
 }
 # Ce que le client enverrait sur le jeton d'utilisateur, les deux jetons posés : ce que décrit `slack_user` (décidé par
-# Alexis le 2026-10-22), sauf `post_ephemeral`, laissé au bot (`LEFT_TO_SLACK` de `tests/test_slack_user_description.py`).
+# le mainteneur le 2026-10-22), sauf `post_ephemeral`, laissé au bot (`LEFT_TO_SLACK` de `tests/test_slack_user_description.py`).
 ROUTED_TO_THE_USER = {
     # Lecture d'un DM, liste des seules conversations directes, ouverture de son DM : le jeton d'utilisateur.
     "by_reading": {("history", "D0000000001"), ("replies", "D0000000001"), ("list_channels", "im"),

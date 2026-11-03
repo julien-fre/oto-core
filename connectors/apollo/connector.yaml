@@ -12,7 +12,8 @@
 # Read and act: searches and reads of the workspace stay on the read side. Enrichment is served on the act side
 # (class write), like any call that spends credits on a person or a company (fullenrich.submit): enrich_organization,
 # bulk_enrich_organizations, match_person (which, on too weak an identifier, creates an empty person in Apollo and
-# bills it) and bulk_match_people. Creating a sequence (always inactive), deactivating it, changing the status of
+# bills it; the input schema refuses a too weak identifier, as the client does: a strong identifier, else a full
+# name) and bulk_match_people. Creating a sequence (always inactive), deactivating it, changing the status of
 # contacts in sequences, creating a custom field and updating a contact are writes; an email draft is a write that
 # stays on the read side (act false). Activating a sequence (it starts sending), archiving it, updating it (its
 # steps, cc and bcc go to every recipient) and sending an email ask for a confirmation (class sensitive).
@@ -40,7 +41,8 @@
 # never wider than the client, since a wrong mark would block an account that still has credits. The client's other
 # form, "ran out of <one or two words> credits", is not said: a body condition finds one fixed text, and "ran out of"
 # alone would be wider than the client. Such a 422 stays the generic refusal, without a mark, and its message says
-# what it means. Any other 422 names a rejected field. A 403
+# what it means (the errors list of a body, which the client copies as text, is not read). Any other 422 names a
+# rejected field. A 403
 # is a key without the master right or a plan without the endpoint: it marks nothing. The client spaces two
 # requests by one second and retries a short 429 itself; the rate declared here is the client's. A 5xx is not
 # retryable: a write (a send, an activation) may have gone through.
@@ -58,6 +60,9 @@
 #   create_custom_field (nested into meta); the extra fields of create_sequence;
 # - the phone reveal of match_person and bulk_match_people (reveal_phone_number with webhook_url): Apollo posts the
 #   numbers later to an address chosen by the caller, a receiver of the host's, out of the format.
+# No pagination is declared: the searches give their page and total, not the next page.
+# The recording links of a conversation are stripped (output.strip); the shape of that answer comes from the
+# client and was not checked by a real call.
 # The client also marks, in the answer of a match, the empty person Apollo creates on a weak identifier (_stub): the
 # description says how to recognize it.
 # No probe: the client calls no account endpoint, and the reads without argument (mailboxes, schedules, custom

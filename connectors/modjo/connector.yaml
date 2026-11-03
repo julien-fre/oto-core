@@ -1,5 +1,11 @@
 # yaml-language-server: $schema=../connector.schema.json
 # Modjo Public API v2 reference: https://api.modjo.ai/v2/docs (OpenAPI: https://api.modjo.ai/v2/open-api.json)
+# Values checked on 2026-10-12 against the OpenAPI v2.0.0. The key is a
+# workspace key, created by an admin or a manager.
+#
+# Administration (members, teams, webhooks) is not covered. The call date bounds
+# are date_from and date_to because `from` is reserved in Python. upload_call is
+# sensitive: it cannot be undone and Modjo logs the call in the connected CRM.
 connector:
   name: modjo
   label: Modjo

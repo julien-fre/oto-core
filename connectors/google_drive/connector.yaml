@@ -14,6 +14,7 @@
 # not found. fields is a constant: Drive returns only the fields it names.
 # Out of this file: the content of a file (download and export answer with the
 # file itself, not JSON) and the upload (multipart body).
+# Values come from the Python client and the public reference, not checked by a real call.
 connector:
   name: google_drive
   label: Google Drive

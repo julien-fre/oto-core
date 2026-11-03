@@ -11,8 +11,17 @@
 #
 # Not described here: uploading a file (multipart POST /file_attachments) and
 # importing a supplier invoice from it (POST /supplier_invoices/import), which
-# depend on that upload; categorizing an invoice or a ledger entry line
+# depend on that upload (the multipart body can be said, but an uploaded file
+# alone would return an id that no described function reads; the import will
+# come with it); categorizing an invoice or a ledger entry line
 # (PUT .../categories), whose body is a list at the top level.
+# The Python client's fetch_complete_data (several calls), the only_outstanding
+# option of the transactions (a local filter) and its two duplicate searches by
+# external_reference (served here by the filter of the list functions) stay out
+# of the file.
+#
+# Known gap: a credit note takes negative quantities, imposed by the schema
+# (exclusiveMaximum: 0), where the Python client inverts the sign.
 #
 # The filter query parameter is a JSON array serialised as a string:
 # [{"field": "date", "operator": "gteq", "value": "2026-01-01"}]. The agent passes

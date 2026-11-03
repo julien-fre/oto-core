@@ -3,7 +3,9 @@
 # the Python client, oto.tools.salesforce, which this description follows: one request per method, under
 # {instance_url}/services/data/v60.0, the access token as a bearer token. The function names, the argument names and
 # the parameters sent to Salesforce are the client's; the client is not changed (tests/test_salesforce_description.py
-# reads it to keep both equal).
+# reads it to keep both equal: method, instance address, query and token request, for each example and for a call
+# that gives every argument, and the class of each function; tests/test_salesforce_surface_frozen.py freezes the
+# surface of the client).
 #
 # Authorization. The client takes a consent already given (client id and secret of a Salesforce connected app, a
 # refresh token, a login URL) and renews the access token at {login_url}/services/oauth2/token (grant refresh_token,

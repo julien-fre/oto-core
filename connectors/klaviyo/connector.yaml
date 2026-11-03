@@ -20,7 +20,8 @@
 # Not declared, because the format cannot say it:
 # - pagination: links.next is a full URL carrying page[cursor] (page_cursor
 #   for the reports), not a cursor at a path of the response. No function
-#   declares `pagination`; the agent passes the cursor back itself.
+#   declares `pagination`; the agent passes the cursor back itself, whereas the
+#   Python client follows links.next (bounded to the Klaviyo host).
 # - per-endpoint rate limits: Klaviyo paces each endpoint per account, with a
 #   burst (per second) and a steady (per minute) window, from 1/s and 15/min
 #   (account, profile_count) and 1/s and 2/min plus 225/day (values reports)

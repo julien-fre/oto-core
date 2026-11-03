@@ -38,6 +38,11 @@
 #
 # Personal data: an argument that names a person, a user id (assignee_id, lead_id, user_id).
 #
+# The client changed for the exactness of the body: first of the four described lists that took none (comments,
+# teams, workflow states, users) and enabled of create_webhook default to None (nothing is sent, so Linear's own
+# default holds: 50 per page, an active webhook) instead of always sending 50 and True; oto 1 always passes them,
+# so it sends the same thing.
+#
 # Narrower than the client, which lets everything through (named in the test): first from 1 to 250 (Linear's
 # bound), priority from 0 to 4, dates as YYYY-MM-DD, an https webhook url, resource_types required (Linear refuses a
 # webhook without), all_public_teams only true (the client sends nothing for false), an update with at least one

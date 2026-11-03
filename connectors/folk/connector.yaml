@@ -3,7 +3,8 @@
 # 2026-10-22). The values come from the Python client, oto.tools.folk, which this description follows: one request per
 # method to api.folk.app/v1, the API key as a bearer token (Authorization: Bearer <key>), JSON bodies. The function
 # names, the argument names and the keys sent to folk are the client's; the client is not changed
-# (tests/test_folk_description.py reads it to keep both equal).
+# (tests/test_folk_description.py reads it to keep both equal, and tests/test_folk_surface_frozen.py freezes the
+# surface of the client).
 #
 # Read and act. Reads stay on the read side. Every call that creates or changes something is served on the act side
 # (class write). Ask for a confirmation (class sensitive): every delete and removal (a person, a company, a deal, a
@@ -39,6 +40,11 @@
 # given (last name, emails, a task's description…): the schema refuses them (minLength, minItems).
 #
 # Query booleans: onlyAssignedToMe of list_tasks is written true or false, by the host as by the client.
+#
+# Deprecated, yet described because the client and oto 1 use them: the reminders (folk announces their removal for
+# 2027-02-13) and the two interaction lists, past and upcoming (deprecated since 2026-09-29).
+#
+# Probe: get_current_user, the one oto 1 uses.
 #
 # Rate: folk counts per user, every key of that user included: 20 requests per 2 seconds (burst) and 600 per minute
 # (default), fixed windows (developer.folk.app/api-reference/rate-limits, read on 2026-10-22). 20 per 2 s implies the

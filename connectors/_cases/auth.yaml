@@ -1,5 +1,5 @@
 # Common cases of the authentication of a call: what a request carries, from the auth block of a connector and the
-# values of its credential fields, with the semantics of docs/conception/format-de-description.md, « Le compte ». Only
+# values of its credential fields, with the semantics of docs/conception/compte.md. Only
 # the kinds signed from the credential alone: api_key, bearer and basic (a token exchange or a consent is not a case).
 #
 # Synthetic: no real connector, no vendor; every value is made up and says so (test-key-not-real). The fabrique checks

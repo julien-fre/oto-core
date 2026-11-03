@@ -1,7 +1,7 @@
 """Les cas communs de l'authentification (`connectors/_cases/auth.yaml`), joués côté Python, une ligne par cas.
 
 La lib ne signe la requête d'aucune description : seul le moteur du paquet de l'hôte le fait. Les cas se jouent donc ici
-contre une référence écrite dans le test, qui dit la sémantique du format (« Le compte ») ; le paquet de l'hôte joue les
+contre une référence écrite dans le test, qui dit la sémantique du format (`docs/conception/compte.md`) ; le paquet de l'hôte joue les
 mêmes cas, sortis par la fabrique dans `ts/src/auth-cases.ts`, contre son moteur.
 """
 from __future__ import annotations

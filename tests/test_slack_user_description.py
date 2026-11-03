@@ -1,7 +1,7 @@
 """La description `slack_user` 1.1.0 : le client existant (`oto.tools.slack`) sur le jeton d'utilisateur, sans rien y changer ;
 depuis 1.1.0, les deux drapeaux d'aperçu des liens de `post_message` (`unfurl_links`, `unfurl_media`).
 
-Un second connecteur plutôt qu'un second jeton dans le format (décidé par Alexis le 2026-10-22) : `slack` décrit le
+Un second connecteur plutôt qu'un second jeton dans le format (décidé par le mainteneur le 2026-10-22) : `slack` décrit le
 jeton du bot, `slack_user` celui de la personne. Le client garde les deux et choisit l'un par appel ; chaque fonction
 est décrite du côté du jeton que le client prend quand l'espace porte les deux :
 - par l'appel : la recherche, la lecture d'un DM (`D…`), la liste des seules conversations directes, `open_dm` ;

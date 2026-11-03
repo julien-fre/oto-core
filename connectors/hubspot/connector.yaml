@@ -3,7 +3,9 @@
 # Python client, oto.tools.hubspot, which this description follows: one request per method to api.hubapi.com, the
 # private app access token as a bearer token, JSON bodies. The function names, the argument names and the keys sent
 # to HubSpot are the client's (tests/test_hubspot_description.py reads it to keep both equal). The client gained one
-# argument for this file, filter_groups of search_objects (1.0.1); what it sends for its other calls is unchanged.
+# argument for this file, filter_groups of search_objects (1.0.1); what it sends for its other calls is unchanged
+# (a call that passes filters sends the same bytes as before, which tests/test_hubspot_client.py keeps). The test
+# also keeps the class of each function: a method that is not a GET, search aside, is never a read.
 #
 # One token = one private app of one portal (HubSpot account). HubSpot grants its scopes object by object: a token
 # may read contacts and not tickets, or read without writing. A missing scope is a 403 whose category is

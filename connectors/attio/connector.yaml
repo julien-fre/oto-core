@@ -25,7 +25,7 @@
 #   with entry_id, are sent as such, where Attio's reference reads record: {object, record_id} and entry: {list,
 #   entry_id} and refuses any other key: they stay in the client.
 #
-# Two functions per method, since 1.2.0: a gap to "one function per method, under its name", decided by Alexis on
+# Two functions per method, since 1.2.0: a gap to "one function per method, under its name", decided by the maintainer on
 # 2026-10-26. update_record and update_entry take an argument, overwrite_multiselect, that picks the HTTP method, PATCH
 # (the multiselect values given are added to those there) or PUT (they replace them). Each is described by one function
 # per verb, the argument fixed by the function and never taken: update_record (PATCH, overwrite_multiselect false) and

@@ -18,7 +18,7 @@ families:
 # Client décrit sous un autre nom, ou en partie seulement.
 described_by:
   # La description linkedin_unipile couvre tout le client : le transport commun, profils, entreprises, relations,
-  # invitations, posts, messagerie, la recherche (facettes, et `search` en huit fonctions, écart décidé par Alexis),
+  # invitations, posts, messagerie, la recherche (facettes, et `search` en huit fonctions, écart décidé par le mainteneur),
   # le fil d'actualité, les produits premium (contrats, InMail, offres d'emploi, candidats, projets Recruiter) et les
   # adresses ouvertes retirées des réponses. Restent au client, nommées dans la description, les méthodes que le format
   # ne sait pas dire (member_action, get_feed).
@@ -54,7 +54,9 @@ without_description:
   markdown_lint.py: { category: not_a_service_client, reason: "pas un client : contrôle local de Markdown" }
   naf: { category: not_a_service_client, reason: "pas le client d'un service : suggestion de code NAF, calcul local" }
   pdf: { category: not_a_service_client, reason: "pas un client : génération locale de PDF (pandoc, weasyprint)" }
-  # De principe : le format ne sait pas le dire (« Les connecteurs décrits »).
+  # De principe : le format ne sait pas le dire (voir `docs/carte-du-parc.md`).
+  # wordpress : l'adresse du site se dit (réglage d'adresse), mais la racine REST se découvre à l'appel.
+  # zeendoc : un document absent se dit par une redirection vers une page de refus, non par un statut d'erreur.
   boondmanager: { category: not_describable, reason: "jeton signé à chaque requête" }
   collective: { category: not_describable, reason: "pas d'API publique : piloté par un navigateur" }
   dataforseo: { category: not_describable, reason: "corps en liste de tâches au premier niveau ; erreur lue dans le corps d'un 200 ; audit en file, relu par identifiant" }

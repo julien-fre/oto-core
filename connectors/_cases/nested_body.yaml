@@ -1,5 +1,5 @@
 # Common cases of the nested body: a `call.body` map whose value may be a map of the same form, at any depth, with the
-# semantics of docs/conception/format-de-description.md, « Le corps emboîté » (rule 22 of the fabrique, decided
+# semantics of docs/conception/corps-de-requete.md, the nested body (rule 22 of the fabrique, decided
 # 2026-10-26). The host starts from the body constant (`constants.body`), then places each argument given at its key
 # path, creating the parent objects it lacks; an argument not given is not sent and creates nothing; a null is sent as
 # null. A key is a key, never a path: a dot in it is a character, not a step.

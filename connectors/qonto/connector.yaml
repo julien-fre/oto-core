@@ -16,6 +16,11 @@
 # targets — and every write (transfers, beneficiaries, invoices, attachments),
 # which need an OAuth consent and, for payments, strong customer
 # authentication. The Sandbox (X-Qonto-Staging-Token) is not described either.
+#
+# Values checked on 2026-10-29 against the public reference and also by real
+# reads with an API key. Array filters go Rails-style (query_arrays: brackets);
+# filter[status] is a comma-separated list for client invoices and a repeated
+# key for supplier invoices, and a single status here.
 connector:
   name: qonto
   label: Qonto

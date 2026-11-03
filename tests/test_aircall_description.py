@@ -3,7 +3,7 @@
 Les lectures d'un appel (`list_calls`, `search_calls`, `get_call`) retirent par `output.strip` les adresses signées de
 l'enregistrement et de la messagerie vocale, leurs adresses courtes et la page `asset` ; l'audio se rend en fichier par
 `get_call_recording` et `get_call_voicemail` (`output.file`, adresse signée téléchargée sans authentification).
-Décidé par Alexis le 2026-10-21 (docs/conception/format-de-description.md, « Retirer de la sortie », « Fichiers »).
+Décidé par le mainteneur le 2026-10-21 (docs/conception/sortie.md, docs/conception/fichiers.md).
 """
 from __future__ import annotations
 

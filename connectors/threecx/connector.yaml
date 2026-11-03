@@ -11,6 +11,18 @@
 #   body whose answer carries the token under Token.access_token, outside of the OAuth2 grants the format says. Only an
 #   API client (client credentials, created in the admin console, Integrations > API) is described.
 # - recorded_only of list_calls: a filter the client applies after paging, on its own side.
+#
+# Gaps with the client, kept by tests/test_threecx_description.py: the period is a UTC instant
+# (2026-10-01T00:00:00Z, six decimals at most), which the client rewrites to UTC with six decimals, the same instant;
+# a bare date or an offset, which the client converts, are refused by the schema; the client asks for
+# Accept: audio/*, the host for the declared types. $top is required (1 to 500: without it nothing bounds the page;
+# the client sends 100, and $skip 0 when omitted).
+# No mark on the account: the token is renewed on the host's side, and a 403 also means an insufficient role.
+# To check at the first real try, before any publication: the host encodes a path argument (encodeURIComponent), so
+# the period goes out as 2026-10-01T00%3A00%3A00Z and $top as %24top, where the client sends : and $; whether the
+# phone system accepts that, and seconds without decimals, is not known.
+# The Python client keeps its own tools for the calls and for the recordings, with the two ways in (API client and
+# user account) that this file does not say.
 connector:
   name: threecx
   label: 3CX

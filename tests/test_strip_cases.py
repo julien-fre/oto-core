@@ -2,7 +2,7 @@
 
 La lib n'applique la sortie d'aucune description (ni `items`, ni `strip`, ni `projection`) : seul le moteur du paquet de
 l'hôte le fait. Les cas se jouent donc ici contre une référence écrite dans le test, qui dit la sémantique du format
-(« Retirer de la sortie ») ; le paquet de l'hôte joue les mêmes cas, sortis par la fabrique dans
+(`docs/conception/sortie.md`) ; le paquet de l'hôte joue les mêmes cas, sortis par la fabrique dans
 `ts/src/strip-cases.ts`, contre son moteur. Les sorties refusées le sont par la fabrique (règles 18 et 19), avec leur
 code et le chemin qu'elles nomment ; celles de la règle 19 (l'exemple de réponse, `output.sample`) ne valent que pour la
 fabrique et ne sortent pas en TypeScript.

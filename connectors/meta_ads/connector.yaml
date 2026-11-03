@@ -5,6 +5,9 @@
 # Business); obtaining it belongs to the host, not to this file.
 # Meta answers most refusals with HTTP 400 and tells them apart by the Graph
 # error code: the refusals below are keyed on those codes.
+# The auth stays bearer, the token being the host's: the consent dialog takes a config_id of the application and
+# no scope, and the identity is read at /me with a fallback that depends on the type of token; the format says
+# neither an application parameter other than the client id and secret, nor that fallback.
 connector:
   name: meta_ads
   label: Meta Ads

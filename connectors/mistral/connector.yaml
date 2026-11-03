@@ -6,7 +6,8 @@
 # says both kinds of file. Needs oto-core from its commit 9e58c01.
 #
 # The key is the host application's (holder: host), the same for every organization: no organization sets a key of
-# its own. A refused key or a billing block marks the account, and the host says to ask whoever runs the application.
+# its own (decided by the maintainer on 2026-10-22; platform is the only mode). A refused key or a billing block
+# marks the account, and the host says to ask whoever runs the application.
 #
 # The request is the client's: POST /audio/transcriptions in multipart, the audio as the part `file`, and the text
 # parts the client sends with diarize=True, as constants: model voxtral-mini-2602 (the client's

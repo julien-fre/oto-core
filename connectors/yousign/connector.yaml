@@ -8,6 +8,9 @@
 # One host per environment, chosen per account by the environment setting: a
 # sandbox key is unknown to production and the other way round.
 #
+# Values checked on 2026-10-20 against the public OpenAPI "public-api-v3". signature_level is required when a
+# signer is added (electronic_signature by default for a template signer). A 400 carries type and detail.
+#
 # Two ways to build a draft signature request (nothing is sent before
 # activation, which emails every signer):
 # - from a template: the template carries the documents and their fields,
@@ -17,7 +20,10 @@
 #   call.files), add the signers, then place the
 #   fields on the documents. Smart anchors (parse_anchors) only ever create
 #   signature fields; every other field type is placed by page and
-#   coordinates (points, origin at the top left of the page).
+#   coordinates (points, origin at the top left of the page). When a signer is
+#   added, the reference admits only five field types (signature, mention, text,
+#   checkbox, radio group) and requires optional for the text, checked and
+#   optional for the checkbox.
 # Delivery is by email only (constant delivery_mode): the per-signer signature
 # links of an activation are stripped from its answer, never handed back.
 # Templates are created in the Yousign app only: the API reads them, it has

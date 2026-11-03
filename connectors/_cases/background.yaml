@@ -1,6 +1,6 @@
 # Common cases of the long function: `background: true` on a function, which the host runs in the background, outside
 # the request of the assistant, answering at once with a job id that its native function `job.read` reads; the final
-# answer is that of the synchronous call. Semantics: docs/conception/format-de-description.md, « Fonction longue »
+# answer is that of the synchronous call. Semantics: docs/conception/travaux-longs.md
 # (rule 21 of the fabrique).
 #
 # Synthetic: no real connector, no vendor, `.test` hosts only. The fabrique assembles `connector` and the accepted

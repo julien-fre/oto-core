@@ -42,11 +42,14 @@
 # function per method, under its name", decided by Alexis on 2026-10-24. The
 # eight search functions all describe search; each takes facet ids already
 # resolved, in the shape of its product. The next page is the cursor alone,
-# sent with an empty body as the client sends it; no pagination is declared.
+# sent with an empty body as the client sends it; no pagination is declared. The search functions are reads with
+# no quota (oto 1 serves search as a read, under the 429 discipline alone), and take the client's timeouts: 60 s,
+# 75 s for a search by pasted URL. tests/test_linkedin_unipile_description.py keeps these functions equal to the
+# client.
 #
 # No address that opens content without a login reaches the agent: the
 # picture of a member, a company, a school, an organisation or a conversation
-# (public_picture_url, picture_url, image_url, logo_url…) and the tracking
+# (public_picture_url, public_picture_url_large, background_picture_url, picture_url, image_url, logo_url) and the tracking
 # pixel of a job posting are stripped from the answers (output.strip), and the
 # client strips them the same way (oto.tools.unipile.open_addresses). Profile
 # addresses (profile_url), behind a LinkedIn login, stay; so do the addresses

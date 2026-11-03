@@ -70,6 +70,8 @@
 # Not described here, left to the hand-written client:
 # - attachment of send_email: the bytes of a file go base64 inside the JSON body (or a URL Brevo downloads); the
 #   format takes a file only as a transit file of the caller, sent in multipart (oto 1 never passes it);
+# - brevoauto, the oto 1 tool that drives Brevo automations through the application's private API in a remote
+#   browser, is no part of this client: the format cannot say it;
 # - the async import and export return {processId}; the client has no method to read a process, so no async is
 #   declared.
 connector:

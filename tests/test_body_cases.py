@@ -1,7 +1,7 @@
 """Les cas communs du corps entier (`connectors/_cases/body.yaml`), joués côté Python, une ligne par cas.
 
 La lib n'envoie la requête d'aucune description : seul le moteur du paquet de l'hôte le fait. Les cas se jouent donc
-ici contre une référence écrite dans le test, qui dit la sémantique du format (« Le corps entier ») ; le paquet de
+ici contre une référence écrite dans le test, qui dit la sémantique du format (`docs/conception/corps-de-requete.md`) ; le paquet de
 l'hôte joue les mêmes cas, sortis par la fabrique dans `ts/src/body-cases.ts`, contre son moteur. Les entrées rejetées
 le sont par le schéma d'entrée, avant tout envoi ; les fonctions refusées le sont par la fabrique (règle 20), avec leur
 code.
@@ -86,7 +86,7 @@ def test_typescript_carries_the_argument_name_as_the_body():
     assert "export const bodyRefusedFunctions: readonly BodyRefusedFunction[]" in source
 
 
-# --- Les clés libres en texte, à la racine de l'argument du corps entier (décidé par Alexis le 2026-10-22) ----------
+# --- Les clés libres en texte, à la racine de l'argument du corps entier (décidé par le mainteneur le 2026-10-22) ----------
 
 def _contact() -> dict:
     return copy.deepcopy(FUNCTIONS["upsert_contact"]["input"]["properties"]["contact"])

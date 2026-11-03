@@ -5,8 +5,8 @@
 # The function names, the argument names and the keys sent to Slack are the client's; the client is not changed
 # (tests/test_slack_user_description.py reads it to keep both equal).
 #
-# One token: the user token (xoxp-), the person who installed the app, decided by Alexis on 2026-10-22: a second
-# connector rather than a second token in the format. The client holds two tokens per workspace and picks one per call;
+# One token: the user token (xoxp-), the person who installed the app, decided by the maintainer on 2026-10-22: a
+# second connector rather than a second token in the format. The credential field is named user_token, as in oto 1. The client holds two tokens per workspace and picks one per call;
 # this description holds what the client sends on the user token when the workspace holds both:
 # - by the call: search (search:read is a user-token scope), a read of a DM (a channel id D…, history and replies), a
 #   listing of the direct conversations only (types im, mpim), and opening a DM (open_dm);
@@ -28,6 +28,8 @@
 # two colons that Slack would read as an emoji code, except :100: and :1234:, and splits a text over 4,000 characters.
 # The description refuses such a text (pattern) and caps it at 4,000 characters (maxLength), as connectors/slack does;
 # under these bounds the client sends exactly what the host sends. update_message does not preprocess.
+# tests/test_slack_user_description.py also checks that the schema refuses what the client reads on the bot (a
+# channel C… or G…, a listing of channels); tests/test_slack_surface_frozen.py freezes the surface of the client.
 # Link previews (1.1.0): unfurl_links and unfurl_media go to chat.postMessage as given, only when the call gives
 # them, as the client sends them on every part it splits; absent, Slack's default holds, unchanged for oto 1.
 #

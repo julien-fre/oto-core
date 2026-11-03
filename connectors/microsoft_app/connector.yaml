@@ -19,7 +19,8 @@
 # Entra and bounds nothing while Mail.* stays granted there; the application is
 # held to chosen mailboxes only once the admin grants the rights through RBAC
 # for Applications and removes Mail.* from Entra. Application access policies
-# are being replaced by RBAC for Applications.
+# are being replaced by RBAC for Applications. Mail.ReadBasic.All is not offered: it excludes body and
+# bodyPreview, which the lists return.
 #
 # Not described here:
 # - the next page of a message list by @odata.nextLink (a full URL): the list

@@ -18,6 +18,11 @@
 # Several lookups answer 200 with null, or with {"error": ...}, when nothing
 # matches; expect turns them into named refusals. A 500 comes back when a
 # required combination of filters is missing: the input schemas require it.
+#
+# Values checked on 2026-10-16 against the OpenAPI published by the service and
+# by real calls. A 503 from the asset-freeze register (not loaded, truncated or
+# too old) becomes the refusal register_inconclusive, which forbids concluding
+# that a name is absent from the register.
 connector:
   name: fod
   label: France Open Data
