@@ -28,7 +28,9 @@ garde d'un credential client) n'est pas un client et ne vit pas ici : il part du
 - Un connecteur partagé se décrit dans `connectors/<nom>/connector.yaml`, validé par
   `connectors/connector.schema.json` ; la fabrique en tirera un client Python et des fonctions TypeScript.
 - Lire le document du sujet **avant** de toucher `connectors/` ou la fabrique : `docs/conception/README.md`
-  (règle de vie, index), `docs/conception/format-de-description.md`, `docs/conception/fabrique.md`.
+  (règle de vie, index), `docs/conception/format-de-description.md` (le document d'entrée du format, qui renvoie
+  au document de chaque bloc), `docs/conception/fabrique.md`. Le détail d'un connecteur vit dans l'en-tête de son
+  `connector.yaml`.
 
 ## Stack
 
