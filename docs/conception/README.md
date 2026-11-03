@@ -19,6 +19,7 @@ Les documents de conception de ce dépôt : pour chaque sujet, **comment** c'est
 
 | Document | La question à laquelle il répond | Statut |
 |---|---|---|
+| [Concevoir un connecteur](concevoir-un-connecteur.md) | Dans quel ordre conçoit-on un connecteur partagé, de la qualification du service à sa publication ? Le point d'entrée pour ajouter un connecteur. | proposé |
 | [Format de description](format-de-description.md) | Comment décrit-on un connecteur partagé, et que doit contenir son fichier ? Document d'entrée du format, qui renvoie au document de chaque bloc. | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
 | [Le compte d'un connecteur](compte.md) | Comment une description dit-elle les champs, réglages et l'authentification d'un compte, consentement OAuth et compte rattaché compris ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
 | [Le corps d'une requête](corps-de-requete.md) | Comment les arguments forment-ils le corps JSON : en table, emboîté ou entier ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |

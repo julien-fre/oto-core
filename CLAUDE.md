@@ -1,7 +1,7 @@
 # oto-core
 
 **Lib de connecteurs Oto** — clients API pour agents IA, sans surface de commande. Repo **public**
-(`otomata-tech/connectors` ; le paquet PyPI et le dossier local restent `oto-core`), **open source**.
+(`oto-now/connectors` ; le paquet PyPI et le dossier local restent `oto-core`), **open source**.
 
 Namespace package `oto` (PEP 420, **pas d'`oto/__init__.py`**) :
 
@@ -25,6 +25,9 @@ garde d'un credential client) n'est pas un client et ne vit pas ici : il part du
 
 ## Connecteurs partagés et fabrique
 
+- **Concevoir un connecteur** (« ajoute le connecteur X ») : suivre `docs/conception/concevoir-un-connecteur.md`,
+  sept étapes dans l'ordre, la première étant la fiche de qualification. La vue d'ensemble du parc est
+  `docs/carte-du-parc.md`, générée par la fabrique.
 - Un connecteur partagé se décrit dans `connectors/<nom>/connector.yaml`, validé par
   `connectors/connector.schema.json` ; la fabrique en tirera un client Python et des fonctions TypeScript.
 - Lire le document du sujet **avant** de toucher `connectors/` ou la fabrique : `docs/conception/README.md`
