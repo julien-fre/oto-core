@@ -31,7 +31,7 @@ def _load(path: pathlib.Path) -> dict:
 
 
 def test_committed_output_is_current():
-    assert stale(generate()) == [], "ts/src or oto/connectors/declared.py is out of date: run `python -m fabrique`"
+    assert stale(generate()) == [], "ts/src, oto/connectors/declared.py or docs/carte-du-parc.md is out of date: run `python -m fabrique`"
 
 
 def test_every_description_generates_a_module():

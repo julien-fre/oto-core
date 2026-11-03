@@ -1,10 +1,10 @@
-"""Génère la sortie TypeScript et la sortie Python de données, les écrit, ou vérifie que la sortie commitée est à jour."""
+"""Génère la sortie TypeScript, la sortie Python de données et la carte du parc, les écrit, ou vérifie que la sortie commitée est à jour."""
 from __future__ import annotations
 
 import pathlib
 from dataclasses import dataclass
 
-from . import (auth_cases, background_cases, body_cases, cases, error_cases, file_cases, nested_body_cases, python,
+from . import (auth_cases, background_cases, body_cases, carte, cases, error_cases, file_cases, nested_body_cases, python,
                strip_cases)
 from .descriptions import CONNECTORS, REPO, load_all
 from .typescript import GENERATED_MARK, Module, connector_module, index_source
@@ -17,6 +17,7 @@ class Result:
     modules: list[Module]
     files: dict[str, str]
     python: str
+    carte: str
 
 
 def generate(root: pathlib.Path = CONNECTORS) -> Result:
@@ -41,7 +42,8 @@ def generate(root: pathlib.Path = CONNECTORS) -> Result:
         background_cases.load(root / background_cases.CASES.relative_to(CONNECTORS)))
     files[nested_body_cases.OUTPUT_NAME] = nested_body_cases.typescript_source(
         nested_body_cases.load(root / nested_body_cases.CASES.relative_to(CONNECTORS)))
-    return Result(modules=modules, files=files, python=python.python_source(descriptions))
+    return Result(modules=modules, files=files, python=python.python_source(descriptions),
+                  carte=carte.markdown_source(descriptions, modules))
 
 
 def _generated_on_disk(output: pathlib.Path) -> set[str]:
@@ -51,7 +53,8 @@ def _generated_on_disk(output: pathlib.Path) -> set[str]:
     }
 
 
-def write(result: Result, output: pathlib.Path = OUTPUT, python_output: pathlib.Path = python.OUTPUT) -> None:
+def write(result: Result, output: pathlib.Path = OUTPUT, python_output: pathlib.Path = python.OUTPUT,
+          carte_output: pathlib.Path = carte.OUTPUT) -> None:
     output.mkdir(parents=True, exist_ok=True)
     for stale in _generated_on_disk(output) - set(result.files):
         (output / stale).unlink()
@@ -59,11 +62,13 @@ def write(result: Result, output: pathlib.Path = OUTPUT, python_output: pathlib.
         (output / name).write_text(source, encoding="utf-8")
     python_output.parent.mkdir(parents=True, exist_ok=True)
     python_output.write_text(result.python, encoding="utf-8")
+    carte_output.write_text(result.carte, encoding="utf-8")
 
 
-def stale(result: Result, output: pathlib.Path = OUTPUT, python_output: pathlib.Path = python.OUTPUT) -> list[str]:
+def stale(result: Result, output: pathlib.Path = OUTPUT, python_output: pathlib.Path = python.OUTPUT,
+          carte_output: pathlib.Path = carte.OUTPUT) -> list[str]:
     """Les fichiers dont la version commitée n'est pas celle que la fabrique produit : ceux de `ts/src/` par leur nom,
-    le module Python de données par son chemin dans le dépôt."""
+    le module Python de données et la carte du parc par leur chemin dans le dépôt."""
     differ = []
     for name, source in sorted(result.files.items()):
         path = output / name
@@ -72,4 +77,6 @@ def stale(result: Result, output: pathlib.Path = OUTPUT, python_output: pathlib.
     differ += sorted(_generated_on_disk(output) - set(result.files))
     if not python_output.exists() or python_output.read_text(encoding="utf-8") != result.python:
         differ.append(python.RELATIVE)
+    if not carte_output.exists() or carte_output.read_text(encoding="utf-8") != result.carte:
+        differ.append(carte.RELATIVE)
     return differ
