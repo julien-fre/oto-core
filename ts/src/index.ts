@@ -8,6 +8,7 @@ import * as apollo from "./apollo"
 import * as attio from "./attio"
 import * as brevo from "./brevo"
 import * as claap from "./claap"
+import * as crisp from "./crisp"
 import * as dropcontact from "./dropcontact"
 import * as elevenlabs from "./elevenlabs"
 import * as fod from "./fod"
@@ -63,6 +64,7 @@ export { apollo }
 export { attio }
 export { brevo }
 export { claap }
+export { crisp }
 export { dropcontact }
 export { elevenlabs }
 export { fod }
@@ -121,6 +123,7 @@ export const connectors: readonly Connector[] = [
   attio.connector,
   brevo.connector,
   claap.connector,
+  crisp.connector,
   dropcontact.connector,
   elevenlabs.connector,
   fod.connector,
