@@ -21,7 +21,12 @@ touched. `plan_video_update` is the pure merge, for a dry run.
 1, a write ~50, `search.list` has its own 100 calls a day. Own uploads are read through
 the channel's uploads playlist (1 unit a page), never `search.list`.
 
-Scopes: `youtube.force-ssl` (Data API, writes and comments included), `youtube.readonly`
+**Uploads** (`videos.insert`) have their own bucket: 100 a day per Cloud project, 1 unit
+each. `upload_video` uses the resumable protocol (session, then chunks of 256 KB
+multiples, a 308 between chunks, 201 at the end) and resumes from the byte Google says
+it holds after a 5xx or a dropped connection.
+
+Scopes: `youtube.force-ssl` (Data API, writes, comments and uploads included), `youtube.readonly`
 and `yt-analytics.readonly` (Analytics reports). Requires: requests.
 """
 from __future__ import annotations
@@ -51,6 +56,11 @@ MAX_PAGE = 50
 #: `thumbnails.set` limits (method reference): JPEG or PNG, 50 MB.
 THUMBNAIL_MIME_TYPES = ("image/jpeg", "image/png")
 THUMBNAIL_MAX_BYTES = 50 * 1024 * 1024
+#: `videos.insert` (method reference): `video/*` or `application/octet-stream`, 256 GB.
+#: Resumable protocol: every chunk but the last is a multiple of 256 KB.
+VIDEO_MAX_BYTES = 256 * 1024 ** 3
+UPLOAD_CHUNK = 8 * 1024 * 1024
+_UPLOAD_RETRIES = 3
 MODERATION_STATUSES = ("heldForReview", "published", "rejected")
 PRIVACY_STATUSES = ("private", "unlisted", "public")
 LICENSES = ("youtube", "creativeCommon")
@@ -325,6 +335,118 @@ class YouTubeClient:
         return self._call("POST", f"{_UPLOAD}/thumbnails/set",
                           params={"videoId": require(video_id, "video_id"), "uploadType": "media"},
                           data=image, content_type=mime_type)
+
+    def upload_video(self, video: bytes, mime_type: str, *, title: str,
+                     description: Optional[str] = None, tags: Optional[list] = None,
+                     category_id: str = "22", default_language: Optional[str] = None,
+                     privacy_status: str = "private", publish_at: Optional[str] = None,
+                     made_for_kids: bool = False,
+                     contains_synthetic_media: Optional[bool] = None,
+                     license: Optional[str] = None, embeddable: Optional[bool] = None,
+                     notify_subscribers: bool = True,
+                     chunk_size: int = UPLOAD_CHUNK) -> dict:
+        """Upload a new video to the channel (resumable protocol) → the created video
+        resource (`snippet,status`). Private by default; `publish_at` schedules a private
+        video. `made_for_kids` is always sent (YouTube asks every upload for its audience).
+        Uploads bucket: 100 a day per Cloud project."""
+        if not video:
+            raise ValueError("the video file is empty")
+        if len(video) > VIDEO_MAX_BYTES:
+            raise ValueError("a YouTube video is at most 256 GB")
+        if not (mime_type or "").startswith("video/") and mime_type != "application/octet-stream":
+            raise ValueError(f"a video upload is video/* or application/octet-stream, "
+                             f"got {mime_type!r}")
+        if not (title or "").strip():
+            raise ValueError("title is required")
+        if privacy_status not in PRIVACY_STATUSES:
+            raise ValueError(f"privacy_status must be one of {', '.join(PRIVACY_STATUSES)}")
+        if publish_at and privacy_status != "private":
+            raise ValueError("publish_at needs privacy_status 'private' (a scheduled video)")
+        if license is not None and license not in LICENSES:
+            raise ValueError(f"license must be one of {', '.join(LICENSES)}")
+        if tags is not None and not isinstance(tags, list):
+            raise ValueError("tags must be a list of strings")
+        if chunk_size <= 0 or chunk_size % (256 * 1024):
+            raise ValueError("chunk_size must be a positive multiple of 256 KB")
+
+        snippet = {"title": title, "categoryId": str(category_id)}
+        for k, v in (("description", description), ("tags", tags),
+                     ("defaultLanguage", default_language)):
+            if v is not None:
+                snippet[k] = v
+        status: dict = {"privacyStatus": privacy_status,
+                        "selfDeclaredMadeForKids": bool(made_for_kids)}
+        for k, v in (("publishAt", publish_at), ("license", license),
+                     ("embeddable", embeddable),
+                     ("containsSyntheticMedia", contains_synthetic_media)):
+            if v is not None:
+                status[k] = v
+
+        auth = {"Authorization": f"Bearer {self._token}"}
+        total = len(video)
+        init = self._session.request(
+            "POST", f"{_UPLOAD}/videos",
+            params={"uploadType": "resumable", "part": "snippet,status",
+                    "notifySubscribers": "true" if notify_subscribers else "false"},
+            headers={**auth, "X-Upload-Content-Length": str(total),
+                     "X-Upload-Content-Type": mime_type},
+            json={"snippet": snippet, "status": status}, timeout=self._timeout)
+        self._raise(init, "POST", f"{_UPLOAD}/videos")
+        session_url = init.headers.get("Location")
+        if not session_url:
+            raise YouTubeError(init.status_code, "no resumable session URI returned",
+                               method="POST", url=f"{_UPLOAD}/videos")
+
+        offset, failures = 0, 0
+        while True:
+            end = min(offset + chunk_size, total) - 1
+            try:
+                resp = self._session.request(
+                    "PUT", session_url, data=video[offset:end + 1], allow_redirects=False,
+                    headers={**auth, "Content-Type": mime_type,
+                             "Content-Range": f"bytes {offset}-{end}/{total}"},
+                    timeout=self._timeout)
+            except (requests.ConnectionError, requests.Timeout):
+                resp = None
+            if resp is not None and resp.status_code in (200, 201):
+                return resp.json()
+            if resp is not None and resp.status_code == 308:
+                offset, failures = self._received(resp), 0
+                continue
+            if resp is not None and resp.status_code < 500:
+                self._raise(resp, "PUT", session_url)
+            failures += 1
+            if failures > _UPLOAD_RETRIES:
+                if resp is None:
+                    raise requests.ConnectionError("YouTube upload: connection lost "
+                                                   f"{failures} times in a row")
+                self._raise(resp, "PUT", session_url)
+            # where did Google stop? an empty PUT with `bytes */total` says it
+            probe = self._session.request("PUT", session_url, data=b"", allow_redirects=False,
+                                      headers={**auth, "Content-Range": f"bytes */{total}"},
+                                      timeout=self._timeout)
+            if probe.status_code in (200, 201):
+                return probe.json()
+            if probe.status_code != 308:
+                self._raise(probe, "PUT", session_url)
+            offset = self._received(probe)
+
+    @staticmethod
+    def _received(resp: requests.Response) -> int:
+        """Next byte to send after a 308: `Range: bytes=0-N` → N + 1 (no header = 0)."""
+        rng = resp.headers.get("Range") or ""
+        try:
+            return int(rng.rsplit("-", 1)[1]) + 1 if rng else 0
+        except (IndexError, ValueError):
+            return 0
+
+    def _raise(self, resp: requests.Response, method: str, url: str) -> None:
+        if resp.status_code >= 400:
+            try:
+                payload: Any = resp.json()
+            except ValueError:
+                payload = resp.text
+            raise YouTubeError(resp.status_code, payload, method=method, url=url)
 
     def reply_to_comment(self, parent_id: str, text: str) -> dict:
         """Reply, as the channel, to a top-level comment → the new comment. ~50 units."""

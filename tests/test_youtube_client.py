@@ -222,3 +222,79 @@ def test_error_carries_reasons():
     assert err.status_code == 403
     assert err.has("SERVICE_DISABLED") and err.has("accessNotConfigured")
     assert err.message == "Access Not Configured"
+
+
+# --- upload_video (resumable) -------------------------------------------------------
+
+class _UpResp(_Resp):
+    def __init__(self, status=200, body=None, headers=None):
+        super().__init__(status, body)
+        self.headers = headers or {}
+
+
+SESSION = "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=u1"
+CHUNK = 256 * 1024
+
+
+def test_upload_video_resumable_en_morceaux():
+    data = b"v" * (CHUNK * 2 + 10)
+    c, s = _client(
+        _UpResp(200, {}, {"Location": SESSION}),
+        _UpResp(308, {}, {"Range": f"bytes=0-{CHUNK - 1}"}),
+        _UpResp(308, {}, {"Range": f"bytes=0-{2 * CHUNK - 1}"}),
+        _UpResp(201, {"id": "new1", "status": {"privacyStatus": "private"}}),
+    )
+    out = c.upload_video(data, "video/mp4", title="Demo", tags=["x"],
+                         notify_subscribers=False, chunk_size=CHUNK)
+    assert out["id"] == "new1"
+    init = s.calls[0]
+    assert init["method"] == "POST" and init["url"].endswith("/upload/youtube/v3/videos")
+    assert init["params"] == {"uploadType": "resumable", "part": "snippet,status",
+                              "notifySubscribers": "false"}
+    assert init["headers"]["X-Upload-Content-Length"] == str(len(data))
+    assert init["headers"]["X-Upload-Content-Type"] == "video/mp4"
+    assert init["json"] == {"snippet": {"title": "Demo", "categoryId": "22", "tags": ["x"]},
+                            "status": {"privacyStatus": "private",
+                                       "selfDeclaredMadeForKids": False}}
+    ranges = [k["headers"]["Content-Range"] for k in s.calls[1:]]
+    assert ranges == [f"bytes 0-{CHUNK - 1}/{len(data)}",
+                      f"bytes {CHUNK}-{2 * CHUNK - 1}/{len(data)}",
+                      f"bytes {2 * CHUNK}-{len(data) - 1}/{len(data)}"]
+    assert all(k["url"] == SESSION and k["allow_redirects"] is False for k in s.calls[1:])
+    assert b"".join(k["data"] for k in s.calls[1:]) == data
+
+
+def test_upload_video_reprend_apres_un_5xx_la_ou_google_s_est_arrete():
+    data = b"v" * (CHUNK * 2)
+    c, s = _client(
+        _UpResp(200, {}, {"Location": SESSION}),
+        _UpResp(503, {"error": {"code": 503, "message": "busy"}}),
+        _UpResp(308, {}, {"Range": f"bytes=0-{CHUNK - 1}"}),   # probe: holds chunk 1
+        _UpResp(201, {"id": "new1"}),
+    )
+    assert c.upload_video(data, "video/mp4", title="T", chunk_size=CHUNK)["id"] == "new1"
+    assert s.calls[2]["headers"]["Content-Range"] == f"bytes */{len(data)}"
+    assert s.calls[3]["headers"]["Content-Range"] == f"bytes {CHUNK}-{2 * CHUNK - 1}/{len(data)}"
+
+
+def test_upload_video_refus_google_type():
+    c, _ = _client(_UpResp(400, {"error": {"code": 400, "message": "x",
+                                           "errors": [{"reason": "uploadLimitExceeded"}]}}))
+    with pytest.raises(yt.YouTubeError) as e:
+        c.upload_video(b"v", "video/mp4", title="T")
+    assert e.value.has("uploadLimitExceeded")
+
+
+@pytest.mark.parametrize("kw,msg", [
+    (dict(video=b"", mime_type="video/mp4", title="T"), "empty"),
+    (dict(video=b"v", mime_type="image/png", title="T"), "video/"),
+    (dict(video=b"v", mime_type="video/mp4", title=" "), "title"),
+    (dict(video=b"v", mime_type="video/mp4", title="T", privacy_status="public",
+          publish_at="2026-12-01T09:00:00Z"), "publish_at"),
+    (dict(video=b"v", mime_type="video/mp4", title="T", chunk_size=1000), "256 KB"),
+])
+def test_upload_video_refuse_avant_tout_appel(kw, msg):
+    c, s = _client()
+    with pytest.raises(ValueError, match=msg):
+        c.upload_video(**kw)
+    assert s.calls == []
