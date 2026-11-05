@@ -63,7 +63,8 @@ def client():
 METHODS = {
     "get_me", "list_clinics", "list_clinic_features", "list_doctors", "get_doctor",
     "create_doctor", "update_doctor", "delete_doctor",
-    "list_appointments", "get_appointment", "reschedule_appointment",
+    "list_appointments", "get_appointment", "list_appointment_billed_counts",
+    "reschedule_appointment",
     "update_appointment", "delete_appointment", "search_time_slots",
     "list_appointment_requests", "get_appointment_request", "create_appointment_request",
     "list_calendar_journeys",
@@ -531,3 +532,29 @@ def test_error_envelope_raises_with_status_code(calls, client):
     with pytest.raises(UpstreamHTTPError) as exc:
         client.list_doctors(A)
     assert exc.value.status_code == 403
+
+
+# --- le décompte d'un forfait : la seule lecture d'un soin, réduite à la source ------
+
+def test_billed_counts_keep_only_counters_and_ids(calls, client):
+    calls.responses.append(_Resp({"count": 1, "next": None, "previous": None, "data": [{
+        "id": A, "treatment_type": B, "treatment_pricing": B, "quantity": 1,
+        "treatment_time": "2026-10-02T10:00:00Z", "quote": None, "invoice": A,
+        "notes": "NOTE CLINIQUE", "zone": "ZONE", "text": "TEXTE", "consultation": B,
+        "consent_form": B, "provider": {"last_name": "X"}, "pricing": "90.00"}]}))
+    out = client.list_appointment_billed_counts(A, billed="invoiced", limit=100)
+    assert calls[0]["url"] == f"{BASE}/v4/calendar_appointments/{A}/treatments"
+    assert calls[0]["params"] == {"limit": 100, "offset": 0, "type": "invoiced"}
+    assert out["data"] == [{"id": A, "treatment_type": B, "treatment_pricing": B,
+                            "quantity": 1, "treatment_time": "2026-10-02T10:00:00Z",
+                            "quote": None, "invoice": A}]
+    assert "NOTE" not in json.dumps(out) and "ZONE" not in json.dumps(out)
+
+
+def test_billed_counts_refuse_an_unknown_filter_and_an_unexpected_answer(calls, client):
+    with pytest.raises(ValueError, match="billed"):
+        client.list_appointment_billed_counts(A, billed="all")
+    assert not calls
+    calls.responses.append(_Resp({"detail": "x"}))
+    with pytest.raises(ValueError, match="data"):
+        client.list_appointment_billed_counts(A)

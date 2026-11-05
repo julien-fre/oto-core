@@ -32,7 +32,10 @@ The API also serves medical content — medical history, photos and media,
 prescriptions and their signature, consent-form uploads, clinical
 treatments, consultations, visits (clinical notes), and the quotes or
 invoices created under a consultation — and a chat whose contacts are
-patients. **None of those endpoints has a method here.** Neither do the
+patients. **None of those endpoints has a method here** — one exception, cut
+down at the source: `list_appointment_billed_counts` reads an appointment's
+care rows and keeps only what was counted against which quote or invoice (ids,
+quantity, date), to count the sessions consumed from a sold package. Neither do the
 technical endpoints (VPS, shell runs, AI-assistant skills, the schema), nor
 the deletion of a patient, an invoice or a payment.
 

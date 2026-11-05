@@ -2,12 +2,13 @@
 # Nextmotion External API reference: https://api.nextmotion.net/open_api/docs/redoc
 # (OpenAPI 3.0.3 served at /open_api/docs/schema). Bodies are restricted to the
 # administrative fields; medical content (history, media, prescriptions, consents,
-# treatments, consultations, visits) has no function here.
+# treatments, consultations, visits) has no function here — one exception, reduced to
+# its counters: list_appointment_billed_counts (sessions counted against a quote or invoice).
 connector:
   name: nextmotion
   label: Nextmotion
   namespace: nextmotion
-  version: 1.0.1
+  version: 1.1.0
   api_version: v4
   base_url: https://api.nextmotion.net/open_api
   auth: {kind: bearer, token: api_key}
@@ -112,6 +113,43 @@ functions:
     when: 404
     message: No appointment with this id visible to the key's user.
   call: {method: GET, path: '/v4/calendar_appointments/{appointment_id}'}
+- name: list_appointment_billed_counts
+  class: read
+  description: >-
+    The sessions an appointment counted against a quote or an invoice, reduced to counters: each row
+    keeps only id, treatment_type, treatment_pricing, quantity, treatment_time, quote and invoice. The
+    practitioner's notes, the treated zone, the free text, the consultation, the consent form and the
+    staff the API also sends are dropped by the client and cannot be asked for. Used to count the
+    sessions consumed from a sold package. Paginated by limit and offset.
+  input:
+    type: object
+    additionalProperties: false
+    required: [appointment_id]
+    properties:
+      appointment_id:
+        type: string
+        pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        description: Unique identifier of the calendar appointment
+      billed:
+        type: string
+        enum: [pending, invoiced]
+        description: Only the rows not yet invoiced (pending) or already invoiced (invoiced).
+      limit: {type: integer, minimum: 1, maximum: 100, default: 50}
+      offset: {type: integer, minimum: 0, default: 0}
+  examples:
+  - title: The sessions counted on one appointment
+    input: {appointment_id: 5aa32743-2311-5ee2-aab6-c2ac9ad81aad}
+  refusals:
+  - code: appointment_not_found
+    when: 404
+    message: No appointment with this id visible to the key's user.
+  call:
+    method: GET
+    path: /v4/calendar_appointments/{appointment_id}/treatments
+    query: {type: billed, limit: limit, offset: offset}
+  output:
+    items: data
+    projection: [id, treatment_type, treatment_pricing, quantity, treatment_time, quote, invoice]
 - name: reschedule_appointment
   class: write
   description: >-

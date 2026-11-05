@@ -15,6 +15,12 @@ from typing import Any, Dict, List, Optional
 from .._http import _body, _clean, _id, _ids, _opt_id
 
 
+#: What `list_appointment_billed_counts` keeps of a care row — counters and ids,
+#: never a note, a zone, a text, a consultation, a consent or a person.
+BILLED_COUNT_FIELDS = ("id", "treatment_type", "treatment_pricing", "quantity",
+                       "treatment_time", "quote", "invoice")
+
+
 class _CalendarMixin:
 
     # ---- appointments -------------------------------------------------------
@@ -36,6 +42,35 @@ class _CalendarMixin:
         """GET /v4/calendar_appointments/{calendar_appointment_id}."""
         return self._get(
             f"/v4/calendar_appointments/{_id(appointment_id, 'appointment_id')}")
+
+    def list_appointment_billed_counts(self, appointment_id: str, *,
+                                       billed: Optional[str] = None,
+                                       limit: int = 50, offset: int = 0) -> Any:
+        """GET /v4/calendar_appointments/{id}/treatments, REDUCED to its counters.
+
+        The one read of a care endpoint, and why it is admissible: each row is cut
+        down HERE, before it leaves the client, to the administrative fields that
+        say what was decremented from what — `id`, `treatment_type`,
+        `treatment_pricing` (catalogue ids), `quantity`, `treatment_time`, and the
+        `quote` / `invoice` the session was counted against. The API also sends the
+        practitioner's notes, the treated zone, a free text, the consultation, the
+        consent form and the staff: none of them is kept, and no caller can ask for
+        them. This is what counts the sessions consumed from a package sold on a
+        quote or an invoice (see `package_usage.consumed_by_billing`).
+
+        Args:
+            billed: `pending` | `invoiced` — sent as the API's `type` filter.
+        """
+        if billed not in (None, "pending", "invoiced"):
+            raise ValueError("billed must be 'pending' or 'invoiced'.")
+        page = self._list(
+            f"/v4/calendar_appointments/{_id(appointment_id, 'appointment_id')}/treatments",
+            limit, offset, type=billed)
+        if not isinstance(page, dict) or not isinstance(page.get("data"), list):
+            raise ValueError("unexpected Nextmotion answer: no `data` list.")
+        return {**{k: page.get(k) for k in ("count", "next", "previous")},
+                "data": [{k: row.get(k) for k in BILLED_COUNT_FIELDS}
+                         for row in page["data"]]}
 
     def reschedule_appointment(self, appointment_id: str, *,
                                visit_type_opening_hour_id: str,

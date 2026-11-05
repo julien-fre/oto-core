@@ -87,6 +87,48 @@ export const getAppointment = defineFunction({
   },
 })
 
+export const listAppointmentBilledCounts = defineFunction({
+  name: "nextmotion.list_appointment_billed_counts",
+  connector: "nextmotion",
+  class: "read",
+  act: false,
+  description: "The sessions an appointment counted against a quote or an invoice, reduced to counters: each row keeps only id, treatment_type, treatment_pricing, quantity, treatment_time, quote and invoice. The practitioner's notes, the treated zone, the free text, the consultation, the consent form and the staff the API also sends are dropped by the client and cannot be asked for. Used to count the sessions consumed from a sold package. Paginated by limit and offset.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["appointment_id"],
+    "properties": {
+      "appointment_id": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "description": "Unique identifier of the calendar appointment"
+      },
+      "billed": {
+        "type": "string",
+        "enum": ["pending", "invoiced"],
+        "description": "Only the rows not yet invoiced (pending) or already invoiced (invoiced)."
+      },
+      "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+      "offset": {"type": "integer", "minimum": 0, "default": 0}
+    }
+  },
+  examples: [
+    { title: "The sessions counted on one appointment", input: {"appointment_id": "5aa32743-2311-5ee2-aab6-c2ac9ad81aad"} },
+  ],
+  refusals: [
+    { code: "appointment_not_found", when: 404, message: "No appointment with this id visible to the key's user." },
+  ],
+  request: {
+    method: "GET",
+    path: "/v4/calendar_appointments/{appointment_id}/treatments",
+    pathParams: ["appointment_id"],
+    query: {"type": "billed", "limit": "limit", "offset": "offset"},
+    body: {},
+    headers: {},
+  },
+  output: { items: "data", projection: ["id", "treatment_type", "treatment_pricing", "quantity", "treatment_time", "quote", "invoice"] },
+})
+
 export const rescheduleAppointment = defineFunction({
   name: "nextmotion.reschedule_appointment",
   connector: "nextmotion",
@@ -8790,7 +8832,7 @@ export const connector = defineConnector({
   name: "nextmotion",
   label: "Nextmotion",
   namespace: "nextmotion",
-  version: "1.0.1",
+  version: "1.1.0",
   apiVersion: "v4",
   baseUrl: "https://api.nextmotion.net/open_api",
   auth: {"kind": "bearer", "token": "api_key"},
@@ -8809,6 +8851,7 @@ export const connector = defineConnector({
   functions: [
     listAppointments,
     getAppointment,
+    listAppointmentBilledCounts,
     rescheduleAppointment,
     updateAppointment,
     deleteAppointment,

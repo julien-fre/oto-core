@@ -50,7 +50,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `mistral` | Mistral AI | 1.0.1 | clé de l'hôte | oui | 1 | 1 | 0 | 0 | non | 1 | non | 0 |
 | `modjo` | Modjo | 1.0.0 | clé | non | 29 | 26 | 2 | 1 | oui | 29 | non | 0 |
 | `mux` | Mux | 1.0.0 | clé | non | 5 | 3 | 2 | 0 | oui | 5 | non | 0 |
-| `nextmotion` | Nextmotion | 1.0.1 | clé | non | 139 | 68 | 44 | 27 | non | 0 | non | 0 |
+| `nextmotion` | Nextmotion | 1.1.0 | clé | non | 140 | 69 | 44 | 27 | non | 0 | non | 0 |
 | `notion` | Notion | 1.1.0 | clé | non | 22 | 9 | 10 | 3 | non | 22 | non | 0 |
 | `origami` | Origami | 1.0.0 | clé | non | 19 | 12 | 2 | 5 | oui | 19 | non | 0 |
 | `pappers` | Pappers | 1.0.0 | clé | non | 4 | 4 | 0 | 0 | oui | 0 | non | 0 |
@@ -68,7 +68,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `typeform` | Typeform | 1.2.0 | clé | non | 12 | 6 | 1 | 5 | non | 12 | non | 0 |
 | `wttj_ats` | Welcome to the Jungle ATS | 1.0.0 | clé | non | 10 | 7 | 3 | 0 | non | 0 | non | 0 |
 | `yousign` | Yousign | 1.1.1 | clé | non | 13 | 5 | 7 | 1 | oui | 0 | non | 0 |
-| **total : 54** |  |  |  |  | 1220 | 743 | 290 | 187 |  | 835 |  | 0 |
+| **total : 54** |  |  |  |  | 1221 | 744 | 290 | 187 |  | 835 |  | 0 |
 
 ## Par type
 
@@ -78,4 +78,4 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | application du client (OAuth entre machines) | 3 | 10 |
 | clé de l'hôte | 2 | 29 |
 | sans clé | 0 | 0 |
-| clé | 42 | 1114 |
+| clé | 42 | 1115 |
