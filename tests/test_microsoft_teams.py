@@ -3,7 +3,7 @@
 import pytest
 
 from oto.tools.common import UpstreamHTTPError
-from oto.tools.microsoft import TeamsClient
+from oto.tools.microsoft import TeamsClient, image_refs
 from microsoft_fake import G, _Resp, calls  # noqa: F401
 
 T, C, M = "t1", "19:abc@thread.tacv2", "1700000000000"
@@ -71,3 +71,34 @@ def test_lecture_d_un_canal_sans_consentement_admin(calls, client):
     with pytest.raises(UpstreamHTTPError) as exc:
         client.list_channel_messages(T, C)
     assert exc.value.status_code == 403 and exc.value.service == "microsoft"
+
+
+# --- images collées : référencées dans le corps, servies avec le jeton seulement ----
+
+IMG = ("/chats/19:x@unq.gbl.spaces/messages/1700/hostedContents/"
+       "aWQ9eF8w/LXd1cy1k=/$value")
+REPLY_IMG = f"/teams/t1/channels/{C}/messages/{M}/replies/1701/hostedContents/aWQ9/$value"
+
+
+def test_les_images_collees_se_lisent_dans_le_corps():
+    corps = (f'<p>Voir :</p><img src="{G}{IMG}" width="300">'
+             f"<img src='{G}{REPLY_IMG}'><img src=\"{G}{IMG}\">"
+             '<img src="https://exemple.fr/logo.png">')
+    assert image_refs(corps) == [IMG, REPLY_IMG]
+    assert image_refs("") == [] and image_refs(None) == []
+
+
+def test_une_image_collee_rend_ses_octets(calls, client):
+    calls.responses.append(_Resp(raw=b"\x89PNG\r\n"))
+    assert client.get_hosted_content(f"{G}{IMG}") == b"\x89PNG\r\n"
+    assert calls[0]["method"] == "GET" and calls[0]["url"] == f"{G}{IMG}"
+
+
+@pytest.mark.parametrize("ref", ["/me/messages", "/chats/c/messages/1",
+                                 "https://ailleurs.example/chats/c/messages/1/hostedContents/a/$value",
+                                 "/chats/c/messages/1/hostedContents/a/../../../me/$value",
+                                 "/chats/c/messages/1/hostedContents/a/$value?x=1"])
+def test_le_jeton_ne_part_que_vers_une_image_collee(calls, client, ref):
+    with pytest.raises(ValueError):
+        client.get_hosted_content(ref)
+    assert calls == []

@@ -15,9 +15,14 @@ chats.
 - **A post is a message to other people**, visible at once to the channel or
   chat members; Teams has no draft.
 - Ids carry `:` and `@` (`19:…@thread.tacv2`): pass them as returned.
+- **An image pasted in a message is not in the message**: its HTML body carries
+  `<img src="https://graph.microsoft.com/v1.0/…/messages/{id}/hostedContents/{id}/$value">`,
+  a URL that only answers with the person's token. `image_refs` reads those
+  references from a body, `get_hosted_content` fetches one (raw bytes).
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 from ..common.credentials import require
@@ -27,6 +32,22 @@ from ._transport import GraphBase, segment
 TEAMS_PAGE_SIZE = 50
 # Teams and channels come back whole; this only bounds what is kept.
 _UNPAGED_LIMIT = 1000
+
+
+# The path of a pasted image, relative to Graph v1.0: a chat or a channel, the message,
+# optionally the reply, then the hosted content. Nothing else is fetched with the token.
+_HOSTED = re.compile(
+    r"/(?:chats/[^/?#\s\"']+|teams/[^/?#\s\"']+/channels/[^/?#\s\"']+)"
+    r"/messages/[^/?#\s\"']+(?:/replies/[^/?#\s\"']+)?"
+    # A hosted content id is base64: it may hold a `/`, hence the lazy match.
+    r"/hostedContents/[^?#\s\"']+?/\$value")
+_GRAPH_PREFIX = "https://graph.microsoft.com/v1.0"
+
+
+def image_refs(html: str) -> List[str]:
+    """The pasted images of a message body, as references for `get_hosted_content`
+    (the path after `/v1.0`), in order of appearance, without duplicates."""
+    return list(dict.fromkeys(m.group(0) for m in _HOSTED.finditer(html or "")))
 
 
 def _html(content: str) -> Dict[str, Any]:
@@ -106,3 +127,20 @@ class TeamsClient(GraphBase):
     def post_chat_message(self, chat_id: str, *, html: str) -> Dict[str, Any]:
         """POST /chats/{id}/messages — a message in the chat. Returns it."""
         return self._json("POST", f"{self._chat(chat_id)}/messages", json=_html(html))
+
+    # ================================================================
+    # Pasted images
+    # ================================================================
+
+    def get_hosted_content(self, ref: str) -> bytes:
+        """GET …/messages/{id}/hostedContents/{id}/$value — the bytes of an image
+        pasted in a chat or channel message. `ref` is one of `image_refs` (the full
+        Graph URL is accepted too); anything else is refused before any call, so the
+        token never reaches another path."""
+        ref = require(ref, "ref").strip()
+        if ref.startswith(_GRAPH_PREFIX):
+            ref = ref[len(_GRAPH_PREFIX):]
+        if not _HOSTED.fullmatch(ref) or "/../" in ref or "/./" in ref:
+            raise ValueError("ref is the reference of a pasted image, as read from a "
+                             "message (…/messages/{id}/hostedContents/{id}/$value)")
+        return self._request("GET", ref).content

@@ -14,8 +14,8 @@ from .directory import DirectoryClient
 from .files import FilesClient
 from .mail import MailClient
 from .onenote import OneNoteClient
-from .teams import TeamsClient
+from .teams import TeamsClient, image_refs
 from .workbook import WorkbookClient
 
-__all__ = ["auth", "scopes", "FilesClient", "MailClient", "CalendarClient", "TeamsClient",
+__all__ = ["auth", "scopes", "FilesClient", "MailClient", "CalendarClient", "TeamsClient", "image_refs",
            "OneNoteClient", "DirectoryClient", "WorkbookClient", "Grant", "MicrosoftAuthError", "MicrosoftGrantExpired"]
