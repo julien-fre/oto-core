@@ -182,6 +182,43 @@ def test_auth_reference_must_name_a_credential_field(path, reference):
         check(description, path)
 
 
+def _jwt_bearer(path: pathlib.Path) -> dict:
+    description = _load(path)
+    description["connector"]["auth"] = {"kind": "oauth2_jwt_bearer", "token_url": "https://oauth2.example.test/token",
+                                        "scopes": ["https://api.example.test/auth/read"], "key": "service_account_key"}
+    description["connector"]["credential"] = [{"name": "service_account_key", "label": "Service account key (JSON)", "secret": True}]
+    return description
+
+
+def test_jwt_bearer_passes_and_is_carried_as_described():
+    """Un compte de service : un seul champ, secret ; la sortie porte `tokenUrl`, `scopes` et `key`, tels quels."""
+    source = connector_module(check(_jwt_bearer(NOTION), NOTION)).source
+    assert ('"kind": "oauth2_jwt_bearer"' in source and '"tokenUrl": "https://oauth2.example.test/token"' in source
+            and '"key": "service_account_key"' in source)
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda c: c["auth"].update(key="missing_field"), r"auth\.key names 'missing_field', which is not a credential field"),
+    (lambda c: c["credential"].append({"name": "other", "label": "Other", "secret": True}),
+     "auth.kind oauth2_jwt_bearer takes a single credential field, the key file named by auth.key"),
+    (lambda c: c["credential"][0].update(secret=False), r"auth\.key names 'service_account_key', which must be a secret field"),
+], ids=["key_not_a_field", "second_field", "key_not_secret"])
+def test_jwt_bearer_rule_2_refuses(mutate, message):
+    """Règle 2 : en `oauth2_jwt_bearer`, `key` nomme le seul champ de `credential`, secret."""
+    description = _jwt_bearer(NOTION)
+    mutate(description["connector"])
+    with pytest.raises(DescriptionError, match=message):
+        check(description, NOTION)
+
+
+def test_jwt_bearer_authorization_header_is_set_once():
+    """Règle 3 : l'authentification pose `Authorization` ; un en-tête constant ne le reprend pas."""
+    description = _jwt_bearer(NOTION)
+    description["connector"].setdefault("headers", {})["Authorization"] = "x"
+    with pytest.raises(DescriptionError, match="Authorization"):
+        check(description, NOTION)
+
+
 def test_basic_username_must_name_a_credential_field():
     """`username` est facultatif ; déclaré, il nomme un champ de `credential` (règle 2)."""
     description = _load(AIRCALL)

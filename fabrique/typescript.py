@@ -257,7 +257,7 @@ def _check(check: dict) -> str:
     return "{ " + ", ".join(f"{key}: {js(value)}" for key, value in check.items()) + " }"
 
 
-def _auth(connector: str, auth: dict) -> str:
+def _auth(connector: str, auth: dict, indent: int = 1) -> str:
     """Les clés du format en camelCase ; les valeurs telles quelles (noms côté API, adresses, noms des niveaux
     d'accès et droits), sauf l'identité lue par une fonction, qualifiée comme la sonde, et les clés de `exchange`."""
     entries = {}
@@ -267,7 +267,7 @@ def _auth(connector: str, auth: dict) -> str:
         elif key == "exchange":
             value = {camel(k): v for k, v in value.items()}
         entries[camel(key)] = value
-    return js_block(entries, 1)
+    return js_block(entries, indent)
 
 
 def _credential_field(field: dict) -> dict:

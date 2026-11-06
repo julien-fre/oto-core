@@ -421,7 +421,7 @@
       "required": ["kind"],
       "properties": {
         "kind": {
-          "enum": ["api_key", "bearer", "basic", "oauth2_client_credentials", "oauth2_user", "none"]
+          "enum": ["api_key", "bearer", "basic", "oauth2_client_credentials", "oauth2_user", "oauth2_jwt_bearer", "none"]
         }
       },
       "oneOf": [
@@ -563,6 +563,17 @@
               "else": { "not": { "required": ["exchange"] } }
             }
           ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A service account (JWT bearer, RFC 7523): the host signs an assertion with the account's private key (RS256) and exchanges it at token_url for an access token, sent as a bearer token. The credential is a single secret field, the service account's whole JSON key file.",
+          "properties": {
+            "kind": { "const": "oauth2_jwt_bearer" },
+            "token_url": { "description": "Fixed https token endpoint, the audience of the assertion: never a template nor a query. A key whose token_uri differs is refused.", "type": "string", "pattern": "^https://[^\\s{}?#]*[^/\\s{}?#]$" },
+            "scopes": { "description": "Joined by spaces in the scope claim of the assertion.", "$ref": "#/$defs/scope_list" },
+            "key": { "description": "Credential field holding the whole JSON key file of the service account (client_email, private_key, optional private_key_id and token_uri).", "$ref": "#/$defs/identifier" }
+          },
+          "required": ["kind", "token_url", "scopes", "key"],
           "additionalProperties": false
         },
         {

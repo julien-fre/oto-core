@@ -4,8 +4,8 @@ from __future__ import annotations
 import pathlib
 from dataclasses import dataclass
 
-from . import (auth_cases, background_cases, body_cases, carte, cases, error_cases, file_cases, nested_body_cases, python,
-               served, strip_cases)
+from . import (auth_cases, background_cases, body_cases, carte, cases, error_cases, file_cases, jwt_bearer_cases,
+               nested_body_cases, python, served, strip_cases)
 from .descriptions import CONNECTORS, REPO, load_all
 from .typescript import GENERATED_MARK, Module, connector_module, index_source
 
@@ -22,8 +22,8 @@ class Result:
 
 
 def generate(root: pathlib.Path = CONNECTORS) -> Result:
-    """Toutes les descriptions et les cas communs (coût, fichier rendu, retrait de la sortie, authentification, table
-    d'erreurs, corps entier, fonction longue, corps emboîté), contrôlés d'abord : un seul fautif, et rien
+    """Toutes les descriptions et les cas communs (coût, fichier rendu, retrait de la sortie, authentification, compte de
+    service, table d'erreurs, corps entier, fonction longue, corps emboîté), contrôlés d'abord : un seul fautif, et rien
     n'est généré."""
     descriptions = load_all(root)
     modules = [connector_module(description) for description in descriptions]
@@ -35,6 +35,8 @@ def generate(root: pathlib.Path = CONNECTORS) -> Result:
     files[strip_cases.OUTPUT_NAME] = strip_cases.typescript_source(
         strip_cases.load(root / strip_cases.CASES.relative_to(CONNECTORS)))
     files[auth_cases.OUTPUT_NAME] = auth_cases.typescript_source(auth_cases.load(root / auth_cases.CASES.relative_to(CONNECTORS)))
+    files[jwt_bearer_cases.OUTPUT_NAME] = jwt_bearer_cases.typescript_source(
+        jwt_bearer_cases.load(root / jwt_bearer_cases.CASES.relative_to(CONNECTORS)))
     files[error_cases.OUTPUT_NAME] = error_cases.typescript_source(
         error_cases.load(root / error_cases.CASES.relative_to(CONNECTORS)))
     files[body_cases.OUTPUT_NAME] = body_cases.typescript_source(

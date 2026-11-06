@@ -22,6 +22,7 @@
     "./file-cases": "./src/file-cases.ts",
     "./strip-cases": "./src/strip-cases.ts",
     "./auth-cases": "./src/auth-cases.ts",
+    "./jwt-bearer-cases": "./src/jwt-bearer-cases.ts",
     "./error-cases": "./src/error-cases.ts",
     "./body-cases": "./src/body-cases.ts",
     "./background-cases": "./src/background-cases.ts",

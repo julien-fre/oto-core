@@ -156,6 +156,15 @@ export type Auth =
       readonly expiresInDefault?: number
     } & TokenEndpoint)
   | OAuthUser
+  /**
+   * Un compte de service (JWT bearer, RFC 7523). `key` nomme le seul champ de `credential`, secret : le fichier JSON entier
+   * de la clé du compte de service, dont l'hôte exige `client_email` et `private_key` (PEM PKCS#8) ; `private_key_id`,
+   * facultatif, devient le `kid` de l'en-tête ; une clé dont `token_uri` diffère de `tokenUrl` est refusée. L'hôte signe
+   * en RS256 l'assertion `{ iss: client_email, scope: scopes joints par des espaces, aud: tokenUrl, iat, exp: iat + 3600 }`,
+   * l'échange à `tokenUrl` (POST en formulaire, `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, `assertion`,
+   * aucune redirection suivie) contre un jeton envoyé en `Authorization: Bearer`. Cas communs : `./jwt-bearer-cases`.
+   */
+  | { readonly kind: "oauth2_jwt_bearer"; readonly tokenUrl: string; readonly scopes: readonly string[]; readonly key: string }
   | { readonly kind: "none" }
 
 /**

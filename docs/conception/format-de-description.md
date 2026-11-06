@@ -34,7 +34,7 @@ Un connecteur partagé se décrit dans un fichier YAML, `connectors/<nom>/connec
 |---|---|
 | Ce document | Le fichier, le bloc `connector`, le bloc `functions` (classe, côté d'action, donnée personnelle, délai, pagination), le bloc `exposure`, les contrôles. |
 | [Sortie d'une fonction](sortie.md) | `output.items`, `strip`, `projection`, `sample`. |
-| [Compte](compte.md) | `auth`, `credential`, `settings`, gabarits d'adresse, `oauth2_user`, compte de l'hôte et compte rattaché. |
+| [Compte](compte.md) | `auth`, `credential`, `settings`, gabarits d'adresse, `oauth2_user`, compte de service (`oauth2_jwt_bearer`), compte de l'hôte et compte rattaché. |
 | [Niveaux d'accès](niveaux-d-acces.md) | `access_levels`, `scope_implies`, `scopes` d'une fonction. |
 | [Corps d'une requête](corps-de-requete.md) | Corps en table, emboîté, entier, et ses clés libres. |
 | [Fichiers](fichiers.md) | `call.files` et `output.file`. |
@@ -61,7 +61,7 @@ Un connecteur partagé se décrit dans un fichier YAML, `connectors/<nom>/connec
 | `base_url` | sauf `base_urls` ou tout `handwritten` | Racine `https://` des chemins d'appel, sans `/` final ; gabarit possible sur les réglages. |
 | `base_urls` | non, exclusif de `base_url` | Une racine par valeur d'un réglage `choice` : `{ setting: region, values: { us: …, eu: … } }`. |
 | `auth` | oui | Mode d'authentification, voir [compte](compte.md). |
-| `credential` | sauf `none` et `oauth2_user` | Champs fournis par le consommateur : `name`, `label`, `secret` (booléen), `holder` (`account` par défaut, ou `host`), voir [compte](compte.md). |
+| `credential` | sauf `none` et `oauth2_user` | Champs fournis par le consommateur : `name`, `label`, `secret` (booléen), `holder` (`account` par défaut, ou `host`) ; un seul, secret, en `oauth2_jwt_bearer` : voir [compte](compte.md). |
 | `account_identity` | non | Identité d'un compte rattaché chez un tiers : `name`, `label`, `pattern` (expression ancrée), citée par `base_url` seulement, voir [compte](compte.md). |
 | `settings` | non | Réglages non secrets d'un compte, voir [compte](compte.md). |
 | `modes` | oui | Qui peut porter un compte : `platform`, `byo_user`, `byo_org`. |
@@ -207,3 +207,4 @@ Deux gardes de CI :
 - 2026-10-21 : toute forme neuve du format s'écrit pour les deux côtés à la fois, selon la règle de convergence ([fabrique](fabrique.md), « La règle de convergence ») — décidé par le mainteneur.
 - 2026-11-03 : redécoupage de la note en documents par sujet ; les résumés par connecteur sortent pour la carte du parc et l'en-tête de chaque description — décidé par le responsable produit (source : demande de rationalisation des connecteurs).
 - 2026-11-06 : `effect` (`send`, `destroy`) sur une fonction sensible, facultatif, sans défaut, pour qu'un hôte distingue un envoi d'une destruction — décidé par Alexis (source : lecteur générique d'oto 1, décision du 05/11).
+- 2026-11-06 : septième mode d'authentification, `oauth2_jwt_bearer`, le compte de service ([compte](compte.md), « Le compte de service ») — décidé par le mainteneur (source : lecture de Search Console par un agent).

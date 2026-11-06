@@ -239,6 +239,72 @@ def _unknown_pkce(d):
     _oauth2_user(d, pkce="plain")
 
 
+def _jwt_bearer(d, **changes):
+    """Sellsy en compte de service : un seul champ, le fichier JSON de la clé."""
+    d["connector"]["auth"] = {
+        "kind": "oauth2_jwt_bearer", "token_url": "https://oauth2.example.test/token",
+        "scopes": ["https://api.example.test/auth/read"], "key": "service_account_key",
+    } | changes
+    d["connector"]["credential"] = [{"name": "service_account_key", "label": "Service account key (JSON)", "secret": True}]
+
+
+def _jwt_bearer_without_token_url(d):
+    _jwt_bearer(d)
+    del d["connector"]["auth"]["token_url"]
+
+
+def _jwt_bearer_without_scopes(d):
+    _jwt_bearer(d)
+    del d["connector"]["auth"]["scopes"]
+
+
+def _jwt_bearer_with_empty_scopes(d):
+    _jwt_bearer(d, scopes=[])
+
+
+def _jwt_bearer_without_key(d):
+    _jwt_bearer(d)
+    del d["connector"]["auth"]["key"]
+
+
+def _jwt_bearer_token_url_template(d):
+    _jwt_bearer(d, token_url="https://{tenant}.example.test/token")
+
+
+def _jwt_bearer_token_url_with_query(d):
+    _jwt_bearer(d, token_url="https://oauth2.example.test/token?tenant=x")
+
+
+def _jwt_bearer_token_url_not_https(d):
+    _jwt_bearer(d, token_url="http://oauth2.example.test/token")
+
+
+def _jwt_bearer_with_token_urls(d):
+    _jwt_bearer(d)
+    d["connector"]["auth"]["token_urls"] = {"setting": "region", "values": {"us": "https://us.example.test/token"}}
+
+
+def _jwt_bearer_with_access_levels(d):
+    _jwt_bearer(d)
+    d["connector"]["auth"]["access_levels"] = {"full": {"scopes": ["a"]}, "read": {"scopes": ["a"]}}
+
+
+def _jwt_bearer_with_sub(d):
+    _jwt_bearer(d, sub="someone@example.test")
+
+
+def _jwt_bearer_without_credential(d):
+    _jwt_bearer(d)
+    del d["connector"]["credential"]
+
+
+def test_jwt_bearer_mutation_base_is_valid():
+    """Les variantes `oauth2_jwt_bearer` ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
+    description = _sellsy()
+    _jwt_bearer(description)
+    _validate(description)
+
+
 @pytest.mark.parametrize("auth", [
     {"kind": "basic", "username": "client_id", "password": "client_secret"},
     {"kind": "basic", "password": "client_secret"},
@@ -270,6 +336,9 @@ def test_oauth2_user_mutation_base_is_valid():
     _api_key_without_place, _basic_without_password, _basic_with_empty_username, _oauth2_user_with_token_credential, _oauth2_user_with_client_id,
     _oauth2_user_without_identity, _rotates_without_refresh_token, _exchange_without_its_grant,
     _authorize_param_set_by_the_host, _unknown_pkce,
+    _jwt_bearer_without_token_url, _jwt_bearer_without_scopes, _jwt_bearer_with_empty_scopes, _jwt_bearer_without_key,
+    _jwt_bearer_token_url_template, _jwt_bearer_token_url_with_query, _jwt_bearer_token_url_not_https,
+    _jwt_bearer_with_token_urls, _jwt_bearer_with_access_levels, _jwt_bearer_with_sub, _jwt_bearer_without_credential,
 ], ids=lambda f: f.__name__.lstrip("_"))
 def test_invalid_description_is_rejected(mutate):
     description = _sellsy()

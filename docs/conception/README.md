@@ -21,7 +21,7 @@ Les documents de conception de ce dépôt : pour chaque sujet, **comment** c'est
 |---|---|---|
 | [Concevoir un connecteur](concevoir-un-connecteur.md) | Dans quel ordre conçoit-on un connecteur partagé, de la qualification du service à sa publication ? Le point d'entrée pour ajouter un connecteur. | proposé |
 | [Format de description](format-de-description.md) | Comment décrit-on un connecteur partagé, et que doit contenir son fichier ? Document d'entrée du format, qui renvoie au document de chaque bloc. | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
-| [Le compte d'un connecteur](compte.md) | Comment une description dit-elle les champs, réglages et l'authentification d'un compte, consentement OAuth et compte rattaché compris ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
+| [Le compte d'un connecteur](compte.md) | Comment une description dit-elle les champs, réglages et l'authentification d'un compte, consentement OAuth, compte de service et compte rattaché compris ? | validé avec Alexis le 29/09/2026 ; révisé le 06/11/2026 |
 | [Le corps d'une requête](corps-de-requete.md) | Comment les arguments forment-ils le corps JSON : en table, emboîté ou entier ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
 | [La sortie d'une fonction](sortie.md) | Que reçoit l'agent de la réponse, et que perd-elle avant de l'atteindre ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
 | [Fichiers envoyés et rendus](fichiers.md) | Comment une fonction envoie-t-elle ou rend-elle un fichier sans que l'agent en voie les octets ni l'adresse ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |

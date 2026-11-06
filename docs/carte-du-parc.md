@@ -6,9 +6,10 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 
 1. `auth.kind: oauth2_user` : connexion d'une personne (OAuth) ;
 2. `auth.kind: oauth2_client_credentials` : application du client (OAuth entre machines) ;
-3. un champ du `credential` en `holder: host` : clé de l'hôte ;
-4. `auth.kind: none` : sans clé ;
-5. sinon (`api_key`, `bearer`, `basic`) : clé.
+3. `auth.kind: oauth2_jwt_bearer` : compte de service (assertion signée) ;
+4. un champ du `credential` en `holder: host` : clé de l'hôte ;
+5. `auth.kind: none` : sans clé ;
+6. sinon (`api_key`, `bearer`, `basic`) : clé.
 
 « Clé de la plateforme » : `modes` contient `platform`. Fonctions : par `class` (lecture, écriture, sensible). Sonde : `probe`, et son solde `probe.balance`. Avec coût : les fonctions qui portent `cost`. Niveaux d'accès : `auth.access_levels`. Non générées : les fonctions que la fabrique saute, nommées par `python -m fabrique`.
 
@@ -76,6 +77,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | --- | ---: | ---: |
 | connexion d'une personne (OAuth) | 7 | 67 |
 | application du client (OAuth entre machines) | 3 | 10 |
+| compte de service (assertion signée) | 0 | 0 |
 | clé de l'hôte | 2 | 29 |
 | sans clé | 0 | 0 |
 | clé | 42 | 1115 |

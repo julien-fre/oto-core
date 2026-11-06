@@ -11,7 +11,9 @@ pas dire :
    `request_param` d'une pagination est un argument (placé en query ou au corps, emboîté ou non) ;
 2. chaque référence de `auth` (`key`, `token`, `username`, `password`, `client_id`,
    `client_secret`) nomme un champ de `credential` ; en `basic`, `username` est facultatif
-   (absent, l'identifiant est vide), et nomme un champ quand il est déclaré ;
+   (absent, l'identifiant est vide), et nomme un champ quand il est déclaré ; en
+   `oauth2_jwt_bearer`, `credential` n'a qu'un champ, secret, celui que nomme `key` (le
+   fichier JSON entier de la clé du compte de service) ;
 3. un nom côté API reçoit une seule valeur : une constante de query ne reprend pas un
    nom de query (au corps, la règle 22 le dit à toute profondeur), un en-tête constant (du connecteur ou de la
    fonction) ni celui de l'authentification ni un autre en-tête, à la casse près, et
@@ -450,7 +452,8 @@ def check_arguments(function: dict, where: str) -> None:
 
 
 def check_auth(connector: dict, where: str) -> None:
-    """Règle 2 : une référence de `auth` désigne un champ de `credential` existant."""
+    """Règle 2 : une référence de `auth` désigne un champ de `credential` existant ; en `oauth2_jwt_bearer`, le seul
+    champ, secret."""
     auth = connector["auth"]
     fields = {field["name"] for field in connector.get("credential", [])}
     for reference in AUTH_REFERENCES:
@@ -459,12 +462,22 @@ def check_auth(connector: dict, where: str) -> None:
                 f"{where}: auth.{reference} names {auth[reference]!r}, which is not a credential field "
                 f"({', '.join(sorted(fields)) or 'none declared'})"
             )
+    if auth["kind"] == "oauth2_jwt_bearer":
+        others = sorted(fields - {auth["key"]})
+        if others:
+            raise DescriptionError(
+                f"{where}: auth.kind oauth2_jwt_bearer takes a single credential field, the key file named by auth.key "
+                f"({auth['key']!r}); remove {', '.join(others)}"
+            )
+        field = next(f for f in connector["credential"] if f["name"] == auth["key"])
+        if field["secret"] is not True:
+            raise DescriptionError(f"{where}: auth.key names {auth['key']!r}, which must be a secret field (secret: true)")
 
 
 def _auth_header(auth: dict) -> str | None:
     if auth["kind"] == "api_key":
         return auth["name"] if auth["in"] == "header" else None
-    if auth["kind"] in ("bearer", "basic", "oauth2_client_credentials", "oauth2_user"):
+    if auth["kind"] in ("bearer", "basic", "oauth2_client_credentials", "oauth2_user", "oauth2_jwt_bearer"):
         return "Authorization"
     return None
 
