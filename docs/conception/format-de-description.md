@@ -1,7 +1,7 @@
 # Format de description d'un connecteur
 
 - **Statut** : validé par le mainteneur le 29/09/2026
-- **Dernière révision** : 2026-11-03
+- **Dernière révision** : 2026-11-06
 
 ## Résumé
 
@@ -82,6 +82,7 @@ Les champs du compte (`auth`, `credential`, `settings`, `account_identity`, `bas
 | `name` | oui | Un verbe et son objet : `list_estimates`. |
 | `class` | oui | `read`, `write` ou `sensitive`. |
 | `act` | non (déduit de la classe) | La fonction engage ou détruit (envoi, corbeille, archive, déplacement) : booléen, `false` par défaut pour `read`, `true` pour `write` et `sensitive`. Une simple préparation, comme un brouillon, déclare `act: false`. Jamais `false` sur `sensitive`, jamais `true` sur `read` (la fabrique refuse). |
+| `effect` | non, `sensitive` seulement | Ce que fait une fonction sensible une fois confirmée : `send` (quelque chose part vers un tiers : un message, des pistes inscrites dans une campagne active) ou `destroy` (supprime, arrête pour de bon, remplace sans garder). Pas de défaut ; refusé sur `read` et `write` (le schéma et la règle 9). Un hôte qui sert les fonctions sensibles par effet, le lecteur d'oto 1, refuse au montage une fonction sensible qui ne le dit pas. |
 | `scopes` | si le connecteur a des niveaux d'accès, interdit sinon | Les droits OAuth que la fonction exige, tous ([niveaux d'accès](niveaux-d-acces.md)). |
 | `description` | oui | En anglais, 1000 caractères au plus (borne du paquet d'oto 2) : ce que l'agent lit. |
 | `input` | oui | JSON Schema 2020-12 d'un objet strict (`type: object`, `additionalProperties: false`, `properties`), servi et validé tel quel. Une propriété peut porter `personal: true` (« Donnée personnelle », ci-dessous). |
@@ -205,3 +206,4 @@ Deux gardes de CI :
 - 2026-10-19 : donnée personnelle : `personal: true` sur une propriété de l'entrée, passé tel quel dans le schéma servi, que l'hôte ne journalise pas ; règle 15 de la fabrique — décidé par le mainteneur.
 - 2026-10-21 : toute forme neuve du format s'écrit pour les deux côtés à la fois, selon la règle de convergence ([fabrique](fabrique.md), « La règle de convergence ») — décidé par le mainteneur.
 - 2026-11-03 : redécoupage de la note en documents par sujet ; les résumés par connecteur sortent pour la carte du parc et l'en-tête de chaque description — décidé par le responsable produit (source : demande de rationalisation des connecteurs).
+- 2026-11-06 : `effect` (`send`, `destroy`) sur une fonction sensible, facultatif, sans défaut, pour qu'un hôte distingue un envoi d'une destruction — décidé par Alexis (source : lecteur générique d'oto 1, décision du 05/11).

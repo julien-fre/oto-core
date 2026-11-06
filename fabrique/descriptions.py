@@ -48,7 +48,9 @@ pas dire :
    API de `call` (paramètre du chemin, de query, de corps, en-tête), aucune constante
    ni aucun en-tête constant ne porte son nom : l'agent ne la fournit jamais ;
 9. `act` suit la classe : jamais `false` sur une fonction `sensitive`, jamais `true`
-   sur une fonction `read` ; absent, il vaut `false` pour `read`, `true` sinon ;
+   sur une fonction `read` ; absent, il vaut `false` pour `read`, `true` sinon ; `effect`
+   (`send` ou `destroy`, ce que fait une fonction sensible une fois confirmée) n'est dit
+   que d'une fonction `sensitive` ;
 10. le signal de refus du service (une entrée de `errors` ou un refus qui porte
    `marks_account`, une condition sur le corps `body`) : un refus qui porte l'un ou
    l'autre a un statut pour `when`, jamais une condition en texte ; un statut 2xx
@@ -511,12 +513,14 @@ def act(function: dict) -> bool:
 
 
 def check_act(function: dict, where: str) -> None:
-    """Règle 9 : `act` ne contredit pas la classe."""
+    """Règle 9 : `act` ne contredit pas la classe, et `effect` n'est dit que d'une fonction sensible."""
     declared = function.get("act")
     if declared is False and function["class"] == "sensitive":
         raise DescriptionError(f"{where}: function {function['name']}: a sensitive function cannot declare act: false")
     if declared is True and function["class"] == "read":
         raise DescriptionError(f"{where}: function {function['name']}: a read function cannot declare act: true")
+    if "effect" in function and function["class"] != "sensitive":
+        raise DescriptionError(f"{where}: function {function['name']}: effect is said of a sensitive function only")
 
 
 def check_timeout(connector: dict, function: dict, where: str) -> None:

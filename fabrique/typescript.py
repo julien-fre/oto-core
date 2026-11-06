@@ -76,7 +76,7 @@ def camel(name: str) -> str:
     return head + "".join(part[:1].upper() + part[1:] for part in rest)
 
 
-def _served_input(function: dict) -> dict:
+def served_input(function: dict) -> dict:
     """L'entrée servie : celle de la description, plus `all_pages` et `max_pages` quand la fonction pagine."""
     served = copy.deepcopy(function["input"])
     if served.get("type") != "object" or served.get("additionalProperties") is not False:
@@ -160,7 +160,7 @@ def function_definition(connector: str, function: dict) -> str:
     if "handwritten" in function:
         raise NotGenerated("handwritten: the fabrique does not generate it")
     qualified = f"{connector}.{function['name']}"
-    schema = js_block(_served_input(function), 1)
+    schema = js_block(served_input(function), 1)
     examples = [
         "{ title: " + js(example["title"]) + ", input: " + js(example["input"]) + " }"
         for example in function["examples"]

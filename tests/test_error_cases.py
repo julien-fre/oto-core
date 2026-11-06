@@ -1,8 +1,8 @@
 """Les cas communs de la table d'erreurs (`connectors/_cases/errors.yaml`), joués côté Python, une ligne par cas.
 
-La lib ne lit la table d'erreurs d'aucune description : seul le moteur du paquet de l'hôte le fait. Les cas se jouent
-donc ici contre une référence écrite dans le test, qui dit la sémantique du format (`docs/conception/signal-de-refus.md`) ; le
-paquet de l'hôte joue les mêmes cas, sortis par la fabrique dans `ts/src/error-cases.ts`, contre son moteur.
+Ils se jouent contre `oto.connectors.serve.refusal`, la lecture de la table que sert un hôte Python (le lecteur générique
+d'oto 1), à la sémantique du format (`docs/conception/signal-de-refus.md`) ; le paquet de l'hôte d'oto 2 joue les mêmes
+cas, sortis par la fabrique dans `ts/src/error-cases.ts`, contre son moteur.
 """
 from __future__ import annotations
 
@@ -13,41 +13,17 @@ import yaml
 
 from fabrique import error_cases
 from fabrique.descriptions import DescriptionError
+from oto.connectors import serve
 
 LOADED = error_cases.load()
-ABSENT = object()
-
-
-def _at(value, path: str):
-    """La valeur au chemin pointé, un indice de liste en chiffres ; `ABSENT` quand le chemin ne mène à rien."""
-    for key in path.split("."):
-        if isinstance(value, dict) and key in value:
-            value = value[key]
-        elif isinstance(value, list) and key.isdigit() and int(key) < len(value):
-            value = value[int(key)]
-        else:
-            return ABSENT
-    return value
-
-
-def holds(condition: dict, answer: dict) -> bool:
-    """La référence d'une condition sur le corps : `equals`, même type et valeur exacte ; `contains`, un texte qui contient
-    l'un des textes, les deux en minuscules (`str.lower`, comme `toLowerCase`). Un corps qui n'est pas JSON n'a rien."""
-    if "json" not in answer:
-        return False
-    value = _at(answer["json"], condition["path"])
-    if "equals" in condition:
-        return any(type(value) is type(expected) and value == expected for expected in condition["equals"])
-    return isinstance(value, str) and any(text.lower() in value.lower() for text in condition["contains"])
 
 
 def selected(errors: list[dict], answer: dict) -> dict | None:
-    """La première entrée dont un statut couvre la réponse et dont la condition tient, quand elle en a une."""
-    for entry in errors:
-        statuses = entry["status"] if isinstance(entry["status"], list) else [entry["status"]]
-        if answer["status"] in statuses and ("body" not in entry or holds(entry["body"], answer)):
-            return {"code": entry["code"], "marks_account": entry.get("marks_account")}
-    return None
+    """L'entrée que retient `serve.refusal` pour la réponse simulée (corps JSON, ou texte), en code et marque."""
+    description = {"connector": {"errors": errors}, "functions": []}
+    body = answer["json"] if "json" in answer else answer["text"]
+    entry = serve.refusal(description, {"name": "carrier"}, answer["status"], body)
+    return None if entry is None else {"code": entry["code"], "marks_account": entry["marks_account"]}
 
 
 @pytest.mark.parametrize("case", LOADED.cases, ids=[case["name"] for case in LOADED.cases])
