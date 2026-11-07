@@ -17,6 +17,7 @@ import * as fullenrich from "./fullenrich"
 import * as gmail from "./gmail"
 import * as googleCalendar from "./google_calendar"
 import * as googleDrive from "./google_drive"
+import * as googleSearchConsole from "./google_search_console"
 import * as googleSheets from "./google_sheets"
 import * as granola from "./granola"
 import * as higgsfield from "./higgsfield"
@@ -73,6 +74,7 @@ export { fullenrich }
 export { gmail }
 export { googleCalendar }
 export { googleDrive }
+export { googleSearchConsole }
 export { googleSheets }
 export { granola }
 export { higgsfield }
@@ -132,6 +134,7 @@ export const connectors: readonly Connector[] = [
   gmail.connector,
   googleCalendar.connector,
   googleDrive.connector,
+  googleSearchConsole.connector,
   googleSheets.connector,
   granola.connector,
   higgsfield.connector,
