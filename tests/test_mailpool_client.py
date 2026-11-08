@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from oto.tools.common.errors import UpstreamHTTPError
+from oto.tools.mailpool import MailpoolCreateRefused
 from oto.tools.mailpool import client as mp
 
 
@@ -417,3 +418,89 @@ def test_every_attempt_has_a_bounded_timeout(capture, cli):
     cli.get_domain(1201)
     connect, read = capture["kwargs"]["timeout"]
     assert connect <= mp.HTTP_TIMEOUT[0] and read <= mp.HTTP_TIMEOUT[1]
+
+
+# --- mailbox creation --------------------------------------------------------
+
+SLOTS = {"mailboxes": {"google": 9, "shared": 4, "outlook": 4},
+         "slots": {"google": 17, "shared": 10, "outlook": 4}}
+DOMAINS = {"data": [
+    {"id": 38494, "domain": "new-outreach.com", "type": "unassigned", "status": "active"},
+    {"id": 38495, "domain": "pending-outreach.com", "type": "unassigned", "status": "pending"},
+    {"id": 32057, "domain": "old-outreach.com", "type": "google", "status": "active"},
+], "total": 3}
+NEW = {"email": "Anna@new-outreach.com", "firstName": "Anna", "lastName": "Lee",
+       "type": "google", "forwardTo": "anna@example.com"}
+
+
+def _plan_responses(capture, existing=()):
+    capture["responses"] += [
+        _Resp(200, SLOTS), _Resp(200, DOMAINS),
+        _Resp(200, {"data": [{"id": 1, "email": e} for e in existing],
+                    "total": len(existing)})]
+
+
+def test_plan_sends_nothing_and_reports_slots(capture, cli):
+    _plan_responses(capture)
+    plan = cli.plan_mailboxes([NEW])
+    assert [m for m, _ in capture["calls"]] == ["GET", "GET", "GET"]
+    assert plan["mailboxes"][0]["email"] == "anna@new-outreach.com"
+    assert plan["slots"] == {"google": {"free": 8, "used_by_this": 1, "left_after": 7}}
+    assert plan["domains"]["new-outreach.com"] == {"id": 38494, "type": "unassigned",
+                                                   "becomes": "google"}
+
+
+def test_create_posts_the_array_and_strips_credentials(capture, cli):
+    _plan_responses(capture)
+    capture["responses"].append(_Resp(200, {"emails": [dict(MAILBOX, type="google")]}))
+    out = cli.create_mailboxes([NEW])
+    assert capture["calls"][-1] == ("POST", f"{BASE}/mailboxes")
+    assert capture["kwargs"]["json"] == [{
+        "email": "anna@new-outreach.com", "firstName": "Anna", "lastName": "Lee",
+        "type": "google", "forwardTo": "anna@example.com"}]
+    keys = set(_keys(out["created"]))
+    assert not keys & {"password", "imapPassword", "smtpPassword", "secret"}
+    assert out["created"][0]["admin"] == {"email": "admin@example-outreach.com"}
+
+
+def test_create_is_never_retried(capture, cli):
+    _plan_responses(capture)
+    capture["responses"].append(_Resp(503, {"message": "down"}))
+    with pytest.raises(UpstreamHTTPError):
+        cli.create_mailboxes([NEW])
+    assert [m for m, _ in capture["calls"]].count("POST") == 1
+
+
+@pytest.mark.parametrize("mailboxes,existing,needle", [
+    ([dict(NEW, email=f"a{i}@new-outreach.com") for i in range(9)], (), "8 google slot"),
+    ([dict(NEW, email="a@pending-outreach.com")], (), "not active"),
+    ([dict(NEW, email="a@old-outreach.com", type="shared")], (), "google domain"),
+    ([dict(NEW, email="a@elsewhere.com")], (), "not a domain"),
+    ([NEW], ("anna@new-outreach.com",), "already exists"),
+    ([NEW, dict(NEW, email="b@new-outreach.com", type="shared")], (), "one mailbox type"),
+])
+def test_plan_refuses_before_sending(capture, cli, mailboxes, existing, needle):
+    _plan_responses(capture, existing)
+    capture["responses"].append(_Resp(200, {"data": [], "total": 0}))
+    with pytest.raises(MailpoolCreateRefused) as e:
+        cli.create_mailboxes(mailboxes)
+    assert needle in str(e.value)
+    assert "POST" not in [m for m, _ in capture["calls"]]
+
+
+def test_no_slot_of_a_type_is_refused(capture, cli):
+    _plan_responses(capture)
+    with pytest.raises(ValueError, match="0 outlook slot"):
+        cli.plan_mailboxes([dict(NEW, type="outlook")])
+
+
+@pytest.mark.parametrize("bad", [
+    [], {}, "x", [dict(NEW, type="private")], [dict(NEW, password="x")],
+    [dict(NEW, firstName="")], [dict(NEW, email="no-at")], [NEW, NEW],
+    [dict(NEW, forwardTo="a@b.com, c@d.com")],
+    [dict(NEW, email=f"a{i}@new-outreach.com") for i in range(51)],
+])
+def test_create_input_is_checked_offline(capture, cli, bad):
+    with pytest.raises(ValueError):
+        cli.plan_mailboxes(bad)
+    assert capture["calls"] == []

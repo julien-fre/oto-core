@@ -44,7 +44,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `lemlist` | lemlist | 1.2.2 | clé | non | 125 | 57 | 32 | 36 | oui | 125 | non | 0 |
 | `linear` | Linear | 1.0.0 | clé | non | 27 | 12 | 9 | 6 | oui | 0 | non | 0 |
 | `linkedin_unipile` | LinkedIn (Unipile) | 1.3.0 | clé de l'hôte | oui | 28 | 24 | 1 | 3 | oui | 0 | non | 0 |
-| `mailpool` | Mailpool | 1.0.1 | clé | non | 21 | 16 | 5 | 0 | non | 21 | non | 0 |
+| `mailpool` | Mailpool | 1.1.0 | clé | non | 21 | 16 | 5 | 0 | non | 21 | non | 0 |
 | `malibou` | Malibou | 1.0.0 | clé | non | 4 | 4 | 0 | 0 | oui | 4 | non | 0 |
 | `meta_ads` | Meta Ads | 1.1.0 | clé | non | 8 | 8 | 0 | 0 | non | 0 | non | 0 |
 | `microsoft` | Microsoft 365 (SharePoint, OneDrive) | 3.2.0 | connexion d'une personne (OAuth) | non | 13 | 13 | 0 | 0 | non | 13 | oui | 0 |

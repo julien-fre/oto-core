@@ -3,7 +3,7 @@
 DESCRIPTION = {'connector': {'name': 'mailpool',
                'label': 'Mailpool',
                'namespace': 'mailpool',
-               'version': '1.0.1',
+               'version': '1.1.0',
                'api_version': 'v1',
                'base_url': 'https://app.mailpool.io/v1/api',
                'auth': {'kind': 'api_key', 'in': 'header', 'name': 'X-Api-Authorization', 'key': 'api_key'},
