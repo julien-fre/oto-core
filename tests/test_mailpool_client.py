@@ -539,3 +539,57 @@ def test_create_failing_after_a_domain_landed_is_partial(capture, cli):
     assert e.value.done == ["new-outreach.com"] and e.value.not_done == ["other-outreach.com"]
     assert [m["id"] for m in e.value.created] == [1]
     assert not set(_keys(e.value.created)) & {"password", "secret"}
+
+
+# --- exports -----------------------------------------------------------------
+
+BATCH = {"id": 42, "createdAt": "2026-11-08T10:00:00Z", "status": "in_progress",
+         "platform": "lemlist", "token": "t1",
+         "exports": [{"id": 101, "mailboxId": 5301, "mailboxEmail": "anna@example-outreach.com",
+                      "status": "in_progress", "domainType": "shared", "password": "p"}],
+         "errors": []}
+
+
+def test_credentials_status_never_serves_the_login(capture, cli):
+    capture["responses"].append(_Resp(200, {"platform": "lemlist", "createdAt": "2026-11-08",
+                                            "data": {"email": "a@b.com", "apiKey": "****abcd"}}))
+    assert cli.export_credentials_status("lemlist") == {
+        "platform": "lemlist", "saved": True, "saved_at": "2026-11-08"}
+    capture["responses"].append(_Resp(404, {"message": "Credentials for platform lemlist not found"}))
+    assert cli.export_credentials_status("lemlist")["saved"] is False
+
+
+def test_export_posts_ids_after_checks(capture, cli):
+    capture["responses"] += [_Resp(200, {"platform": "lemlist", "createdAt": "x", "data": {}}),
+                             _Resp(200, {"data": [MAILBOX], "total": 1}), _Resp(200, BATCH)]
+    out = cli.export_mailboxes("lemlist", [5301])
+    assert capture["calls"][-1] == ("POST", f"{BASE}/exports/mailboxes")
+    assert capture["kwargs"]["json"] == {"platform": "lemlist", "mailboxIds": [5301]}
+    assert "token" not in out and "password" not in out["exports"][0]
+
+
+@pytest.mark.parametrize("cred,mailboxes,needle", [
+    (_Resp(404, {"message": "not found"}), [MAILBOX], "no lemlist login"),
+    (_Resp(200, {"data": {}}), [dict(MAILBOX, status="pending")], "not active"),
+    (_Resp(200, {"data": {}}), [], "not in this workspace"),
+])
+def test_export_refuses_before_sending(capture, cli, cred, mailboxes, needle):
+    capture["responses"] += [cred, _Resp(200, {"data": mailboxes, "total": len(mailboxes)})]
+    with pytest.raises(mp_pkg.MailpoolExportRefused, match=needle):
+        cli.export_mailboxes("lemlist", [5301])
+    assert "POST" not in [m for m, _ in capture["calls"]]
+
+
+@pytest.mark.parametrize("platform,ids", [("gmail", [1]), ("lemlist", []), ("lemlist", [1, 1]),
+                                          ("lemlist", ["1"]), ("lemlist", "1")])
+def test_export_input_is_checked_offline(capture, cli, platform, ids):
+    with pytest.raises(ValueError):
+        cli.export_mailboxes(platform, ids)
+    assert capture["calls"] == []
+
+
+def test_batches_are_allowlisted(capture, cli):
+    capture["responses"] += [_Resp(200, {"data": [BATCH], "total": 1}), _Resp(200, BATCH)]
+    assert "token" not in cli.list_export_batches()["data"][0]
+    assert cli.get_export_batch(42)["exports"][0]["status"] == "in_progress"
+    assert capture["calls"][-1] == ("GET", f"{BASE}/exports/batches/42")

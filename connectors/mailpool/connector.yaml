@@ -6,7 +6,10 @@
 # Nor create_mailboxes (POST /mailboxes, an array of mailboxes): it takes a
 # paid subscription slot per mailbox, so the Python client checks the free
 # slots, the domains and the existing addresses first (plan_mailboxes) and
-# refuses before sending anything.
+# refuses before sending anything. Mailbox exports to a sending platform
+# (export_mailboxes, export_credentials_status, list/get_export_batch) live in
+# the Python client too: export_mailboxes checks the platform login is saved
+# and every mailbox is active first; the login itself is never read back.
 #
 # Mailbox payloads carry the mailbox, IMAP/SMTP and admin passwords and the
 # admin secret; the Python client removes them (strip_secrets) and every
