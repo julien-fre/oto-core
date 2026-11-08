@@ -15,6 +15,10 @@ What the caller needs to know, and cannot guess:
   be of the same type.
 - `private` mailboxes (the caller's own SMTP/IMAP server) are not served: they
   need connection settings this module does not take.
+- **One `POST /mailboxes` per domain**: Mailpool refuses a single call
+  spanning several domains with 400 "Mailboxes count limit exceeded" even
+  with free slots, while one domain per call is accepted. A failure after an
+  earlier domain landed is `MailpoolCreatePartial`.
 - ⚠️ **The create is never retried** (a replay could create twice). On a
   timeout or a 5xx the mailboxes may or may not exist: list the domain's
   mailboxes before calling again.
@@ -51,6 +55,19 @@ class MailpoolCreateRefused(ValueError):
         self.problems = problems
         super().__init__("Mailbox creation refused, nothing was sent: "
                          + "; ".join(problems))
+
+
+class MailpoolCreatePartial(RuntimeError):
+    """The create of one domain failed after earlier domains' landed.
+    `created` = mailboxes created (as `MAILBOX_FIELDS`), `done` / `not_done` =
+    domains, `cause` = the failure. The failed domain's mailboxes may or may
+    not exist when `cause` is a timeout or a 5xx: list them before retrying."""
+
+    def __init__(self, created: List[Dict[str, Any]], done: List[str],
+                 not_done: List[str], cause: BaseException):
+        self.created, self.done, self.not_done, self.cause = created, done, not_done, cause
+        super().__init__(f"Mailboxes created on {', '.join(done)}; not on "
+                         f"{', '.join(not_done)} ({cause}).")
 
 
 class MailboxCreateMixin:
@@ -179,13 +196,27 @@ class MailboxCreateMixin:
         return {"mailboxes": items, "slots": slot_plan, "domains": domain_plan}
 
     def create_mailboxes(self, mailboxes: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-        """`POST /mailboxes` — after `plan_mailboxes` passed. Returns
-        `{created: [mailbox as MAILBOX_FIELDS], plan}`. Never retried."""
+        """`POST /mailboxes`, ONE call per domain, after `plan_mailboxes`
+        passed. Returns `{created: [mailbox as MAILBOX_FIELDS], plan}`. Never
+        retried. When a domain's call fails after an earlier one landed,
+        `MailpoolCreatePartial` says what exists."""
         from .client import project_mailbox
 
         plan = self.plan_mailboxes(mailboxes)
-        out = self._request("POST", "/mailboxes", json=plan["mailboxes"])
-        created = out.get("emails") if isinstance(out, dict) else out
-        if not isinstance(created, list):
-            created = []
-        return {"created": [project_mailbox(m) for m in created], "plan": plan}
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for m in plan["mailboxes"]:
+            groups.setdefault(m["email"].split("@", 1)[1], []).append(m)
+        created: List[Dict[str, Any]] = []
+        done: List[str] = []
+        for domain, group in groups.items():
+            try:
+                out = self._request("POST", "/mailboxes", json=group)
+            except Exception as e:
+                if not done:
+                    raise
+                raise MailpoolCreatePartial(created, done,
+                                            [d for d in groups if d not in done], e) from e
+            got = out.get("emails") if isinstance(out, dict) else out
+            created += [project_mailbox(m) for m in got] if isinstance(got, list) else []
+            done.append(domain)
+        return {"created": created, "plan": plan}

@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from oto.tools.common.errors import UpstreamHTTPError
+from oto.tools import mailpool as mp_pkg
 from oto.tools.mailpool import MailpoolCreateRefused
 from oto.tools.mailpool import client as mp
 
@@ -504,3 +505,37 @@ def test_create_input_is_checked_offline(capture, cli, bad):
     with pytest.raises(ValueError):
         cli.plan_mailboxes(bad)
     assert capture["calls"] == []
+
+
+TWO_DOMAINS = {"data": DOMAINS["data"] + [
+    {"id": 38497, "domain": "other-outreach.com", "type": "unassigned", "status": "active"}],
+    "total": 4}
+ON_OTHER = dict(NEW, email="anna@other-outreach.com", type="shared")
+
+
+def _two_domain_plan(capture):
+    capture["responses"] += [_Resp(200, SLOTS), _Resp(200, TWO_DOMAINS),
+                             _Resp(200, {"data": [], "total": 0}),
+                             _Resp(200, {"data": [], "total": 0})]
+
+
+def test_create_sends_one_call_per_domain(capture, cli):
+    _two_domain_plan(capture)
+    capture["responses"] += [_Resp(200, {"emails": [dict(MAILBOX, id=1)]}),
+                             _Resp(200, {"emails": [dict(MAILBOX, id=2)]})]
+    out = cli.create_mailboxes([NEW, ON_OTHER])
+    posts = [kw["json"] for kw in capture["all"] if isinstance(kw.get("json"), list)]
+    assert [[m["email"] for m in p] for p in posts] == [
+        ["anna@new-outreach.com"], ["anna@other-outreach.com"]]
+    assert [m["id"] for m in out["created"]] == [1, 2]
+
+
+def test_create_failing_after_a_domain_landed_is_partial(capture, cli):
+    _two_domain_plan(capture)
+    capture["responses"] += [_Resp(200, {"emails": [dict(MAILBOX, id=1)]}),
+                             _Resp(400, {"message": "Mailboxes count limit exceeded"})]
+    with pytest.raises(mp_pkg.MailpoolCreatePartial) as e:
+        cli.create_mailboxes([NEW, ON_OTHER])
+    assert e.value.done == ["new-outreach.com"] and e.value.not_done == ["other-outreach.com"]
+    assert [m["id"] for m in e.value.created] == [1]
+    assert not set(_keys(e.value.created)) & {"password", "secret"}
