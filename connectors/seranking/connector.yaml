@@ -45,6 +45,12 @@
 # 100 credits for backlinks, 1000 for similar, related and question keywords), and keyword metrics counts the
 # keywords sent (10 credits each: the price stays to the billing service).
 #
+# Output: the lists that page are cut to what an agent reads (1.1.0). Backlinks and referring domains: the list
+# itself, its main keys (alt text and image flag dropped). The domain's keywords: the SERP block type and position and
+# the number of sites in the SERP dropped. The keyword research keeps its total and drops the monthly volume trend of
+# each keyword. The audits: the list itself, its summary keys. Key names from the reference, not yet read in a real
+# answer.
+#
 # Pagination: the keyword lists take page or offset and limit, and answer the current page (and a total for the
 # keyword research); no answer gives the next page: nothing is declared, the agent passes page or offset itself.
 #
@@ -65,7 +71,7 @@ connector:
   name: seranking
   label: SE Ranking
   namespace: seranking
-  version: 1.0.0
+  version: 1.1.0
   api_version: v1
   base_url: https://api.seranking.com/v1
   auth:
@@ -210,6 +216,7 @@ functions:
         page: page
         limit: limit
     cost: *domain_cost
+    output: { strip: [block_type, block_position, total_sites] }
 
   - name: domain_competitors
     class: write
@@ -285,6 +292,7 @@ functions:
       path: /backlinks/all
       query: { target: target, mode: mode, limit: limit, per_domain: per_domain, order_by: order_by }
     cost: &rows_cost { per: request, quantity: 100, unit: credits }
+    output: { items: backlinks, projection: [url_from, url_to, title, anchor, nofollow, inlink_rank, domain_inlink_rank, first_seen, last_visited] }
 
   - name: list_referring_domains
     class: write
@@ -309,6 +317,7 @@ functions:
       path: /backlinks/refdomains
       query: { target: target, mode: mode, limit: limit, order_by: order_by }
     cost: *rows_cost
+    output: { items: refdomains, projection: [refdomain, backlinks, dofollow_backlinks, domain_inlink_rank, first_seen] }
 
   # Data API: keyword research.
   - name: keyword_metrics
@@ -366,6 +375,9 @@ functions:
       path: /keywords/similar
       query: { source: source, keyword: keyword, limit: limit, offset: offset, sort: sort, sort_order: sort_order }
     cost: &research_cost { per: request, quantity: 1000, unit: credits }
+    output:
+      strip: [keywords.history_trend]
+      sample: { total: 1, keywords: [{ keyword: crm, volume: 10, cpc: 1.5, difficulty: 20, competition: 0.3, history_trend: { "2026-01-01": 10 } }] }
 
   - name: related_keywords
     class: write
@@ -383,6 +395,9 @@ functions:
       path: /keywords/related
       query: { source: source, keyword: keyword, limit: limit, offset: offset, sort: sort, sort_order: sort_order }
     cost: *research_cost
+    output:
+      strip: [keywords.history_trend]
+      sample: { total: 1, keywords: [{ keyword: crm, volume: 10, cpc: 1.5, difficulty: 20, competition: 0.3, history_trend: { "2026-01-01": 10 } }] }
 
   - name: question_keywords
     class: write
@@ -400,6 +415,9 @@ functions:
       path: /keywords/questions
       query: { source: source, keyword: keyword, limit: limit, offset: offset, sort: sort, sort_order: sort_order }
     cost: *research_cost
+    output:
+      strip: [keywords.history_trend]
+      sample: { total: 1, keywords: [{ keyword: crm, volume: 10, cpc: 1.5, difficulty: 20, competition: 0.3, history_trend: { "2026-01-01": 10 } }] }
 
   # Project API: the projects tracked in the account. No credits.
   - name: list_sites
@@ -593,10 +611,10 @@ functions:
   - name: list_audits
     class: read
     description: >-
-      The site audits of the account, with the total: id, URL, title, status,
-      stats and last update. search filters by URL or title, date_start and
+      The site audits of the account: id, URL, title, status, stats and last
+      update. search filters by URL or title, date_start and
       date_end by date. limit sets how many (100 by default), offset skips the
-      first ones to read further. Free.
+      first ones to read further: fewer than limit means the last page. Free.
     input:
       type: object
       additionalProperties: false
@@ -613,6 +631,7 @@ functions:
       method: GET
       path: /project-management/audits
       query: { limit: limit, offset: offset, search: search, date_start: date_start, date_end: date_end }
+    output: { items: items, projection: [id, url, title, status, stats, last_update] }
 
   - name: create_audit
     class: write

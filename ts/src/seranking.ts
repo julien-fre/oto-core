@@ -198,6 +198,7 @@ export const domainKeywords = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["block_type", "block_position", "total_sites"] },
   cost: { per: "request", quantity: 100, unit: "credits" },
 })
 
@@ -322,6 +323,7 @@ export const listBacklinks = defineFunction({
     body: {},
     headers: {},
   },
+  output: { items: "backlinks", projection: ["url_from", "url_to", "title", "anchor", "nofollow", "inlink_rank", "domain_inlink_rank", "first_seen", "last_visited"] },
   cost: { per: "request", quantity: 100, unit: "credits" },
 })
 
@@ -367,6 +369,7 @@ export const listReferringDomains = defineFunction({
     body: {},
     headers: {},
   },
+  output: { items: "refdomains", projection: ["refdomain", "backlinks", "dofollow_backlinks", "domain_inlink_rank", "first_seen"] },
   cost: { per: "request", quantity: 100, unit: "credits" },
 })
 
@@ -463,6 +466,7 @@ export const similarKeywords = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["keywords.history_trend"] },
   cost: { per: "request", quantity: 1000, unit: "credits" },
 })
 
@@ -510,6 +514,7 @@ export const relatedKeywords = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["keywords.history_trend"] },
   cost: { per: "request", quantity: 1000, unit: "credits" },
 })
 
@@ -557,6 +562,7 @@ export const questionKeywords = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["keywords.history_trend"] },
   cost: { per: "request", quantity: 1000, unit: "credits" },
 })
 
@@ -832,7 +838,7 @@ export const listAudits = defineFunction({
   connector: "seranking",
   class: "read",
   act: false,
-  description: "The site audits of the account, with the total: id, URL, title, status, stats and last update. search filters by URL or title, date_start and date_end by date. limit sets how many (100 by default), offset skips the first ones to read further. Free.",
+  description: "The site audits of the account: id, URL, title, status, stats and last update. search filters by URL or title, date_start and date_end by date. limit sets how many (100 by default), offset skips the first ones to read further: fewer than limit means the last page. Free.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -857,6 +863,7 @@ export const listAudits = defineFunction({
     body: {},
     headers: {},
   },
+  output: { items: "items", projection: ["id", "url", "title", "status", "stats", "last_update"] },
 })
 
 export const createAudit = defineFunction({
@@ -952,7 +959,7 @@ export const connector = defineConnector({
   name: "seranking",
   label: "SE Ranking",
   namespace: "seranking",
-  version: "1.0.0",
+  version: "1.1.0",
   apiVersion: "v1",
   baseUrl: "https://api.seranking.com/v1",
   auth: {"kind": "api_key", "in": "header", "name": "Authorization", "prefix": "Token ", "key": "api_key"},
