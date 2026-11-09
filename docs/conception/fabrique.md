@@ -1,7 +1,7 @@
 # La fabrique
 
 - **Statut** : proposé
-- **Dernière révision** : 2026-11-06
+- **Dernière révision** : 2026-11-09
 
 ## Résumé
 
@@ -146,22 +146,34 @@ Les fichiers YAML ne partent pas dans la distribution PyPI (`pyproject.toml` n'i
 
 Validée par Alexis le 2026-10-21 :
 1. une capacité neuve n'existe que dans oto-core, le paquet d'oto 2 ;
-2. un connecteur se décrit une seule fois, et la fabrique le génère pour les deux côtés : Python pour oto 1, TypeScript pour oto-core ;
+2. un connecteur se décrit une seule fois, et sa description s'exécute des deux côtés : par le moteur TypeScript d'oto-core pour oto 2, par le moteur Python de la lib pour oto 1 (amendé par Alexis le 2026-11-09, « Le moteur Python ») ;
 3. oto 1 ne prend que des correctifs ;
 4. une organisation passe d'oto 1 à oto 2 quand tout ce qu'elle utilise y est couvert.
 
-Ce que ce dépôt en tire : une forme neuve du format (un coût, un fichier rendu) s'écrit pour les deux côtés à la fois, avec ses cas communs ; oto 1 n'en reçoit que ce qui corrige un comportement qu'il a déjà, par un appel générique à la lib plutôt que par un code de plus par connecteur (« Un fichier dans le client Python »). La même règle est rappelée côté hôte (oto-pkg : docs/conception/connecteurs-et-comptes.md, « Deux sortes de connecteurs »).
+Ce que ce dépôt en tire : une forme neuve du format (un coût, un fichier rendu) s'écrit pour les deux moteurs à la fois, avec ses cas communs, que chaque moteur joue lui-même ; oto 1 n'en reçoit que ce qui corrige un comportement qu'il a déjà, par un appel générique à la lib plutôt que par un code de plus par connecteur (« Un fichier dans le client Python »). La même règle est rappelée côté hôte (oto-pkg : docs/conception/connecteurs-et-comptes.md, « Deux sortes de connecteurs »).
 
 Quand la fabrique sait générer un connecteur :
-1. elle produit son client Python et ses fonctions TypeScript depuis la description ; le client Python écrit à la main est retiré ;
-2. le backend d'oto 1 retire son fichier d'outils pour ce connecteur et l'enregistre par un lecteur générique de la description (écrit une fois), qui appelle le client généré ; sa logique propre passe dans la description ou dans le code écrit à la main que celle-ci référence, partagé avec oto 2 ;
+1. le moteur Python exécute sa description, comme le moteur d'oto-core, et le client Python écrit à la main est retiré ;
+2. le backend d'oto 1 retire son fichier d'outils pour ce connecteur et l'enregistre par un lecteur générique de la description (écrit une fois), qui appelle le moteur Python ; sa logique propre passe dans la description ou dans le code écrit à la main que celle-ci référence, partagé avec oto 2 ;
 3. les noms d'outils d'oto 1 de ce connecteur changent ce jour-là, avec une note de migration pour ses utilisateurs.
 
 Le double ne reste qu'aux connecteurs pas encore basculés, et il s'éteint au premier des deux termes : tout basculé, ou oto 1 arrêté. Le lecteur exige que les descriptions partent dans la distribution PyPI : la fabrique les génère en modules Python, `oto/connectors/descriptions/` (« Les descriptions servies », ci-dessous).
 
+### Le moteur Python
+
+Décidé par Alexis le 2026-11-09 (oto-now/connectors#206). La lib reçoit un moteur qui exécute une description, comme celui d'oto-core (`packages/plateforme/server/connectors/`) : la requête depuis `call` (adresse et sa garde, query, en-têtes, corps en table, emboîté ou entier), le compte (`api_key`, `bearer`, `basic`, `none`, puis les échanges de jeton `oauth2_client_credentials` et `oauth2_jwt_bearer`, le jeton gardé en mémoire du processus, indexé par l'empreinte du credential), la table d'erreurs, les retraits de la sortie et la pagination (`oto/connectors/serve.py`). Le secret reste un paramètre de l'appel : le moteur n'en lit aucun.
+
+- **Les cas communs** (`connectors/_cases/`) se jouent contre le moteur lui-même, plus seulement contre une référence écrite dans les tests : un écart entre les deux moteurs y devient un test rouge des deux côtés.
+- **Une forme neuve** du format s'écrit pour les deux moteurs dans le même lot, avec ses cas communs.
+- **Ce qui attend un usage** : les fichiers (`files`, multipart, `output.file`), les fonctions longues et `oauth2_user` ne s'écrivent qu'à la demande ; le moteur refuse une description qui en déclare, plutôt que de l'appeler à moitié.
+- **Chez oto 1** : le lecteur générique appelle le moteur à la place du client écrit à la main, et accepte un credential JSON à un seul champ (un compte de service) ; un connecteur décrit seulement en YAML, comme `google_search_console`, s'y sert sans code propre.
+
 ## Décisions et alternatives écartées
 
 - **Écrire chaque connecteur partagé deux fois à la main** : écarté le 29/09, les deux versions divergeraient. Il reste l'exception, pour un connecteur hors format.
+- **Un client Python généré par connecteur, que le lecteur d'oto 1 appelle** : remplacé le 2026-11-09 par le moteur Python, qui exécute la description sans code par connecteur, comme oto-core.
+- **Un client Python écrit à la main pour servir un connecteur décrit à oto 1** (Search Console, environ deux lots) : écarté le 2026-11-09, un doublon de plus à résorber, et à refaire pour chaque connecteur suivant.
+- **Un service Node qui fait tourner le moteur d'oto-core, appelé par oto 1** (environ quatre lots) : écarté le 2026-11-09, un service de plus à déployer et à garder, pour les raisons du service connecteurs abandonné le 29/09.
 - **Un service connecteurs séparé, en Python, sans état, le secret dans un en-tête** : abandonné le 29/09. Les connecteurs s'exécutent dans le paquet, chez l'hôte ; le détail et ses raisons sont dans oto-pkg : docs/conception/connecteurs-et-comptes.md.
 - **La fabrique dans le paquet, en TypeScript** : écarté. Elle vit à côté des descriptions et de la lib qu'elle génère, pour qu'une seule source fasse foi.
 - **Laisser au backend d'oto 1 ses outils écrits à la main jusqu'à son extinction** : décidé le 29/09, retiré le 06/10 ; le double durerait autant qu'oto 1.
@@ -203,6 +215,7 @@ Le double ne reste qu'aux connecteurs pas encore basculés, et il s'éteint au p
 - La fonction longue (`background: true`, décidée par Alexis le 2026-10-22) est écrite dans le schéma, la fabrique (règle 21), la sortie TypeScript et son contrat (`ConnectorFunction.background`, `ts/src/types.ts`) et les cas communs (`connectors/_cases/background.yaml`, `ts/src/background-cases.ts`) ; la sortie Python ne la porte pas, le client appelant en synchrone. Oto-core ne l'exécute pas encore (oto-pkg : docs/conception/fonctions-longues.md, « Écart avec le code ») ; relu à son commit 194b1b8 (`connectors/declaration.ts`), il ne refuse aucune clé inconnue d'une fonction : un paquet antérieur ignore `background` et appelle la fonction en synchrone, sous son délai propre, l'assistant attendant jusqu'à 300 s. Une description qui le déclare n'est épinglée qu'avec un paquet qui l'exécute, les deux épingles montant ensemble. Seule `mistral.transcribe` le déclare (2026-10-22).
 - Le corps emboîté (décidé par Alexis le 2026-10-26) est écrit dans le schéma (`body_map`), la fabrique (règle 22), la sortie TypeScript et son contrat (`BodyMap`, `ts/src/types.ts`) et les cas communs (`connectors/_cases/nested_body.yaml`, `ts/src/nested-body-cases.ts`) ; `attio` 1.1.0 s'en sert le premier. Oto-core l'exécute à partir de son commit qui l'écrit ; un paquet antérieur refuse à la déclaration une table emboîtée.
 - Les descriptions servies et `serve` sont écrits (« Les descriptions servies ») ; le lecteur générique du backend d'oto 1 qui les lit est écrit dans ce backend, et ne sert que les connecteurs qu'il inscrit. `effect` n'est pas porté par la sortie TypeScript : oto-core ne classe pas ses fonctions par effet.
+- Le moteur Python (décidé le 2026-11-09, « Le moteur Python ») n'est pas encore écrit ; ses lots sont dans oto-now/connectors#206. Les descriptions servies ne portent pas `call` : le moteur en aura besoin.
 - La publication npm est écrite (`.github/workflows/publish.yml`, jobs `npm` et `publish-npm`) mais n'a pas encore eu lieu : elle exige le secret `NPM_TOKEN` du dépôt, absent au 20/10, et aucune version de `@otomata_tech/connectors` n'est sur npm.
 
 ## Questions ouvertes
@@ -271,3 +284,4 @@ Le double ne reste qu'aux connecteurs pas encore basculés, et il s'éteint au p
 - 2026-10-26 : `attio` 1.2.0, la modification d'une fiche et d'une entrée, une fonction par verbe (`PATCH` ajoute, `PUT` remplace) : 4 fonctions de plus, 1167 générées, cinquante connecteurs — décidé par Alexis (source : réponse à la fiche du 26/10/2026).
 - 2026-11-03 : la fabrique génère la carte du parc (docs/carte-du-parc.md) — décidé par le responsable produit (source : demande de rationalisation des connecteurs).
 - 2026-11-06 : règle 2, en `oauth2_jwt_bearer` un seul champ de `credential`, secret, nommé par `key` ; la sortie TypeScript porte `tokenUrl`, `scopes` et `key` tels quels ; cas communs `connectors/_cases/jwt_bearer.yaml`, sortis en `ts/src/jwt-bearer-cases.ts` (`@otomata_tech/connectors/jwt-bearer-cases`) ; la carte du parc gagne le type « compte de service » — décidé par le mainteneur (source : lecture de Search Console par un agent).
+- 2026-11-09 : la règle de convergence amendée : une description s'exécute par deux moteurs, TypeScript dans oto-core et Python dans la lib ; chaque forme du format s'écrit pour les deux, et les cas communs se jouent contre chaque moteur ; le lecteur d'oto 1 appelle le moteur Python ; un client écrit à la main et un service Node écartés — décidé par Alexis (source : oto-now/connectors#206, Search Console pour oto 1).

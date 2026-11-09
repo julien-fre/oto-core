@@ -28,7 +28,7 @@ Les documents de conception de ce dépôt : pour chaque sujet, **comment** c'est
 | [Erreurs et signal de refus](signal-de-refus.md) | Comment une description nomme-t-elle les refus d'un service, et quand marque-t-elle le compte ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
 | [Coût d'un appel et sonde à solde](cout-et-solde.md) | Que coûte un appel, avant et après, et comment la sonde lit-elle le solde d'un compte payant ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
 | [Travaux longs](travaux-longs.md) | Comment dire un travail asynchrone tenu par le tiers, ou un appel synchrone de plusieurs minutes ? | validé avec Alexis le 29/09/2026 ; révisé le 03/11/2026 |
-| [La fabrique](fabrique.md) | Comment un fichier de description devient-il des définitions TypeScript que le paquet d'oto 2 adapte, puis un client Python ? | proposé |
+| [La fabrique](fabrique.md) | Comment un fichier de description devient-il des définitions TypeScript que le paquet d'oto 2 adapte, et une description que le moteur Python de la lib exécute pour oto 1 ? | proposé |
 | [Niveaux d'accès](niveaux-d-acces.md) | Comment ouvrir un connecteur OAuth en lecture seule, ou à un sous-ensemble de ses droits ? | validé avec Alexis le 14/10/2026 |
 
 ## Anciens identifiants → document
