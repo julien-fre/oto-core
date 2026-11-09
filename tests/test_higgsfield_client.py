@@ -5,7 +5,7 @@ Mocks `requests.Session.request`: paths, bodies and headers as in the vendor's A
 reference, the key in the header only, a fresh idempotency key per submission, the
 202 with no body of a cancel, local refusals, and `price_of` on both shapes of an
 estimate answer (an amount, or a sentence of per-second prices), and GPT Image 2.5's
-per-token sentence priced at its measured ceiling.
+per-token sentence priced at its measured charge.
 """
 from __future__ import annotations
 
@@ -215,7 +215,7 @@ def test_price_of_nothing_readable(estimate):
     assert hf.price_of(estimate, {"duration": 5})["usd"] is None
 
 
-# --- price_of: GPT Image 2.5, priced at a measured ceiling ---------------------
+# --- price_of: GPT Image 2.5, priced at its measured charge --------------------
 
 def _gpt(params):
     return hf.price_of({"type": "description", "pricing_description": GPT_IMAGE}, params)
@@ -225,16 +225,16 @@ def _gpt(params):
     ("low", "4k", 0.0304), ("medium", "4k", 0.0552), ("high", "4k", 0.1886), ("xhigh", "4k", 0.3269),
     ("max", "4k", 0.7222), ("high", "1k", 0.0634), ("high", "2k", 0.1177), ("max", "1k", 0.2214),
 ])
-def test_gpt_image_is_priced_at_the_measured_charge_plus_margin(quality, resolution, measured):
+def test_gpt_image_is_priced_at_the_measured_charge_with_no_margin(quality, resolution, measured):
     p = _gpt({"quality": quality, "resolution": resolution})
-    assert p["usd"] == pytest.approx(measured * 1.2, abs=1e-4) and p["approximate"] is True
+    assert p["usd"] == pytest.approx(measured, abs=1e-4) and p["approximate"] is True
     assert f"quality {quality}" in p["basis"] and resolution in p["basis"]
-    assert "reports no cost" in p["basis"]
+    assert "no margin" in p["basis"] and "reports no cost" in p["basis"]
 
 
-def test_gpt_image_ceiling_covers_every_measured_job():
+def test_gpt_image_price_covers_every_measured_job():
     # Every job measured on 2026-11-09 (charge read from GET /models/usage),
-    # priced with its own parameters: the ceiling is never below the charge.
+    # priced with its own parameters: the price is never below the charge.
     jobs = [({"quality": "low", "resolution": "4k", "aspect_ratio": "3:2"}, 0.0241),
             ({"quality": "low", "resolution": "4k", "aspect_ratio": "auto"}, 0.0305),
             ({"quality": "low", "aspect_ratio": "1:1"}, 0.0226),
@@ -249,19 +249,19 @@ def test_gpt_image_ceiling_covers_every_measured_job():
 
 def test_gpt_image_defaults_to_high_and_the_dearest_resolution():
     p = _gpt({"prompt": "a fox"})
-    assert p["usd"] == pytest.approx((0.1886 + 5 / 3 * 5e-6) * 1.2, abs=1e-4)
+    assert p["usd"] == pytest.approx(0.1886 + 5 / 3 * 5e-6, abs=1e-4)
     assert "(the default)" in p["basis"] and "no `resolution` given" in p["basis"]
 
 
 def test_gpt_image_an_unmeasured_resolution_takes_the_quality_4k():
     p = _gpt({"quality": "xhigh", "resolution": "1k"})
-    assert p["usd"] == pytest.approx(0.3269 * 1.2, abs=1e-4) and "1k not measured" in p["basis"]
+    assert p["usd"] == pytest.approx(0.3269, abs=1e-4) and "1k not measured" in p["basis"]
 
 
-def test_gpt_image_reference_images_and_a_long_prompt_add_to_the_ceiling():
+def test_gpt_image_reference_images_and_a_long_prompt_add_to_the_price():
     base = _gpt({"quality": "high", "resolution": "4k"})["usd"]
     refs = _gpt({"quality": "high", "resolution": "4k", "image_urls": ["https://cdn.example.com/a.png"] * 16})
-    assert refs["usd"] == pytest.approx(base + 16 * 0.013 * 1.2, abs=1e-4) and "16 reference images" in refs["basis"]
+    assert refs["usd"] == pytest.approx(base + 16 * 0.013, abs=1e-4) and "16 reference images" in refs["basis"]
     assert _gpt({"quality": "high", "resolution": "4k", "prompt": "x" * 30000})["usd"] > base + 0.05
 
 

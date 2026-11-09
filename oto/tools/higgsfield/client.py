@@ -30,8 +30,8 @@ returned unchanged.
   (`{"type": "description", "pricing_description": …}`). `price_of` reads a
   dollar amount out of either, or says it cannot. GPT Image 2.5
   (`marketing-studio/image/flare`, `/sunburst`) gives only per-1M-token rates:
-  `price_of` answers a ceiling measured per quality and resolution, plus a
-  margin, never the actual charge, which no endpoint reports per job.
+  `price_of` answers the charge measured per quality and resolution, with no
+  margin, not the job's own charge, which no endpoint reports per job.
 - **A submission carries an `Idempotency-Key`** (a fresh UUID unless the caller
   gives one): repeating it with the same key returns the original request
   instead of a second job; the same key with other parameters answers 422. The
@@ -104,7 +104,6 @@ _GPT_IMAGE_CHARGE = {
 _GPT_IMAGE_RESOLUTIONS = ("1k", "2k", "4k")
 _GPT_IMAGE_DEFAULT_QUALITY = "high"  # "Quality defaults to high", in the sentence itself
 _GPT_IMAGE_PER_REFERENCE = 0.0130
-_GPT_IMAGE_MARGIN = 1.2  # the measures are of one prompt; the ceiling leaves room
 _GPT_IMAGE_MEASURED_ON = "2026-11-09"
 
 
@@ -143,7 +142,7 @@ def _video_input(params: Dict[str, Any]) -> bool:
 
 
 def _price_of_gpt_image(sentence: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """The measured ceiling of a GPT Image 2.5 job, or None when `sentence` is
+    """The measured charge of a GPT Image 2.5 job, or None when `sentence` is
     not its per-1M-token price sentence (with the rates the measures were made at)."""
     if not sentence.lstrip().lower().startswith("per 1m tokens"):
         return None
@@ -166,7 +165,7 @@ def _price_of_gpt_image(sentence: str, params: Dict[str, Any]) -> Optional[Dict[
     prompt = params.get("prompt")
     prompt_tokens = len(prompt) / 3 if isinstance(prompt, str) else 0  # generous: ~4 characters a token
     usd = (charges[priced_at] + references * _GPT_IMAGE_PER_REFERENCE
-           + prompt_tokens * _TOKEN_RATES["text input"] / 1_000_000) * _GPT_IMAGE_MARGIN
+           + prompt_tokens * _TOKEN_RATES["text input"] / 1_000_000)
     how = f"quality {quality}" + ("" if "quality" in params else " (the default)")
     if resolution is None:
         how += f", {priced_at} (no `resolution` given: the dearest)"
@@ -178,7 +177,7 @@ def _price_of_gpt_image(sentence: str, params: Dict[str, Any]) -> Optional[Dict[
         how += f", {references} reference image{'s' if references > 1 else ''}"
     return {"usd": round(usd, 4), "approximate": True,
             "basis": (f"GPT Image 2.5 charge measured on {_GPT_IMAGE_MEASURED_ON} at {how}, square output, "
-                      f"+{round((_GPT_IMAGE_MARGIN - 1) * 100)}%: Higgsfield bills tokens and reports no cost")}
+                      "no margin: Higgsfield bills tokens and reports no cost")}
 
 
 def price_of(estimate: Any, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -188,7 +187,7 @@ def price_of(estimate: Any, params: Dict[str, Any]) -> Dict[str, Any]:
     `usd` is None when no amount can be read; `basis` says why, or how it was
     computed. An amount computed from a per-second sentence is approximate:
     the sentence prices a 16:9 output before any discount. GPT Image 2.5's
-    per-token sentence is priced at a measured ceiling, also approximate.
+    per-token sentence is priced at its measured charge, also approximate.
     """
     if not isinstance(estimate, dict):
         return {"usd": None, "approximate": False, "basis": "the estimate answer is not an object"}
