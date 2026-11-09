@@ -6,8 +6,10 @@ argument the request cannot be built without), `AccountSettingError` (a setting 
 library's own error, `oto.tools.common.credentials`).
 
 Raised from an answer: `Refused` (a refusal the description names: its error table, a refusal of the function, a check
-of the arguments or of the answer), `UpstreamHTTPError` (a status the description names nothing for,
-`oto.tools.common.errors`, its body masked of every secret of the call), `UnreadableAnswer` (a success that is not JSON, or too large), `Unreachable` (no answer: network failure or time out).
+of the arguments or of the answer, a service account key that cannot be read), `UpstreamHTTPError` (a status the
+description names nothing for, `oto.tools.common.errors`, its body masked of every secret of the call), `TokenRefused`
+(the token endpoint of an exchange refused), `UnreadableAnswer` (a success that is not JSON, too large, or a token
+answer without its token), `Unreachable` (no answer: network failure or time out).
 
 No message carries a secret, the request's address (an `api_key` may travel in its query) nor a cause that would:
 `Unreachable` is raised without its cause.
@@ -48,7 +50,7 @@ class AddressRefused(EngineError):
 
 class Refused(EngineError):
     """A refusal the description names: `code` (the named refusal), `message` (the description's, never the vendor's
-    body), `status_code` (the vendor's status, `None` for a check of the arguments or of the answer),
+    body), `status_code` (the vendor's status, `None` for a check of the arguments, of the answer, or of a key),
     `retryable`, `marks_account` (`credential_rejected`, `quota_exhausted` or `None`)."""
 
     def __init__(self, code: str, message: str, *, status_code: Optional[int] = None, retryable: bool = False,
@@ -65,8 +67,28 @@ class Refused(EngineError):
         return self.marks_account == "credential_rejected"
 
 
+class TokenRefused(EngineError):
+    """The token endpoint of an exchange refused: `status_code`, `error` (the OAuth error code of its body, RFC 6749
+    § 5.2, when readable), `marks_account` (`credential_rejected` when a service account's grant is no longer valid,
+    `invalid_grant`). Nothing else of the body is read."""
+
+    def __init__(self, message: str, *, status_code: int, error: Optional[str] = None,
+                 marks_account: Optional[str] = None):
+        self.status_code = status_code
+        self.error = error
+        self.marks_account = marks_account
+        self.retryable = False
+        super().__init__(message)
+
+    @property
+    def credential_rejected(self) -> bool:
+        """The refusal says the credential no longer authenticates."""
+        return self.marks_account == "credential_rejected"
+
+
 class UnreadableAnswer(EngineError):
-    """A success whose body cannot be read: not JSON, or larger than the engine reads."""
+    """A success whose body cannot be read: not JSON, larger than the engine reads, or a token answer without its
+    token."""
 
 
 class Unreachable(EngineError):

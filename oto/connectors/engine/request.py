@@ -14,6 +14,7 @@ text `null` elsewhere). Nothing here reads a secret: the signature arrives compo
 """
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import re
@@ -39,15 +40,27 @@ class Signature:
 
 
 @dataclass(frozen=True)
+class Form:
+    """A form-encoded body (`application/x-www-form-urlencoded`), as ordered pairs: the body of a token request."""
+
+    pairs: tuple
+
+
+@dataclass(frozen=True)
 class Request:
     """A request under the base address: `path` already encoded, `query` as ordered pairs (a name may repeat),
-    `headers` complete, authentication included, `body` a JSON value or `NO_BODY`."""
+    `headers` complete, authentication included, `body` a JSON value, a `Form`, or `NO_BODY`."""
 
     method: str
     path: str
     query: tuple
     headers: dict
     body: Any = NO_BODY
+
+
+def basic_header(username: str, password: str) -> str:
+    """The HTTP Basic header of a user name and a password, UTF-8."""
+    return "Basic " + base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
 
 
 def _number(value: float) -> str:

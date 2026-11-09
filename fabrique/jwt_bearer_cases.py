@@ -13,8 +13,8 @@ signature est écrite (l'en-tête et les revendications sont des objets). Les ga
 d'oto-core comprise, refusent un en-tête PEM de clé privée et un JWT écrits en clair.
 
 La fabrique contrôle chaque cas comme le compte d'une description (le schéma, puis les règles, la règle 2 comprise),
-puis écrit `ts/src/jwt-bearer-cases.ts`. En Python, rien : la lib ne signe la requête d'aucune description ;
-`tests/test_jwt_bearer_cases.py` joue les cas contre une référence écrite dans le test.
+puis écrit `ts/src/jwt-bearer-cases.ts`. En Python, rien : `tests/test_jwt_bearer_cases.py` joue les cas contre le moteur de la lib
+(`oto.connectors.engine`), devant un faux point de jeton, et contre une référence écrite dans le test.
 
 `python -m fabrique --check` échoue quand le module TypeScript commité ne suit plus le fichier.
 """

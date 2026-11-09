@@ -1,9 +1,10 @@
 """Les cas communs du compte de service (`connectors/_cases/jwt_bearer.yaml`), joués côté Python, une ligne par cas.
 
-La lib ne signe la requête d'aucune description : seul le moteur du paquet de l'hôte le fait. Les cas se jouent donc ici
-contre une référence écrite dans le test (`cryptography`), qui dit la sémantique du format (`docs/conception/compte.md`),
-recoupée par la bibliothèque de Google (`google.auth`, extra `google`) : même signature, et un jeton qu'elle vérifie. Le
-paquet de l'hôte joue les mêmes cas, sortis par la fabrique dans `ts/src/jwt-bearer-cases.ts`, contre son moteur.
+Ils se jouent contre le moteur de la lib (`oto.connectors.engine`), qui lit la clé, signe l'assertion, l'échange devant
+un faux point de jeton (`engine_fake`) et signe l'appel du jeton rendu ; et contre une référence écrite dans le test
+(`cryptography`), qui dit la sémantique du format (`docs/conception/compte.md`), recoupée par la bibliothèque de Google
+(`google.auth`, extra `google`) : même signature, et un jeton qu'elle vérifie. Le paquet de l'hôte joue les mêmes cas,
+sortis par la fabrique dans `ts/src/jwt-bearer-cases.ts`, contre son moteur.
 """
 from __future__ import annotations
 
@@ -19,9 +20,12 @@ import yaml
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
+import engine_fake
 from fabrique import jwt_bearer_cases
 from fabrique.build import generate
 from fabrique.descriptions import DescriptionError
+from oto.connectors import engine
+from oto.connectors.engine import tokens
 
 LOADED = jwt_bearer_cases.load()
 LIFETIME_S = 3600
@@ -115,6 +119,79 @@ def test_jwt_bearer_refused_key(case):
     with pytest.raises(Refused) as refused:
         read_key(case["auth"], _value(case))
     assert refused.value.code == case["refusal"]
+
+
+# --- contre le moteur ----------------------------------------------------------------------------------------------
+
+API = "https://api.example.test/v1"
+
+
+def _described(case: dict) -> dict:
+    """Une description d'une fonction sans argument, au bloc `auth` et `credential` du cas."""
+    connector = {"name": "jwt_bearer_cases", "label": "Jwt bearer cases", "base_url": API, "auth": case["auth"],
+                 "credential": case["credential"], "errors": []}
+    return {"connector": connector, "functions": [{"name": "get_records", "class": "read",
+                                                   "call": {"method": "GET", "path": "/records"}}]}
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Le cache de jeton vide, et l'horloge du moteur réglée par le test."""
+    monkeypatch.setattr(tokens, "TOKENS", tokens.TokenCache())
+    now = [0.0]
+    monkeypatch.setattr(tokens, "_now", lambda: now[0])
+    return now
+
+
+def _engine_call(case: dict, *answers):
+    vendor = engine_fake.Vendor(*answers)
+    field = case["credential"][0]["name"]
+    engine.call(_described(case), "get_records", {}, credential={field: _value(case)},
+                session=engine_fake.session(vendor))
+    return vendor
+
+
+@pytest.mark.parametrize("case", LOADED.cases, ids=[case["name"] for case in LOADED.cases])
+def test_jwt_bearer_case_against_the_engine(case, clock):
+    clock[0] = case["now"]
+    expected = case["assertion"]
+    jwt = ".".join((_segment(expected["header"]), _segment(expected["claims"]), expected["signature"]))
+    answered = case["token_answer"]
+    token_answer = {"status": answered["status"], "headers": answered["headers"]}
+    if answered["body"] is not None:
+        token_answer["json"] = answered["body"]
+    outcome = case["outcome"]
+    if "refusal" in outcome:
+        vendor = engine_fake.Vendor(token_answer)
+        with pytest.raises(engine.TokenRefused) as refused:
+            engine.call(_described(case), "get_records", {}, credential={case["credential"][0]["name"]: _value(case)},
+                        session=engine_fake.session(vendor))
+        assert ("credential_rejected" if refused.value.credential_rejected else "upstream_error") == outcome["refusal"]
+        assert len(vendor.requests) == 1, "a redirect is never followed"
+        assert jwt not in str(refused.value) and "private_key" not in str(refused.value)
+    else:
+        vendor = _engine_call(case, token_answer, engine_fake.answer(200, {}))
+        api = engine_fake.sent(vendor.requests[1])
+        assert api["url"] == f"{API}/records"
+        assert {k: v for k, v in api["headers"].items() if k == "authorization"} == outcome["headers"]
+        (kept,) = [tokens.TOKENS.get(key) for key in tokens.TOKENS.keys()]
+        assert kept.expires_at == outcome["expires_at"]
+    request = case["token_request"]
+    token = vendor.requests[0]
+    assert (token.method, engine_fake.sent(token)["url"]) == ("POST", request["url"])
+    assert token.headers["content-type"] == request["content_type"]
+    assert token.body.decode("ascii") == request["body"].replace(jwt_bearer_cases.ASSERTION, jwt)
+    assert "?" not in token.url
+
+
+@pytest.mark.parametrize("case", LOADED.refused, ids=[case["name"] for case in LOADED.refused])
+def test_jwt_bearer_refused_key_against_the_engine(case, clock):
+    vendor = engine_fake.Vendor()
+    with pytest.raises(engine.Refused) as refused:
+        engine.call(_described(case), "get_records", {}, credential={case["credential"][0]["name"]: _value(case)},
+                    session=engine_fake.session(vendor))
+    assert (refused.value.code, refused.value.status_code) == (case["refusal"], None)
+    assert vendor.requests == []
 
 
 @pytest.mark.parametrize("case", LOADED.cases, ids=[case["name"] for case in LOADED.cases])

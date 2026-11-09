@@ -29,7 +29,7 @@ import urllib3
 
 from .address import guard
 from .errors import Unreachable, UnreadableAnswer
-from .request import NO_BODY, Request, json_text
+from .request import NO_BODY, Form, Request, json_text
 
 #: A larger answer is not read: what an agent receives is bounded anyway.
 MAX_ANSWER_BYTES = 4 * 1024 * 1024
@@ -115,7 +115,10 @@ def send(session: requests.Session, target: Target, request: Request) -> request
         guard(url)
     headers = {"accept": "application/json", **request.headers}
     data: Optional[bytes] = None
-    if request.body is not NO_BODY:
+    if isinstance(request.body, Form):
+        headers["content-type"] = "application/x-www-form-urlencoded"
+        data = _encode(request.body.pairs).encode("ascii")
+    elif request.body is not NO_BODY:
         headers["content-type"] = "application/json"
         data = json_text(request.body).encode("utf-8")
     PACE.take(target.pace_key, target.rate)

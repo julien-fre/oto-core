@@ -10,7 +10,7 @@ from __future__ import annotations
 from .errors import Unsupported
 
 #: The kinds of `auth` the engine signs.
-AUTH_KINDS = ("none", "api_key", "bearer", "basic")
+AUTH_KINDS = ("none", "api_key", "bearer", "basic", "oauth2_client_credentials", "oauth2_jwt_bearer")
 
 
 def refuse_unsupported(description: dict, fn: dict) -> None:

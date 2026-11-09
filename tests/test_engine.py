@@ -68,9 +68,7 @@ def one(vendor: engine_fake.Vendor) -> dict:
     ("aircall", "get_call_recording", "output.file"),
     ("gmail", "get_profile", "auth oauth2_user"),
     ("linkedin_unipile", "get_me", "account_identity"),
-    ("sellsy", "list_estimates", "auth oauth2_client_credentials"),
-    ("google_search_console", "list_sites", "auth oauth2_jwt_bearer"),
-], ids=["files", "output_file", "oauth2_user", "account_identity", "client_credentials", "jwt_bearer"])
+], ids=["files", "output_file", "oauth2_user", "account_identity"])
 def test_a_form_the_engine_does_not_run_is_refused_before_anything_is_sent(name, fn_name, form):
     vendor = engine_fake.Vendor()
     with pytest.raises(engine.Unsupported, match=form.replace(".", r"\.")):

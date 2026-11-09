@@ -49,14 +49,16 @@ def execute(description: dict, function: str, arguments: Mapping[str, Any], *, c
     connector = description["connector"]
     args = dict(arguments)
     run_checks(fn, args)
-    address = resolve(base_address(connector), account_settings(connector, settings), connector)
-    sign = signer(connector, credential)
+    settings = account_settings(connector, settings)
+    address = resolve(base_address(connector), settings, connector)
     target = transport.Target(label=connector["label"], base_url=address.url, timeout_s=_timeout(connector, fn),
                               rate=connector.get("rate_limit"), pace_key=fingerprint(connector, credential),
                               guarded=address.guarded)
     own = session is None
     session = _session() if own else session
     try:
+        sign = signer(connector, credential, settings=settings, session=session,
+                      timeout_s=connector.get("timeout_s", transport.DEFAULT_TIMEOUT_S))
         answers: list = []
         cursor = None
         for _ in range(serve.page_count(fn, args)):

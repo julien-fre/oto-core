@@ -10,8 +10,9 @@
 #
 # The fabrique checks each case as the connector block of a description (the schema, then the rules, rule 2 included:
 # a single credential field, secret, named by auth.key), then writes ts/src/jwt-bearer-cases.ts for the host package
-# (`@otomata_tech/connectors/jwt-bearer-cases`). tests/test_jwt_bearer_cases.py plays the cases against a reference
-# written in the test, cross-checked by google-auth: the Python lib signs no request of a description.
+# (`@otomata_tech/connectors/jwt-bearer-cases`). tests/test_jwt_bearer_cases.py plays the cases against the engine
+# of the Python lib (oto.connectors.engine), before a fake token endpoint, and against a reference written in the test,
+# cross-checked by google-auth.
 #
 # A case:
 # - auth, credential: the connector's blocks, in source form;
