@@ -36,7 +36,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `google_search_console` | Google Search Console | 1.0.0 | compte de service (assertion signée) | non | 5 | 5 | 0 | 0 | oui | 5 | non | 0 |
 | `google_sheets` | Google Sheets | 1.0.0 | connexion d'une personne (OAuth) | non | 5 | 2 | 2 | 1 | non | 5 | oui | 0 |
 | `granola` | Granola | 1.0.0 | clé | non | 8 | 5 | 2 | 1 | oui | 8 | non | 0 |
-| `higgsfield` | Higgsfield | 1.0.0 | clé | non | 5 | 2 | 2 | 1 | oui | 5 | non | 0 |
+| `higgsfield` | Higgsfield | 1.1.0 | clé | non | 5 | 2 | 2 | 1 | oui | 5 | non | 0 |
 | `hubspot` | HubSpot | 1.0.2 | clé | non | 25 | 13 | 7 | 5 | non | 25 | non | 0 |
 | `hunter` | Hunter.io | 1.0.0 | clé | oui | 4 | 1 | 3 | 0 | oui, avec solde | 3 | non | 0 |
 | `jefacture` | jefacture.com | 1.0.0 | connexion d'une personne (OAuth) | non | 11 | 11 | 0 | 0 | non | 11 | non | 0 |
