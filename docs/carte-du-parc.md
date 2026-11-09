@@ -62,6 +62,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `qonto` | Qonto | 1.0.0 | clé | non | 20 | 20 | 0 | 0 | oui | 20 | non | 0 |
 | `salesforce` | Salesforce | 1.0.0 | connexion d'une personne (OAuth) | non | 6 | 5 | 0 | 1 | non | 6 | non | 0 |
 | `sellsy` | Sellsy | 1.0.1 | application du client (OAuth entre machines) | non | 2 | 2 | 0 | 0 | non | 2 | non | 0 |
+| `seranking` | SE Ranking | 1.0.0 | clé | non | 24 | 11 | 13 | 0 | oui, avec solde | 11 | non | 0 |
 | `serper` | Serper | 1.1.0 | clé | oui | 12 | 12 | 0 | 0 | non | 12 | non | 0 |
 | `sivan` | Sivan | 1.1.0 | clé | non | 7 | 7 | 0 | 0 | oui | 7 | non | 0 |
 | `slack` | Slack | 1.1.0 | clé | non | 16 | 9 | 3 | 4 | oui | 16 | non | 0 |
@@ -70,7 +71,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `typeform` | Typeform | 1.2.0 | clé | non | 12 | 6 | 1 | 5 | non | 12 | non | 0 |
 | `wttj_ats` | Welcome to the Jungle ATS | 1.0.0 | clé | non | 10 | 7 | 3 | 0 | non | 0 | non | 0 |
 | `yousign` | Yousign | 1.1.1 | clé | non | 13 | 5 | 7 | 1 | oui | 0 | non | 0 |
-| **total : 55** |  |  |  |  | 1226 | 749 | 290 | 187 |  | 840 |  | 0 |
+| **total : 56** |  |  |  |  | 1250 | 760 | 303 | 187 |  | 851 |  | 0 |
 
 ## Par type
 
@@ -81,4 +82,4 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | compte de service (assertion signée) | 1 | 5 |
 | clé de l'hôte | 2 | 29 |
 | sans clé | 0 | 0 |
-| clé | 42 | 1115 |
+| clé | 43 | 1139 |

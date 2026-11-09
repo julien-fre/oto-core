@@ -46,6 +46,7 @@ import * as pipecorn from "./pipecorn"
 import * as qonto from "./qonto"
 import * as salesforce from "./salesforce"
 import * as sellsy from "./sellsy"
+import * as seranking from "./seranking"
 import * as serper from "./serper"
 import * as sivan from "./sivan"
 import * as slack from "./slack"
@@ -103,6 +104,7 @@ export { pipecorn }
 export { qonto }
 export { salesforce }
 export { sellsy }
+export { seranking }
 export { serper }
 export { sivan }
 export { slack }
@@ -163,6 +165,7 @@ export const connectors: readonly Connector[] = [
   qonto.connector,
   salesforce.connector,
   sellsy.connector,
+  seranking.connector,
   serper.connector,
   sivan.connector,
   slack.connector,
