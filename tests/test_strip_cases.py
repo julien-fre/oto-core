@@ -1,19 +1,23 @@
 """Les cas communs de `output.strip` (`connectors/_cases/strip.yaml`), joués côté Python, une ligne par cas.
 
-Ils se jouent contre `oto.connectors.serve` (`shaped`, `items_of`), la sortie que sert un hôte Python (le lecteur
-générique d'oto 1), à la sémantique du format (`docs/conception/sortie.md`) ; le paquet de l'hôte joue les mêmes cas, sortis par la fabrique dans
-`ts/src/strip-cases.ts`, contre son moteur. Les sorties refusées le sont par la fabrique (règles 18 et 19), avec leur
+Ils se jouent contre le moteur de la lib (`oto.connectors.engine`), qui appelle la fonction du cas devant un faux tiers
+(`engine_fake`) rendant la réponse du cas, et taille sa sortie par `oto.connectors.serve` (`shaped`, `items_of`), à la
+sémantique du format (`docs/conception/sortie.md`) ; le paquet de l'hôte joue les mêmes cas, sortis par la fabrique dans
+`ts/src/strip-cases.ts`, contre son moteur. `shaped` reste la lecture de `serve` seule, que les tests d'une description
+appliquent à son exemple de réponse. Les sorties refusées le sont par la fabrique (règles 18 et 19), avec leur
 code et le chemin qu'elles nomment ; celles de la règle 19 (l'exemple de réponse, `output.sample`) ne valent que pour la
 fabrique et ne sortent pas en TypeScript.
 """
 from __future__ import annotations
 
 import copy
+import json
 import re
 
 import pytest
 from jsonschema import Draft202012Validator
 
+import engine_fake
 from fabrique import strip_cases
 from fabrique.descriptions import DescriptionError, check_rules, schema
 from oto.connectors import serve
@@ -29,8 +33,32 @@ def shaped(answer, output: dict):
     return serve.shaped(answer, output)
 
 
+def served(case: dict):
+    """Ce que le moteur rend de la réponse du cas, appelé avec l'exemple de la fonction : la liste `items` taillée, ou la réponse taillée (`serve.result` :
+    un objet tel quel, `{}` pour rien, `{"value": …}` pour une autre valeur)."""
+    function = case["function"]
+    result, _ = engine_fake.play(LOADED.description.data, function["name"], function["examples"][0]["input"],
+                                 engine_fake.answer(200, text=json.dumps(case["answer"])))
+    if "items" in function["output"]:
+        assert set(result) == {"items", "next_cursor", "pages"}
+        return result["items"]
+    return result
+
+
+def expected(case: dict):
+    shaped_answer = case["shaped"]
+    if "items" in case["function"]["output"] or isinstance(shaped_answer, dict):
+        return shaped_answer
+    return {} if shaped_answer is None else {"value": shaped_answer}
+
+
 @pytest.mark.parametrize("case", LOADED.cases, ids=[case["name"] for case in LOADED.cases])
 def test_strip_case(case):
+    assert served(case) == expected(case)
+
+
+@pytest.mark.parametrize("case", LOADED.cases, ids=[case["name"] for case in LOADED.cases])
+def test_strip_case_by_serve_leaves_the_answer_intact(case):
     answer = copy.deepcopy(case["answer"])
     assert shaped(answer, case["function"]["output"]) == case["shaped"]
     assert answer == case["answer"]

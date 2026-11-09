@@ -2,8 +2,9 @@
 et l'effet d'une fonction sensible (`effect`).
 
 Un hôte Python (le lecteur générique d'oto 1) sert les fonctions décrites sans fichier YAML : la fabrique génère un
-module par connecteur, sans `call` ni `output.sample`, l'entrée telle qu'elle est servie ; `serve` en lit les refus, la
-sortie, la pagination et la sonde à la sémantique du format et du paquet d'oto 2.
+module par connecteur, sans `output.sample`, l'entrée telle qu'elle est servie, `call` gardé pour le moteur
+(`oto.connectors.engine`) ; `serve` en lit les refus, la sortie, la pagination et la sonde à la sémantique du format et du
+paquet d'oto 2.
 """
 from __future__ import annotations
 
@@ -32,15 +33,16 @@ def test_every_description_is_served_and_only_them():
     assert descriptions.NAMES == tuple(d.name for d in load_all())
 
 
-def test_a_served_description_drops_the_call_and_the_sample_and_serves_its_input():
+def test_a_served_description_keeps_the_call_drops_the_sample_and_serves_its_input():
     for described in load_all():
         served = descriptions.load(described.name)
         assert served["connector"] == described.data["connector"]
         assert [f["name"] for f in served["functions"]] == [f["name"] for f in described.data["functions"]]
         for function, source in zip(served["functions"], described.data["functions"]):
-            assert "call" not in function and "sample" not in function.get("output", {}), function["name"]
+            assert function["call"] == source["call"], function["name"]
+            assert "sample" not in function.get("output", {}), function["name"]
             assert function["input"] == served_input(source), function["name"]
-            kept = {k: v for k, v in source.items() if k not in ("call", "input", "output")}
+            kept = {k: v for k, v in source.items() if k not in ("input", "output")}
             assert {k: v for k, v in function.items() if k not in ("input", "output")} == kept, function["name"]
 
 

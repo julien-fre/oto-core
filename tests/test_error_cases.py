@@ -1,34 +1,59 @@
 """Les cas communs de la table d'erreurs (`connectors/_cases/errors.yaml`), joués côté Python, une ligne par cas.
 
-Ils se jouent contre `oto.connectors.serve.refusal`, la lecture de la table que sert un hôte Python (le lecteur générique
-d'oto 1), à la sémantique du format (`docs/conception/signal-de-refus.md`) ; le paquet de l'hôte d'oto 2 joue les mêmes
-cas, sortis par la fabrique dans `ts/src/error-cases.ts`, contre son moteur.
+Ils se jouent contre le moteur de la lib (`oto.connectors.engine`), qui appelle la fonction des cas devant un faux tiers
+(`engine_fake`) rendant la réponse du cas, à la sémantique du format (`docs/conception/signal-de-refus.md`) : l'entrée
+retenue se lit au refus nommé qu'il lève (`Refused`), un succès à son résultat, un statut que la table ne nomme pas à
+`UpstreamHTTPError`. Le paquet de l'hôte d'oto 2 joue les mêmes cas, sortis par la fabrique dans `ts/src/error-cases.ts`,
+contre son moteur.
 """
 from __future__ import annotations
 
+import json
 import pathlib
 
 import pytest
 import yaml
 
+import engine_fake
 from fabrique import error_cases
 from fabrique.descriptions import DescriptionError
-from oto.connectors import serve
+from oto.connectors import engine
+from oto.connectors.engine import transport
 
 LOADED = error_cases.load()
 
 
-def selected(errors: list[dict], answer: dict) -> dict | None:
-    """L'entrée que retient `serve.refusal` pour la réponse simulée (corps JSON, ou texte), en code et marque."""
-    description = {"connector": {"errors": errors}, "functions": []}
-    body = answer["json"] if "json" in answer else answer["text"]
-    entry = serve.refusal(description, {"name": "carrier"}, answer["status"], body)
-    return None if entry is None else {"code": entry["code"], "marks_account": entry["marks_account"]}
+@pytest.fixture(autouse=True)
+def _no_wait(monkeypatch):
+    monkeypatch.setattr(transport, "_sleep", lambda seconds: None)
+
+
+def _answer(answer: dict) -> dict:
+    """La réponse simulée : un corps JSON (toute valeur), ou un texte."""
+    text = answer["text"] if "text" in answer else json.dumps(answer["json"])
+    return {"status": answer["status"], "headers": {}, "text": text}
+
+
+def selected(answer: dict) -> dict | None:
+    """L'entrée que retient le moteur pour la réponse simulée, en code et marque ; `None` sans entrée (un succès, ou le
+    refus propre du moteur d'un statut que la table ne nomme pas)."""
+    description = LOADED.description.data
+    answers = [_answer(answer)] * (1 + transport.MAX_RETRIES)
+    try:
+        engine_fake.play(description, description["functions"][0]["name"], {"id": "r-1"}, *answers)
+    except engine.Refused as refused:
+        assert refused.status_code == answer["status"]
+        return {"code": refused.code, "marks_account": refused.marks_account}
+    except engine.UpstreamHTTPError as error:
+        assert error.status_code == answer["status"] and not 200 <= answer["status"] < 300
+        return None
+    assert 200 <= answer["status"] < 300
+    return None
 
 
 @pytest.mark.parametrize("case", LOADED.cases, ids=[case["name"] for case in LOADED.cases])
 def test_error_case(case):
-    assert selected(LOADED.errors, case["answer"]) == case["entry"]
+    assert selected(case["answer"]) == case["entry"]
 
 
 def test_the_cases_cover_both_operators():

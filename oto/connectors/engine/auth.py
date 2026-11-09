@@ -1,0 +1,80 @@
+"""The authentication of a call, set on each request from the credential the caller passes.
+
+- `none`: nothing is set.
+- `api_key`: in a header (`name`, its `prefix` before the key) or in the query (`name`); a key in the query is masked in
+  every message, as any secret of the call (`secrets`).
+- `bearer`: `Authorization: Bearer <token>`.
+- `basic`: `Authorization: Basic base64(username:password)`, UTF-8; without `username`, an empty user name.
+
+The credential is a mapping of the connector's credential fields to their values (the fields `holder: host` included,
+which the host merges in): the engine reads no secret anywhere else. Each field the authentication reads is required,
+`MissingCredential` naming it.
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+from typing import Mapping
+
+from oto.tools.common.credentials import require
+
+from .errors import Unsupported
+from .request import Signature
+
+
+def basic_header(username: str, password: str) -> str:
+    """The HTTP Basic header of a user name and a password, UTF-8."""
+    return "Basic " + base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+
+
+def fingerprint(connector: dict, credential: Mapping[str, str]) -> str:
+    """A stable fingerprint of a credential of a connector, the key of what the process keeps for it (a token, its
+    pace): a SHA-256, never the secret itself."""
+    material = json.dumps([connector["name"], sorted(credential.items())], ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+class Signer:
+    """The authentication of one call: `sign` gives the signature of a request; `renews`, whether a 401 is replayed
+    once on a fresh signature; `secrets`, the values masked in any message."""
+
+    renews = False
+
+    def __init__(self, connector: dict, credential: Mapping[str, str]):
+        self.connector = connector
+        self.auth = connector["auth"]
+        self.credential = dict(credential)
+
+    def field(self, name: str) -> str:
+        """The value of a credential field the authentication reads; `MissingCredential` when absent or empty."""
+        return require(self.credential.get(name), name)
+
+    @property
+    def secrets(self) -> list[str]:
+        """The values of the secret fields of the credential, longest first."""
+        secret = {field["name"] for field in self.connector.get("credential", []) if field.get("secret")}
+        values = {value for name, value in self.credential.items() if name in secret and isinstance(value, str) and value}
+        return sorted(values, key=len, reverse=True)
+
+    def sign(self, fresh: bool = False) -> Signature:  # noqa: ARG002 — `fresh` matters to an exchange only
+        auth = self.auth
+        kind = auth["kind"]
+        if kind == "none":
+            return Signature()
+        if kind == "bearer":
+            return Signature(headers={"authorization": f"Bearer {self.field(auth['token'])}"})
+        if kind == "basic":
+            username = self.field(auth["username"]) if "username" in auth else ""
+            return Signature(headers={"authorization": basic_header(username, self.field(auth["password"]))})
+        if kind == "api_key":
+            key = self.field(auth["key"])
+            if auth["in"] == "query":
+                return Signature(query=((auth["name"], key),))
+            return Signature(headers={auth["name"].lower(): auth.get("prefix", "") + key})
+        raise Unsupported(f"{self.connector['name']}: auth {kind} is not run by the Python engine.")
+
+
+def signer(connector: dict, credential: Mapping[str, str]) -> Signer:
+    """The signer of the connector's authentication, for this credential."""
+    return Signer(connector, credential)

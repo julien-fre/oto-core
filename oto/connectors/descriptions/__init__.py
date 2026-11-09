@@ -2,7 +2,8 @@
 """The descriptions as a host serves them, one module per connector, loaded on demand (`load`).
 
 `NAMES` lists the described connectors; `load(name)` returns the description of one, as the fabrique checked it, without
-`call` nor `output.sample`, each `input` as served. The functions of `oto.connectors.serve` read it.
+`output.sample`, each `input` as served, `call` kept. The functions of `oto.connectors.serve` read it, the engine
+(`oto.connectors.engine`) runs it.
 """
 from __future__ import annotations
 
