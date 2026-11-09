@@ -56,7 +56,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `notion` | Notion | 1.1.0 | clé | non | 22 | 9 | 10 | 3 | non | 22 | non | 0 |
 | `origami` | Origami | 1.0.0 | clé | non | 19 | 12 | 2 | 5 | oui | 19 | non | 0 |
 | `pappers` | Pappers | 1.0.0 | clé | non | 4 | 4 | 0 | 0 | oui | 0 | non | 0 |
-| `pennylane` | Pennylane | 2.1.0 | clé | non | 52 | 30 | 13 | 9 | oui | 52 | non | 0 |
+| `pennylane` | Pennylane | 2.2.0 | clé | non | 123 | 78 | 31 | 14 | oui | 123 | non | 0 |
 | `pennylane_firm` | Pennylane (firm) | 1.1.1 | clé | non | 8 | 6 | 1 | 1 | oui | 8 | non | 0 |
 | `pipecorn` | Pipecorn | 1.0.0 | clé | oui | 8 | 3 | 5 | 0 | oui, avec solde | 5 | non | 0 |
 | `qonto` | Qonto | 1.0.0 | clé | non | 20 | 20 | 0 | 0 | oui | 20 | non | 0 |
@@ -71,7 +71,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `typeform` | Typeform | 1.2.0 | clé | non | 12 | 6 | 1 | 5 | non | 12 | non | 0 |
 | `wttj_ats` | Welcome to the Jungle ATS | 1.0.0 | clé | non | 10 | 7 | 3 | 0 | non | 0 | non | 0 |
 | `yousign` | Yousign | 1.1.1 | clé | non | 13 | 5 | 7 | 1 | oui | 0 | non | 0 |
-| **total : 56** |  |  |  |  | 1250 | 760 | 303 | 187 |  | 851 |  | 0 |
+| **total : 56** |  |  |  |  | 1321 | 808 | 321 | 192 |  | 922 |  | 0 |
 
 ## Par type
 
@@ -82,4 +82,4 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | compte de service (assertion signée) | 1 | 5 |
 | clé de l'hôte | 2 | 29 |
 | sans clé | 0 | 0 |
-| clé | 43 | 1139 |
+| clé | 43 | 1210 |

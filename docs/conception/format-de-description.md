@@ -1,7 +1,7 @@
 # Format de description d'un connecteur
 
 - **Statut** : validé par le mainteneur le 29/09/2026
-- **Dernière révision** : 2026-11-06
+- **Dernière révision** : 2026-11-09
 
 ## Résumé
 
@@ -174,7 +174,7 @@ Deux gardes de CI :
 
 ## Écart avec le code
 
-- Les clients Python restent écrits à la main et rien n'est généré ; les descriptions, écrites après eux pour la plupart, n'en sont pas encore la source. Quelques clients ne suivent pas leur description : `yousign` ; les clients Google (`oto.tools.google.*`, par le SDK de Google) ; `oto.tools.unipile` (il prend l'identité du compte en paramètre, ou découvre le premier compte LinkedIn de la clé) ; `fullenrich` (une liste de champs pour tout le lot) ; `pennylane` (une seule page des listes que le fichier dit paginées). Ailleurs, un test de concordance garde l'égalité, et les écarts sont nommés dans l'en-tête de chaque description.
+- Les clients Python restent écrits à la main et rien n'est généré ; les descriptions, écrites après eux pour la plupart, n'en sont pas encore la source. Quelques clients ne suivent pas leur description : `yousign` ; les clients Google (`oto.tools.google.*`, par le SDK de Google) ; `oto.tools.unipile` (il prend l'identité du compte en paramètre, ou découvre le premier compte LinkedIn de la clé) ; `fullenrich` (une liste de champs pour tout le lot) ; `pennylane` (une seule page des listes que le fichier dit paginées, et des noms de méthode à part, pour les méthodes antérieures au 2026-11-09 ; les modules ajoutés ce jour-là, banque, suivi des factures, référentiel, tiers, exports et autres documents, suivent leur description, gardés par `tests/test_pennylane_description_concordance.py`). Ailleurs, un test de concordance garde l'égalité, et les écarts sont nommés dans l'en-tête de chaque description.
 - Les descriptions ne partent pas dans la distribution PyPI : seul le dépôt les porte.
 - `modes` garde le vocabulaire d'oto 1 (`platform`, `byo_user`, `byo_org`). `quota` n'a pas de forme : le schéma n'exige qu'un objet non vide.
 - Le format se déclare YAML 1.2, mais le test et la fabrique lisent avec PyYAML, qui suit YAML 1.1.
