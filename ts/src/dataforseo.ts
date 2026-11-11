@@ -102,7 +102,7 @@ export const keywordOverview = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.keyword_info.monthly_searches", "tasks.result.items.keyword_info.categories", "tasks.result.items.clickstream_keyword_info", "tasks.result.items.keyword_info_normalized_with_bing", "tasks.result.items.keyword_info_normalized_with_clickstream", "tasks.result.items.serp_info", "tasks.result.items.avg_backlinks_info"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 96000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -179,7 +179,7 @@ export const keywordIdeas = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.keyword_info.monthly_searches", "tasks.result.items.keyword_info.categories", "tasks.result.items.clickstream_keyword_info", "tasks.result.items.keyword_info_normalized_with_bing", "tasks.result.items.keyword_info_normalized_with_clickstream", "tasks.result.items.serp_info", "tasks.result.items.avg_backlinks_info"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 132000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -249,7 +249,7 @@ export const keywordSuggestions = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.keyword_info.monthly_searches", "tasks.result.items.keyword_info.categories", "tasks.result.items.clickstream_keyword_info", "tasks.result.items.keyword_info_normalized_with_bing", "tasks.result.items.keyword_info_normalized_with_clickstream", "tasks.result.items.serp_info", "tasks.result.items.avg_backlinks_info"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 132000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -329,7 +329,7 @@ export const relatedKeywords = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.keyword_data.keyword_info.monthly_searches", "tasks.result.items.keyword_data.keyword_info.categories", "tasks.result.items.keyword_data.clickstream_keyword_info", "tasks.result.items.keyword_data.keyword_info_normalized_with_bing", "tasks.result.items.keyword_data.keyword_info_normalized_with_clickstream", "tasks.result.items.keyword_data.serp_info", "tasks.result.items.keyword_data.avg_backlinks_info"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 132000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -699,7 +699,7 @@ export const rankedKeywords = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.keyword_data.keyword_info.monthly_searches", "tasks.result.items.keyword_data.keyword_info.categories", "tasks.result.items.keyword_data.clickstream_keyword_info", "tasks.result.items.keyword_data.keyword_info_normalized_with_bing", "tasks.result.items.keyword_data.keyword_info_normalized_with_clickstream", "tasks.result.items.keyword_data.serp_info", "tasks.result.items.keyword_data.avg_backlinks_info", "tasks.result.items.ranked_serp_element.check_url", "tasks.result.items.ranked_serp_element.serp_item.xpath", "tasks.result.items.ranked_serp_element.serp_item.links", "tasks.result.items.ranked_serp_element.serp_item.faq"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 132000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -849,7 +849,7 @@ export const domainIntersection = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.keyword_data.keyword_info.monthly_searches", "tasks.result.items.keyword_data.keyword_info.categories", "tasks.result.items.keyword_data.clickstream_keyword_info", "tasks.result.items.keyword_data.keyword_info_normalized_with_bing", "tasks.result.items.keyword_data.keyword_info_normalized_with_clickstream", "tasks.result.items.keyword_data.serp_info", "tasks.result.items.keyword_data.avg_backlinks_info"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 132000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -990,7 +990,7 @@ export const keywordsForSite = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.keyword_info.monthly_searches", "tasks.result.items.keyword_info.categories", "tasks.result.items.clickstream_keyword_info", "tasks.result.items.keyword_info_normalized_with_bing", "tasks.result.items.keyword_info_normalized_with_clickstream", "tasks.result.items.serp_info", "tasks.result.items.avg_backlinks_info"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 132000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -1293,7 +1293,7 @@ export const backlinksSummary = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.referring_links_tld", "tasks.result.referring_links_types", "tasks.result.referring_links_attributes", "tasks.result.referring_links_platform_types", "tasks.result.referring_links_semantic_locations", "tasks.result.referring_links_countries"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 60000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -1406,7 +1406,7 @@ export const referringDomains = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.referring_links_tld", "tasks.result.items.referring_links_types", "tasks.result.items.referring_links_attributes", "tasks.result.items.referring_links_platform_types", "tasks.result.items.referring_links_semantic_locations", "tasks.result.items.referring_links_countries"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 60000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -1460,7 +1460,7 @@ export const anchors = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.referring_links_tld", "tasks.result.items.referring_links_types", "tasks.result.items.referring_links_attributes", "tasks.result.items.referring_links_platform_types", "tasks.result.items.referring_links_semantic_locations", "tasks.result.items.referring_links_countries"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 60000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -2678,7 +2678,7 @@ export const lighthouse = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.i18n", "tasks.result.timing", "tasks.result.configSettings", "tasks.result.stackPacks", "tasks.result.categoryGroups", "tasks.result.entities", "tasks.result.fullPageScreenshot", "tasks.result.audits.final-screenshot", "tasks.result.audits.screenshot-thumbnails"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 5000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -3105,7 +3105,7 @@ export const serpOrganic = defineFunction({
   connector: "dataforseo",
   class: "read",
   act: false,
-  description: "Google organic results of a keyword, as Google shows them in one place: position (rank_group, rank_absolute), title, URL, domain, snippet, and the other result types (local pack, featured snippet). depth bounds the results, ten a page, each page billed 0.002 USD. location_coordinate places the search at a point: \"latitude,longitude,radius\".",
+  description: "Google organic results of a keyword, as Google shows them in one place: position (rank_group, rank_absolute), title, URL, domain, and the other result types (local pack, featured snippet), without their snippet. depth bounds the results, ten a page, each page billed 0.002 USD. location_coordinate places the search at a point: \"latitude,longitude,radius\".",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -3178,7 +3178,7 @@ export const serpOrganic = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.items.xpath", "tasks.result.items.rectangle", "tasks.result.items.about_this_result"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.refinement_chips", "tasks.result.items.xpath", "tasks.result.items.rectangle", "tasks.result.items.about_this_result", "tasks.result.items.page", "tasks.result.items.position", "tasks.result.items.cache_url", "tasks.result.items.related_search_url", "tasks.result.items.breadcrumb", "tasks.result.items.website_name", "tasks.result.items.is_image", "tasks.result.items.is_video", "tasks.result.items.is_featured_snippet", "tasks.result.items.is_malicious", "tasks.result.items.is_web_story", "tasks.result.items.description", "tasks.result.items.pre_snippet", "tasks.result.items.extended_snippet", "tasks.result.items.images", "tasks.result.items.amp_version", "tasks.result.items.price", "tasks.result.items.highlighted", "tasks.result.items.links", "tasks.result.items.faq", "tasks.result.items.extended_people_also_search", "tasks.result.items.related_result", "tasks.result.items.timestamp", "tasks.result.items.text", "tasks.result.items.booking_url", "tasks.result.items.items"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 40000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -3265,7 +3265,7 @@ export const serpMaps = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.refinement_chips", "tasks.result.items.original_title", "tasks.result.items.contact_url", "tasks.result.items.contributor_url", "tasks.result.items.book_online_url", "tasks.result.items.rating_distribution", "tasks.result.items.snippet", "tasks.result.items.address_info", "tasks.result.items.main_image", "tasks.result.items.total_photos", "tasks.result.items.additional_categories", "tasks.result.items.category_ids", "tasks.result.items.work_hours", "tasks.result.items.feature_id", "tasks.result.items.local_justifications", "tasks.result.items.is_directory_item", "tasks.result.items.price_level", "tasks.result.items.hotel_rating"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 14000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -3336,7 +3336,7 @@ export const myBusinessInfo = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.items.original_title", "tasks.result.items.category_ids", "tasks.result.items.feature_id", "tasks.result.items.address_info", "tasks.result.items.contact_url", "tasks.result.items.contributor_url", "tasks.result.items.book_online_url", "tasks.result.items.logo", "tasks.result.items.main_image", "tasks.result.items.total_photos", "tasks.result.items.snippet", "tasks.result.items.people_also_search", "tasks.result.items.popular_times", "tasks.result.items.local_business_links", "tasks.result.items.directory"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 5400, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -3450,14 +3450,14 @@ export const googleReviewsGet = defineFunction({
     body: {},
     headers: {},
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.items.xpath", "tasks.result.items.position", "tasks.result.items.original_review_text", "tasks.result.items.original_owner_answer", "tasks.result.items.profile_url", "tasks.result.items.profile_image_url", "tasks.result.items.review_url", "tasks.result.items.images", "tasks.result.items.owner_time_ago"], projection: ["cost", "tasks"] },
 })
 
 export const connector = defineConnector({
   name: "dataforseo",
   label: "DataForSEO",
   namespace: "dataforseo",
-  version: "1.0.1",
+  version: "1.0.2",
   apiVersion: "v3",
   baseUrl: "https://api.dataforseo.com/v3",
   auth: {"kind": "basic", "username": "login", "password": "password"},

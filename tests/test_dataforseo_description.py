@@ -1,4 +1,4 @@
-"""La description `dataforseo` 1.0.1 : celle du client existant (`oto.tools.dataforseo`), sans rien y changer, et cinq
+"""La description `dataforseo` 1.0.2 : celle du client existant (`oto.tools.dataforseo`), sans rien y changer, et cinq
 fonctions que le client n'a pas (résultats organiques et Maps, fiche d'établissement, avis Google en dépôt puis relecture).
 
 Une fonction par méthode publique du client, sous son nom, avec ses noms d'arguments et les clés que le client envoie,
@@ -142,10 +142,32 @@ def _request_parts(parts: dict) -> dict:
     return {"method": parts["method"], "url": parts["url"], "query": parts["query"], "body": parts["body"]}
 
 
-def test_the_description_is_version_1_0_1_and_passes_the_fabrique():
+def test_the_description_is_version_1_0_2_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.1"
+    assert description["connector"]["version"] == "1.0.2"
     check(description, DATAFORSEO)
+
+
+def test_a_maps_place_is_served_trimmed_with_the_cost_and_the_task_status():
+    """Une grille de points reste petite : chaque lieu sans images, réservation, horaires ni copies de l'adresse ; le
+    coût et le statut de la tâche restent."""
+    place = {"type": "maps_search", "rank_group": 1, "rank_absolute": 1, "domain": "example.test", "title": "Alpha",
+             "url": "https://example.test/", "rating": {"value": 4.5, "votes_count": 10}, "address": "1 rue Alpha",
+             "place_id": "p-0", "cid": "0", "category": "Bakery", "book_online_url": "https://example.test/book",
+             "work_hours": {"timetable": {}}, "main_image": "https://example.test/i.jpg",
+             "rating_distribution": {"5": 10}, "contributor_url": "https://example.test/c", "feature_id": "f-0",
+             "address_info": {"city": "Alpha"}}
+    answer = {"status_code": 20000, "cost": 0.002, "time": "1 sec.",
+              "tasks": [{"id": "t-0", "status_code": 20000, "status_message": "Ok.", "cost": 0.002, "time": "1 sec.",
+                         "data": {"keyword": "alpha"}, "path": ["v3"],
+                         "result": [{"check_url": "https://example.test/maps", "items": [place]}]}]}
+    served = serve.result(serve.function(_description(), "serp_maps"), [answer])
+    (task,) = served["tasks"]
+    assert served["cost"] == 0.002 and task["status_code"] == 20000 and task["cost"] == 0.002
+    (item,) = task["result"][0]["items"]
+    assert set(item) == {"type", "rank_group", "rank_absolute", "domain", "title", "url", "rating", "address",
+                         "place_id", "cid", "category"}
+    assert "check_url" not in task["result"][0]
 
 
 def test_each_method_of_the_client_is_a_function_and_the_rest_is_named():
