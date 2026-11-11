@@ -1,4 +1,4 @@
-"""La description `dataforseo` 1.0.0 : celle du client existant (`oto.tools.dataforseo`), sans rien y changer, et cinq
+"""La description `dataforseo` 1.0.1 : celle du client existant (`oto.tools.dataforseo`), sans rien y changer, et cinq
 fonctions que le client n'a pas (résultats organiques et Maps, fiche d'établissement, avis Google en dépôt puis relecture).
 
 Une fonction par méthode publique du client, sous son nom, avec ses noms d'arguments et les clés que le client envoie,
@@ -52,7 +52,7 @@ WORST = {
     "content_search": 30000, "content_summary": 30000,
     "onpage_instant": 150, "onpage_content": 150, "lighthouse": 5000, "onpage_crawl_start": 300000,
     "domain_technologies": 12000, "domains_by_technology": 1212000, "technologies_summary": 24000,
-    "serp_organic": 40000, "serp_maps": 14000, "my_business_info": 5400, "google_reviews_post": 337500,
+    "serp_organic": 40000, "serp_maps": 14000, "my_business_info": 5400, "google_reviews_post": 37500,
 }
 SETTLE = {"path": "cost", "scale": 1000000}
 # Les codes de DataForSEO (GET /appendix/errors, lu le 11/11/2026), par refus : lus au niveau de la requête et de la tâche.
@@ -142,9 +142,9 @@ def _request_parts(parts: dict) -> dict:
     return {"method": parts["method"], "url": parts["url"], "query": parts["query"], "body": parts["body"]}
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_0_1_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.0.1"
     check(description, DATAFORSEO)
 
 

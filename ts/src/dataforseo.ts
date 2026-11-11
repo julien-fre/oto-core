@@ -3397,8 +3397,8 @@ export const googleReviewsPost = defineFunction({
       "depth": {
         "type": "integer",
         "minimum": 1,
-        "maximum": 4490,
-        "description": "Reviews read, up to 4490, billed by ten; DataForSEO reads 10 when omitted."
+        "maximum": 500,
+        "description": "Reviews read, up to 500 (DataForSEO takes 4490), billed by ten; DataForSEO reads 10 when omitted: give 20 for the usual read."
       },
       "sort_by": {
         "type": "string",
@@ -3421,7 +3421,7 @@ export const googleReviewsPost = defineFunction({
     bodyList: true,
   },
   output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
-  cost: { per: "request", quantity: 337500, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
+  cost: { per: "request", quantity: 37500, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
 export const googleReviewsGet = defineFunction({
@@ -3457,7 +3457,7 @@ export const connector = defineConnector({
   name: "dataforseo",
   label: "DataForSEO",
   namespace: "dataforseo",
-  version: "1.0.0",
+  version: "1.0.1",
   apiVersion: "v3",
   baseUrl: "https://api.dataforseo.com/v3",
   auth: {"kind": "basic", "username": "login", "password": "password"},

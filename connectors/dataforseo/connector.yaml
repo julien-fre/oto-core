@@ -38,8 +38,8 @@
 # - technologies 0.012, plus 0.0012 a result for the lists (limit at most 1000, where the API takes 10000);
 # - on-page: a page 0.00015 (instant, content parsing, each crawled page), Lighthouse 0.005, the crawl reports free;
 # - SERP live advanced 0.002 a page of results (organic: ten results a page; Maps: a hundred);
-# - my_business_info 0.0054; reviews 0.00075 a ten reviews at posting, the read free.
-# Google Trends and Google AI Mode are not in the account's price list: 20000 and 10000 assumed. A call billed more
+# - my_business_info 0.0054; reviews 0.00075 a ten reviews at posting (depth capped at 500: 37500), the read free.
+# Estimates, not in the account's price list: Google Trends 20000, Google AI Mode 10000, LLM responses 200000. A call billed more
 # than its worst case is settled as read and reported, as the format says.
 #
 # Probe: user_data, free, reads the balance (money.balance, USD).
@@ -59,7 +59,7 @@ connector:
   name: dataforseo
   label: DataForSEO
   namespace: dataforseo
-  version: 1.0.0
+  version: 1.0.1
   api_version: v3
   base_url: https://api.dataforseo.com/v3
   auth: { kind: basic, username: login, password: password }
@@ -1748,7 +1748,7 @@ functions:
         location_coordinate: *business_point
         language_code: *language_code
         language_name: *language_name
-        depth: { type: integer, minimum: 1, maximum: 4490, description: "Reviews read, up to 4490, billed by ten; DataForSEO reads 10 when omitted." }
+        depth: { type: integer, minimum: 1, maximum: 500, description: "Reviews read, up to 500 (DataForSEO takes 4490), billed by ten; DataForSEO reads 10 when omitted: give 20 for the usual read." }
         sort_by: { type: string, enum: [newest, highest_rating, lowest_rating, relevant], description: "Order of the reviews; DataForSEO takes relevant when omitted." }
     examples:
       - title: The 50 newest reviews of a business
@@ -1761,7 +1761,7 @@ functions:
               language_name: language_name, depth: depth, sort_by: sort_by }
       body_list: true
     output: *envelope
-    cost: { per: request, quantity: 337500, unit: microdollars, settle: *settle }
+    cost: { per: request, quantity: 37500, unit: microdollars, settle: *settle }
 
   - name: google_reviews_get
     class: read
