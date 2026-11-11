@@ -145,6 +145,11 @@ pas dire :
    emboîtée, ses parties sont des textes (`body_nested_multipart`). Ce que l'hôte envoie : la constante du corps, puis
    chaque argument donné à son chemin, les objets parents créés au besoin, un argument absent ne créant rien. Les codes
    sont ceux des cas communs (`connectors/_cases/nested_body.yaml`), jugés dans cet ordre.
+23. le corps en liste (`call.body_list: true`, décidé par le responsable produit le 2026-11-11) : le corps construit, en
+   table, emboîté ou entier, part seul élément d'une liste JSON. La fonction a un corps (une table non vide, l'argument
+   du corps entier ou une constante du corps : `body_list_without_body`), une méthode qui en envoie un, jamais `GET`
+   (`body_list_method`), et pas de partie fichier, dont le corps est multipart (`body_list_multipart`). Les codes sont
+   ceux des cas communs (`connectors/_cases/list_body.yaml`), jugés dans cet ordre.
 
 Un fichier fautif lève `DescriptionError`, qui nomme le fichier, la fonction et la
 règle : la fabrique ne génère alors rien.
@@ -335,6 +340,26 @@ def body_table_refusal(function: dict) -> tuple[str, str, str] | None:
     return None
 
 
+# Les refus de la règle 23, les mêmes des deux côtés (cas communs `connectors/_cases/list_body.yaml`), dans l'ordre où
+# ils se jugent.
+LIST_BODY_REFUSALS = ("body_list_without_body", "body_list_method", "body_list_multipart")
+
+
+def body_list_refusal(function: dict) -> tuple[str, str] | None:
+    """Le premier défaut d'un corps en liste (`call.body_list`), `(code, raison)`, ou `None` : la règle 23, hors de toute
+    description, que les cas communs rejouent."""
+    call = function["call"]
+    if call.get("body_list") is not True:
+        return None
+    if not (call.get("body") or "body" in (call.get("constants") or {})):
+        return ("body_list_without_body", "sends the body as a list, and the function has no body to put in it")
+    if call["method"] in NO_BODY_METHODS:
+        return ("body_list_method", f"needs a method that sends a body, not {call['method']}")
+    if "files" in call:
+        return ("body_list_multipart", "a multipart body (files) is a form, never a JSON list")
+    return None
+
+
 # Les refus de la règle 21, les mêmes des deux côtés (cas communs `connectors/_cases/background.yaml`), dans l'ordre où
 # ils se jugent.
 BACKGROUND_REFUSALS = ("background_no_timeout", "background_async", "background_collect", "background_paginated")
@@ -426,6 +451,10 @@ def check_arguments(function: dict, where: str) -> None:
     if nested is not None:
         code, path, reason = nested
         raise DescriptionError(f"{where}: function {name}: call.body {path!r}: {code}: {reason}")
+    listed = body_list_refusal(function)
+    if listed is not None:
+        code, reason = listed
+        raise DescriptionError(f"{where}: function {name}: call.body_list: {code}: {reason}")
     for argument in PATH_PARAM.findall(call["path"]):
         place(argument, "the path")
         if argument not in required:

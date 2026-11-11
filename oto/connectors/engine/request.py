@@ -7,6 +7,7 @@
   `connector.query_arrays` says: `repeat`, `brackets` or `comma`), then the authentication's (`api_key` in query).
 - The body, JSON whatever the method: the argument named by `call.body`, whole and as given; or the body constant,
   copied, then each argument given at its path in the body table, nested or not, the parent objects created as needed.
+- `call.body_list`: the body built, whole or in a table, sent as the only element of a JSON list (rule 23).
 - `call.encode`: an argument serialised as JSON text before it is placed.
 
 Only the arguments given are placed: an absent argument places nothing, a `null` is sent (as `null` in a body, as the
@@ -175,7 +176,7 @@ def _table_body(fn: dict, args: dict) -> dict:
     return body
 
 
-def _body(fn: dict, args: dict) -> Any:
+def _built_body(fn: dict, args: dict) -> Any:
     call = fn["call"]
     whole = call.get("body")
     if isinstance(whole, str):
@@ -185,6 +186,17 @@ def _body(fn: dict, args: dict) -> Any:
     if whole or "body" in (call.get("constants") or {}):
         return _table_body(fn, args)
     return NO_BODY
+
+
+def _body(fn: dict, args: dict) -> Any:
+    """The body built, in a list of one when `call.body_list` says so (the fabrique refuses it without a body, rule
+    23: the contrary is a description the engine will not send)."""
+    body = _built_body(fn, args)
+    if fn["call"].get("body_list") is not True:
+        return body
+    if body is NO_BODY:
+        raise EngineError(f"{fn['name']}: call.body_list without a body.")
+    return [body]
 
 
 def build(connector: dict, fn: dict, args: dict, signature: Optional[Signature] = None) -> Request:

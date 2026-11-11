@@ -748,8 +748,9 @@ def _cost(d, **cost):
     {"per": "item", "items": "embed", "weights": {"field": "fields", "values": {"a": 1, "b": 10}}, "unit": "credits", "settle": {"path": "cost.credits"}},
     {"per": "request", "quantity": 3, "unit": "credits"},
     {"per": "page", "quantity": 2, "unit": "credits", "settle": {"path": "credits_used"}},
+    {"per": "request", "quantity": 40000, "unit": "microdollars", "settle": {"path": "tasks.0.cost", "scale": 1000000}},
 ], ids=["request", "page", "request_unit", "request_settle", "item", "item_times_settle", "item_weights_settle",
-        "request_quantity", "page_quantity_settle"])
+        "request_quantity", "page_quantity_settle", "request_settle_scale"])
 def test_cost_base_is_valid(cost):
     """Les variantes ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
     description = _sellsy()
@@ -792,6 +793,10 @@ def test_cost_base_is_valid(cost):
     {"per": "request", "quantity": -3, "unit": "credits"},
     {"per": "request", "quantity": 2.5, "unit": "credits"},
     {"per": "request", "quantity": "3", "unit": "credits"},
+    {"per": "request", "unit": "microdollars", "settle": {"path": "cost", "scale": 1}},
+    {"per": "request", "unit": "microdollars", "settle": {"path": "cost", "scale": 0}},
+    {"per": "request", "unit": "microdollars", "settle": {"path": "cost", "scale": 1.5}},
+    {"per": "request", "unit": "microdollars", "settle": {"path": "cost", "scale": "1000000"}},
 ], ids=["unknown_per", "item_without_items", "item_without_unit", "items_per_request", "times_per_request",
         "times_without_items", "settle_without_unit", "settle_without_path", "settle_leading_dot", "settle_space",
         "settle_unknown_key", "empty_unit", "items_not_an_identifier", "unknown_key",
@@ -799,7 +804,7 @@ def test_cost_base_is_valid(cost):
         "weights_without_field", "weights_empty_table", "weight_zero", "weight_negative", "weight_not_an_integer",
         "weight_text", "weight_empty_value", "weights_field_not_an_identifier", "weights_unknown_key",
         "quantity_per_item", "quantity_without_unit", "quantity_one", "quantity_zero", "quantity_negative",
-        "quantity_not_an_integer", "quantity_text"])
+        "quantity_not_an_integer", "quantity_text", "scale_one", "scale_zero", "scale_not_an_integer", "scale_text"])
 def test_invalid_cost_is_rejected(cost):
     description = _sellsy()
     _cost(description, **cost)

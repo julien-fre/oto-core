@@ -1,7 +1,7 @@
 # Format de description d'un connecteur
 
 - **Statut** : validé par le mainteneur le 29/09/2026
-- **Dernière révision** : 2026-11-09
+- **Dernière révision** : 2026-11-11
 
 ## Résumé
 
@@ -90,14 +90,14 @@ Les champs du compte (`auth`, `credential`, `settings`, `account_identity`, `bas
 | `refusals` | non | `code`, `when` (statut HTTP ou condition), `message` : surcharge ou complète la table commune ; sous un statut seulement, `body` et `marks_account` comme dans la table. |
 | `checks` | non | Contrôles de l'entrée avant l'appel, chacun nomme un refus : `{ kind: equal_sums, refusal: entry_unbalanced, items: ledger_entry_lines, fields: [debit, credit] }` (sommes égales, chaînes décimales sommées exactement). |
 | `expect` | non | Contrôles de la réponse, chacun nomme un refus : `{ kind: non_empty, refusal: pdf_missing, path: public_file_url }`. |
-| `call` | sauf `handwritten` | `method`, `path` relatif avec `{param}`, puis `query`, `body` (envoyé quelle que soit la méthode, `DELETE` compris), `headers` qui associent un nom côté API à un argument ; dans `body`, la valeur d'une clé peut aussi être une table de même forme, emboîtée ; `body` peut aussi nommer un seul argument, un objet strict, qui forme le corps entier ([corps d'une requête](corps-de-requete.md)) ; `constants` (`query`, `body`, `headers`) : des valeurs envoyées à chaque appel, hors du schéma, comme `{ body: { draft: true } }` ; `encode` : `{ filter: json }` sérialise un argument structuré en une chaîne ; `files` : les parties fichier d'un corps multipart ([fichiers](fichiers.md)). Chaque argument va à un seul endroit, chaque nom côté API reçoit une seule valeur. |
+| `call` | sauf `handwritten` | `method`, `path` relatif avec `{param}`, puis `query`, `body` (envoyé quelle que soit la méthode, `DELETE` compris), `headers` qui associent un nom côté API à un argument ; dans `body`, la valeur d'une clé peut aussi être une table de même forme, emboîtée ; `body` peut aussi nommer un seul argument, un objet strict, qui forme le corps entier ([corps d'une requête](corps-de-requete.md)) ; `constants` (`query`, `body`, `headers`) : des valeurs envoyées à chaque appel, hors du schéma, comme `{ body: { draft: true } }` ; `encode` : `{ filter: json }` sérialise un argument structuré en une chaîne ; `files` : les parties fichier d'un corps multipart ([fichiers](fichiers.md)) ; `body_list: true` : le corps construit part seul élément d'une liste JSON ([corps d'une requête](corps-de-requete.md)). Chaque argument va à un seul endroit, chaque nom côté API reçoit une seule valeur. |
 | `handwritten` | exclusif de `call` | `python` (`module`, `function`) et `typescript` (`file`, `export`). |
 | `pagination` | non | `kind` (`cursor` ou `page`), `request_param` (l'argument qui porte le curseur, placé en query ou au corps, emboîté ou non), `next`, `more` facultatif (booléen de la réponse, `false` à la dernière page : `has_more`), `total` facultatif, `max_pages`. Présente, elle ajoute `all_pages` et `max_pages` au schéma servi. |
 | `output` | non | `items` (chemin de la liste), `strip` (clés retirées, chacune par son chemin), `projection` (clés de premier niveau gardées), `schema` (schéma de sortie, fermé et à propriétés), `sample` (exemple de réponse) : [sortie d'une fonction](sortie.md), `file` ([fichiers](fichiers.md)). |
 | `timeout_s` | non (celui du connecteur) | Délai propre à la fonction, en secondes, de même type et mêmes bornes que celui du connecteur, qu'il remplace pour chacun de ses appels (chaque page d'une lecture paginée) : plus court (une page qui peut rester pendue) ou plus long (une réponse d'IA synchrone de plusieurs minutes), jamais égal (la fabrique refuse, règle 11) : « Délai par fonction ». |
 | `async` | non | La fonction soumet un travail relevé plus tard : `collect` (la relève), `job_id` (`from`, `to`), `within_s` ou `no_deadline` ; voir [travaux longs](travaux-longs.md). |
 | `background` | non | `true` : le tiers répond en minutes, l'hôte exécute la fonction en tâche de fond et rend aussitôt un identifiant de travail ; exige un `timeout_s` propre ; voir [travaux longs](travaux-longs.md). |
-| `cost` | non | Ce que coûte un appel : `per` (`request`, `page` ou `item`), `quantity` (ce que coûte une requête, `request` et `page`), `items` et `times` (les listes comptées, `per: item`) ou `weights` (le poids des valeurs que liste chaque élément), `unit`, `settle` (la quantité réelle relue) ; voir [coût et solde](cout-et-solde.md). |
+| `cost` | non | Ce que coûte un appel : `per` (`request`, `page` ou `item`), `quantity` (ce que coûte une requête, `request` et `page`), `items` et `times` (les listes comptées, `per: item`) ou `weights` (le poids des valeurs que liste chaque élément), `unit`, `settle` (la quantité réelle relue, et `scale`, son facteur vers `unit`) ; voir [coût et solde](cout-et-solde.md). |
 | `confirm` | si `sensitive` | `summary`, gabarit du résumé montré avant exécution (`Validate invoice {id}: irreversible.`). |
 
 

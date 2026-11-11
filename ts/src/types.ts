@@ -244,6 +244,12 @@ export type RequestSpec = {
    * constante de corps, sans fichier, sans pagination, jamais en `GET` (règle 20 de la fabrique).
    */
   readonly body: BodyMap | string
+  /**
+   * `true` : le corps construit (table, emboîtée ou non, constantes comprises, ou argument entier) part seul élément
+   * d'une liste JSON, pour un tiers dont le corps est un tableau nu d'un objet. Exige un corps ; jamais en `GET` ni avec
+   * `files` (règle 23 de la fabrique).
+   */
+  readonly bodyList?: true
   readonly headers: ArgumentMap
   /**
    * Nom de partie → argument qui porte l'identifiant d'un fichier en transit de l'appelant (un texte). Présent, le corps
@@ -359,8 +365,12 @@ export type Check = {
  */
 export type Expectation = { readonly kind: "non_empty"; readonly refusal: string; readonly path: string }
 
-/** Où lire, dans la réponse d'un appel, la quantité réelle qu'il a coûté : un nombre JSON fini, positif ou nul, au chemin pointé `path`. */
-export type CostSettle = { readonly path: string }
+/**
+ * Où lire, dans la réponse d'un appel, la quantité réelle qu'il a coûté : un nombre JSON fini, positif ou nul, au chemin
+ * pointé `path`. `scale` (un entier de deux ou plus) : le facteur de la valeur lue à `unit`, la quantité réglée étant la
+ * valeur fois `scale`, arrondie à six décimales puis à l'entier supérieur (un coût lu en dollars, réglé en microdollars).
+ */
+export type CostSettle = { readonly path: string; readonly scale?: number }
 
 /**
  * Le poids d'une valeur, à la place de `times` : chaque élément de `items` compte la somme des poids des valeurs que

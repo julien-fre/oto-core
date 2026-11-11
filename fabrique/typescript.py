@@ -120,6 +120,8 @@ def _request(call: dict) -> str:
         ("body", js(call.get("body") or {})),
         ("headers", js(call.get("headers") or {})),
     ]
+    if call.get("body_list") is True:
+        entries.append(("bodyList", "true"))
     if "files" in call:
         entries.append(("files", js(call["files"])))
     if "constants" in call:
@@ -228,7 +230,8 @@ def _cost(cost: dict) -> str:
     if "unit" in cost:
         parts.append(f"unit: {js(cost['unit'])}")
     if "settle" in cost:
-        parts.append("settle: { path: " + js(cost["settle"]["path"]) + " }")
+        scale = f", scale: {js(cost['settle']['scale'])}" if "scale" in cost["settle"] else ""
+        parts.append("settle: { path: " + js(cost["settle"]["path"]) + scale + " }")
     return "{ " + ", ".join(parts) + " }"
 
 

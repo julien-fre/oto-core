@@ -5,7 +5,7 @@ import pathlib
 from dataclasses import dataclass
 
 from . import (auth_cases, background_cases, body_cases, carte, cases, error_cases, file_cases, jwt_bearer_cases,
-               nested_body_cases, python, served, strip_cases)
+               list_body_cases, nested_body_cases, python, served, strip_cases)
 from .descriptions import CONNECTORS, REPO, load_all
 from .typescript import GENERATED_MARK, Module, connector_module, index_source
 
@@ -23,7 +23,7 @@ class Result:
 
 def generate(root: pathlib.Path = CONNECTORS) -> Result:
     """Toutes les descriptions et les cas communs (coût, fichier rendu, retrait de la sortie, authentification, compte de
-    service, table d'erreurs, corps entier, fonction longue, corps emboîté), contrôlés d'abord : un seul fautif, et rien
+    service, table d'erreurs, corps entier, fonction longue, corps emboîté, corps en liste), contrôlés d'abord : un seul fautif, et rien
     n'est généré."""
     descriptions = load_all(root)
     modules = [connector_module(description) for description in descriptions]
@@ -45,6 +45,8 @@ def generate(root: pathlib.Path = CONNECTORS) -> Result:
         background_cases.load(root / background_cases.CASES.relative_to(CONNECTORS)))
     files[nested_body_cases.OUTPUT_NAME] = nested_body_cases.typescript_source(
         nested_body_cases.load(root / nested_body_cases.CASES.relative_to(CONNECTORS)))
+    files[list_body_cases.OUTPUT_NAME] = list_body_cases.typescript_source(
+        list_body_cases.load(root / list_body_cases.CASES.relative_to(CONNECTORS)))
     return Result(modules=modules, files=files, python=python.python_source(descriptions),
                   served=served.files(descriptions), carte=carte.markdown_source(descriptions, modules))
 
