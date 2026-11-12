@@ -1,5 +1,6 @@
-"""La description `dataforseo` 1.0.2 : celle du client existant (`oto.tools.dataforseo`), sans rien y changer, et cinq
-fonctions que le client n'a pas (résultats organiques et Maps, fiche d'établissement, avis Google en dépôt puis relecture).
+"""La description `dataforseo` 1.0.4 : celle du client existant (`oto.tools.dataforseo`), sans rien y changer, et huit
+fonctions que le client n'a pas (résultats organiques en direct ou en file standard, Maps, fiche d'établissement, avis
+Google en dépôt puis relecture, résolution des liens goto de Google).
 
 Une fonction par méthode publique du client, sous son nom, avec ses noms d'arguments et les clés que le client envoie,
 sur le même endpoint. Les gardes ci-dessous font passer le client et le moteur par le même faux tiers : un endpoint, un
@@ -31,10 +32,12 @@ DATAFORSEO = CONNECTORS / "dataforseo" / "connector.yaml"
 BASE_URL = DataForSeoClient.BASE_URL
 
 # Les fonctions sans méthode du client, ajoutées par la description.
-ADDED = {"serp_organic", "serp_maps", "my_business_info", "google_reviews_post", "google_reviews_get"}
+ADDED = {"serp_organic", "serp_maps", "my_business_info", "google_reviews_post", "google_reviews_get",
+         "serp_organic_post", "serp_organic_get", "goto_url_resolve"}
 # Les fonctions gratuites : ni pire cas ni règlement.
 FREE = {"user_data", "labs_locations_and_languages", "llm_models", "onpage_summary", "onpage_pages",
-        "onpage_non_indexable", "onpage_duplicate_tags", "onpage_links", "onpage_redirect_chains", "google_reviews_get"}
+        "onpage_non_indexable", "onpage_duplicate_tags", "onpage_links", "onpage_redirect_chains", "google_reviews_get",
+        "serp_organic_get", "goto_url_resolve"}
 # Le pire cas de chaque fonction payante, en microdollars : le prix catalogue à ses plus grands arguments.
 WORST = {
     **dict.fromkeys(["keyword_ideas", "keyword_suggestions", "related_keywords", "bulk_keyword_difficulty",
@@ -53,6 +56,7 @@ WORST = {
     "onpage_instant": 150, "onpage_content": 150, "lighthouse": 5000, "onpage_crawl_start": 300000,
     "domain_technologies": 12000, "domains_by_technology": 1212000, "technologies_summary": 24000,
     "serp_organic": 40000, "serp_maps": 14000, "my_business_info": 5400, "google_reviews_post": 37500,
+    "serp_organic_post": 12000,
 }
 SETTLE = {"path": "cost", "scale": 1000000}
 # Les codes de DataForSEO (GET /appendix/errors, lu le 11/11/2026), par refus : lus au niveau de la requête et de la tâche.
@@ -144,7 +148,7 @@ def _request_parts(parts: dict) -> dict:
 
 def test_the_description_is_version_1_0_2_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.2"
+    assert description["connector"]["version"] == "1.0.4"
     check(description, DATAFORSEO)
 
 
@@ -241,6 +245,9 @@ def test_the_added_functions_reach_their_endpoints():
         "my_business_info": ("POST", "/business_data/google/my_business_info/live"),
         "google_reviews_post": ("POST", "/business_data/google/reviews/task_post"),
         "google_reviews_get": ("GET", "/business_data/google/reviews/task_get/{task_id}"),
+        "serp_organic_post": ("POST", "/serp/google/organic/task_post"),
+        "serp_organic_get": ("GET", "/serp/google/organic/task_get/advanced/{task_id}"),
+        "goto_url_resolve": ("POST", "/appendix/goto_url_converter"),
     }
 
 
@@ -328,11 +335,16 @@ def test_a_refused_login_is_a_401_that_marks_the_account():
 def test_the_organic_results_lose_their_layout():
     answer = {"status_code": 20000, "cost": 0.002, "tasks": [{"id": "t-1", "status_code": 20000, "cost": 0.002,
               "result": [{"items": [{"type": "organic", "rank_group": 1, "xpath": "/html", "rectangle": None,
-                                     "about_this_result": {"url": "https://example.test"}, "domain": "example.test"}]}]}]}
+                                     "about_this_result": {"url": "https://example.test"}, "domain": "google.com",
+                                     "url": "https://google.com/goto?url=x", "breadcrumb": "https://example.test › a",
+                                     "website_name": "Example"}]}]}]}
     result, _ = engine_fake.play(_description(), "serp_organic",
                                  {"keyword": "alpha", "location_code": 2250, "language_code": "fr"},
                                  engine_fake.answer(200, answer))
-    assert result["tasks"][0]["result"][0]["items"] == [{"type": "organic", "rank_group": 1, "domain": "example.test"}]
+    # A google.com/goto URL hides the site: its breadcrumb and name stay, to tell it.
+    assert result["tasks"][0]["result"][0]["items"] == [
+        {"type": "organic", "rank_group": 1, "domain": "google.com", "url": "https://google.com/goto?url=x",
+         "breadcrumb": "https://example.test › a", "website_name": "Example"}]
 
 
 def test_the_account_is_served_without_its_per_endpoint_tables():
@@ -352,3 +364,17 @@ def test_the_typescript_output_and_the_python_table():
     assert module.source.count("bodyList: true") == sum(1 for f in _functions().values() if f["call"].get("body_list"))
     table = python.declared([checked])["dataforseo"]
     assert DECLARED.get("dataforseo") == table, "oto/connectors/declared.py is out of date: run `python -m fabrique`"
+
+
+def test_the_queued_search_takes_the_live_search_arguments_and_returns_its_shape():
+    functions = _functions()
+    assert functions["serp_organic_post"]["input"] == functions["serp_organic"]["input"]
+    assert functions["serp_organic_post"]["call"]["body"] == functions["serp_organic"]["call"]["body"]
+    assert functions["serp_organic_get"]["output"] == functions["serp_organic"]["output"]
+
+
+def test_only_goto_urls_are_sent_to_the_resolver():
+    valid = Draft202012Validator(_functions()["goto_url_resolve"]["input"]).is_valid
+    assert valid({"goto_urls": ["https://google.com/goto?url=CAESUgHr&gsessionid=x"]})
+    assert not valid({"goto_urls": ["https://example.test/"]})
+    assert not valid({"goto_urls": []})

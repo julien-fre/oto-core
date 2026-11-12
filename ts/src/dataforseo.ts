@@ -3105,7 +3105,7 @@ export const serpOrganic = defineFunction({
   connector: "dataforseo",
   class: "read",
   act: false,
-  description: "Google organic results of a keyword, as Google shows them in one place: position (rank_group, rank_absolute), title, URL, domain, and the other result types (local pack, featured snippet), without their snippet. depth bounds the results, ten a page, each page billed 0.002 USD. location_coordinate places the search at a point: \"latitude,longitude,radius\".",
+  description: "Google organic results of a keyword, as Google shows them in one place: position (rank_group, rank_absolute), title, URL, domain, and the other result types (local pack, featured snippet), without their snippet. depth bounds the results, ten a page, each page billed 0.002 USD. location_coordinate places the search at a point: \"latitude,longitude,radius\". When Google serves a URL as a google.com/goto redirect (domain google.com), breadcrumb and website_name name the site, goto_url_resolve resolves it, and serp_organic_post queues the search with every URL resolved.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -3178,8 +3178,155 @@ export const serpOrganic = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.refinement_chips", "tasks.result.items.xpath", "tasks.result.items.rectangle", "tasks.result.items.about_this_result", "tasks.result.items.page", "tasks.result.items.position", "tasks.result.items.cache_url", "tasks.result.items.related_search_url", "tasks.result.items.breadcrumb", "tasks.result.items.website_name", "tasks.result.items.is_image", "tasks.result.items.is_video", "tasks.result.items.is_featured_snippet", "tasks.result.items.is_malicious", "tasks.result.items.is_web_story", "tasks.result.items.description", "tasks.result.items.pre_snippet", "tasks.result.items.extended_snippet", "tasks.result.items.images", "tasks.result.items.amp_version", "tasks.result.items.price", "tasks.result.items.highlighted", "tasks.result.items.links", "tasks.result.items.faq", "tasks.result.items.extended_people_also_search", "tasks.result.items.related_result", "tasks.result.items.timestamp", "tasks.result.items.text", "tasks.result.items.booking_url", "tasks.result.items.items"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.refinement_chips", "tasks.result.items.xpath", "tasks.result.items.rectangle", "tasks.result.items.about_this_result", "tasks.result.items.page", "tasks.result.items.position", "tasks.result.items.cache_url", "tasks.result.items.related_search_url", "tasks.result.items.is_image", "tasks.result.items.is_video", "tasks.result.items.is_featured_snippet", "tasks.result.items.is_malicious", "tasks.result.items.is_web_story", "tasks.result.items.description", "tasks.result.items.pre_snippet", "tasks.result.items.extended_snippet", "tasks.result.items.images", "tasks.result.items.amp_version", "tasks.result.items.price", "tasks.result.items.highlighted", "tasks.result.items.links", "tasks.result.items.faq", "tasks.result.items.extended_people_also_search", "tasks.result.items.related_result", "tasks.result.items.timestamp", "tasks.result.items.text", "tasks.result.items.booking_url", "tasks.result.items.items"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 40000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
+})
+
+export const serpOrganicPost = defineFunction({
+  name: "dataforseo.serp_organic_post",
+  connector: "dataforseo",
+  class: "write",
+  act: false,
+  description: "Ask DataForSEO for the Google organic results of a keyword in its standard queue: every URL resolved to its site, where serp_organic, in live mode, may leave google.com/goto redirects. Returns the task id (tasks.0.id): read the results with serp_organic_get once ready (under a minute, at times longer). depth bounds the results, ten a page, each page billed 0.0006 USD. location_coordinate places the search at a point: \"latitude,longitude,radius\".",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["keyword"],
+    "allOf": [
+      {
+        "anyOf": [
+          {"required": ["location_code"]},
+          {"required": ["location_name"]},
+          {"required": ["location_coordinate"]}
+        ]
+      },
+      {"anyOf": [{"required": ["language_code"]}, {"required": ["language_name"]}]}
+    ],
+    "properties": {
+      "keyword": {"type": "string", "minLength": 1, "maxLength": 700, "description": "The query, as typed in Google."},
+      "location_code": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "DataForSEO location code: 2250 France, 2840 United States (labs_locations_and_languages)."
+      },
+      "location_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "DataForSEO location name, in place of location_code: France, United States."
+      },
+      "location_coordinate": {
+        "type": "string",
+        "pattern": "^-?[0-9]+(\\.[0-9]+)?,-?[0-9]+(\\.[0-9]+)?(,[0-9]+)?$",
+        "description": "A point: \"latitude,longitude,radius\", the radius in millimetres, 199 to 199999."
+      },
+      "language_code": {
+        "type": "string",
+        "pattern": "^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$",
+        "description": "Language code: fr, en, pt."
+      },
+      "language_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Language name, in place of language_code: French, English."
+      },
+      "depth": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200,
+        "description": "Results read, up to 200, ten a page; DataForSEO reads 10 when omitted."
+      },
+      "device": {
+        "type": "string",
+        "enum": ["desktop", "mobile"],
+        "description": "Device of the search; DataForSEO takes desktop when omitted."
+      },
+      "os": {
+        "type": "string",
+        "enum": ["windows", "macos", "android", "ios"],
+        "description": "Operating system of the device: windows or macos on desktop, android or ios on mobile."
+      }
+    }
+  },
+  examples: [
+    { title: "Rank of a keyword in Lyon, 20 results, queued", input: {"keyword": "boulangerie", "location_name": "Lyon,Auvergne-Rhone-Alpes,France", "language_code": "fr", "depth": 20} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/serp/google/organic/task_post",
+    pathParams: [],
+    query: {},
+    body: {"keyword": "keyword", "location_code": "location_code", "location_name": "location_name", "location_coordinate": "location_coordinate", "language_code": "language_code", "language_name": "language_name", "depth": "depth", "device": "device", "os": "os"},
+    headers: {},
+    bodyList: true,
+  },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
+  cost: { per: "request", quantity: 12000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
+})
+
+export const serpOrganicGet = defineFunction({
+  name: "dataforseo.serp_organic_get",
+  connector: "dataforseo",
+  class: "read",
+  act: false,
+  description: "The Google organic results a serp_organic_post task collected, as serp_organic returns them. While the task runs, refused as task_not_ready: read again later. Free.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["task_id"],
+    "properties": {
+      "task_id": {"type": "string", "minLength": 1, "description": "The task id returned at posting (tasks.0.id)."}
+    }
+  },
+  examples: [
+    { title: "The results of a task", input: {"task_id": "11111111-1111-1111-1111-111111111111"} },
+  ],
+  refusals: [],
+  request: {
+    method: "GET",
+    path: "/serp/google/organic/task_get/advanced/{task_id}",
+    pathParams: ["task_id"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.refinement_chips", "tasks.result.items.xpath", "tasks.result.items.rectangle", "tasks.result.items.about_this_result", "tasks.result.items.page", "tasks.result.items.position", "tasks.result.items.cache_url", "tasks.result.items.related_search_url", "tasks.result.items.is_image", "tasks.result.items.is_video", "tasks.result.items.is_featured_snippet", "tasks.result.items.is_malicious", "tasks.result.items.is_web_story", "tasks.result.items.description", "tasks.result.items.pre_snippet", "tasks.result.items.extended_snippet", "tasks.result.items.images", "tasks.result.items.amp_version", "tasks.result.items.price", "tasks.result.items.highlighted", "tasks.result.items.links", "tasks.result.items.faq", "tasks.result.items.extended_people_also_search", "tasks.result.items.related_result", "tasks.result.items.timestamp", "tasks.result.items.text", "tasks.result.items.booking_url", "tasks.result.items.items"], projection: ["cost", "tasks"] },
+})
+
+export const gotoUrlResolve = defineFunction({
+  name: "dataforseo.goto_url_resolve",
+  connector: "dataforseo",
+  class: "read",
+  act: false,
+  description: "The site URL behind Google redirects (https://google.com/goto?url=...) that serp_organic could not resolve: each goto URL with its url. Free.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["goto_urls"],
+    "properties": {
+      "goto_urls": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {"type": "string", "pattern": "^https://(www\\.)?google\\.[a-z.]+/goto\\?"},
+        "description": "The goto URLs, as serp_organic returns them; up to 200, the results of one search."
+      }
+    }
+  },
+  examples: [
+    { title: "Resolve two goto URLs", input: {"goto_urls": ["https://google.com/goto?url=CAESUgHrOzAV", "https://google.com/goto?url=CAESZQHrOzAV"]} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/appendix/goto_url_converter",
+    pathParams: [],
+    query: {},
+    body: {"goto_urls": "goto_urls"},
+    headers: {},
+    bodyList: true,
+  },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time"], projection: ["cost", "tasks"] },
 })
 
 export const serpMaps = defineFunction({
@@ -3457,7 +3604,7 @@ export const connector = defineConnector({
   name: "dataforseo",
   label: "DataForSEO",
   namespace: "dataforseo",
-  version: "1.0.2",
+  version: "1.0.4",
   apiVersion: "v3",
   baseUrl: "https://api.dataforseo.com/v3",
   auth: {"kind": "basic", "username": "login", "password": "password"},
@@ -3556,6 +3703,9 @@ export const connector = defineConnector({
     domainsByTechnology,
     technologiesSummary,
     serpOrganic,
+    serpOrganicPost,
+    serpOrganicGet,
+    gotoUrlResolve,
     serpMaps,
     myBusinessInfo,
     googleReviewsPost,
