@@ -1304,6 +1304,7 @@ def test_only_the_declared_files_are_carried():
                 carried[f"{checked.data['connector']['name']}.{function['name']}"] = function["output"]["file"]["from"]
     assert carried == {"aircall.get_call_recording": "url", "aircall.get_call_voicemail": "url",
                        "allo.get_call_recording": "url", "mistral.transcribe": "json",
+                       "openai.edit_image": "base64", "openai.generate_image": "base64",
                        "threecx.download_recording": "body"}
 
 
