@@ -2,9 +2,15 @@
 # DataForSEO: SEO data as JSON (https://dataforseo.com), REST API v3. The values come from the Python client,
 # oto.tools.dataforseo, which this description follows for every method of the client: same function name, same
 # endpoint, same argument names, same keys sent. The client is not changed (tests/test_dataforseo_description.py reads
-# it to keep both equal). Five functions the client has not are added: serp_organic, serp_maps, my_business_info, and
+# it to keep both equal). Eight functions the client has not are added: serp_organic, serp_maps, my_business_info,
 # Google reviews as two plain functions, google_reviews_post then google_reviews_get by the task id (the caller polls;
-# no async mode). Use case: local-visibility grid around a business, rank tracking on a keyword list.
+# no async mode), the organic results in the standard queue the same way (serp_organic_post then serp_organic_get), and
+# goto_url_resolve. Use case: local-visibility grid around a business, rank tracking on a keyword list.
+#
+# Organic URLs: since November 2026 Google slows the resolution of its google.com/goto redirects, and DataForSEO no
+# longer resolves them all in live mode (support answer of 12/11/2026, and its note "New goto URL limits and how this
+# affects your results"): serp_organic may return goto URLs whose domain reads google.com. The standard queue resolves
+# them all (serp_organic_post, measured on 12/11/2026), and goto_url_resolve, free, resolves the rest.
 #
 # Request: every POST endpoint takes a bare JSON array of task objects; the client sends one task, the description too
 # (call.body_list, rule 23). An argument the call does not give is not sent: DataForSEO applies its own default, as
@@ -37,7 +43,8 @@
 # - LLM responses 0.0006 plus the model's tokens, unbounded by the price list: 200000 assumed;
 # - technologies 0.012, plus 0.0012 a result for the lists (limit at most 1000, where the API takes 10000);
 # - on-page: a page 0.00015 (instant, content parsing, each crawled page), Lighthouse 0.005, the crawl reports free;
-# - SERP live advanced 0.002 a page of results (organic: ten results a page; Maps: a hundred);
+# - SERP live advanced 0.002 a page of results (organic: ten results a page; Maps: a hundred); organic in the standard
+#   queue 0.0006 a page (task_post, measured on 12/11/2026), the read free; goto_url_resolve free (support answer);
 # - my_business_info 0.0054; reviews 0.00075 a ten reviews at posting (depth capped at 500: 37500), the read free.
 # Estimates, not in the account's price list: Google Trends 20000, Google AI Mode 10000, LLM responses 200000. A call billed more
 # than its worst case is settled as read and reported, as the format says.
@@ -64,7 +71,7 @@ connector:
   name: dataforseo
   label: DataForSEO
   namespace: dataforseo
-  version: 1.0.3
+  version: 1.0.4
   api_version: v3
   base_url: https://api.dataforseo.com/v3
   auth: { kind: basic, username: login, password: password }
@@ -1762,8 +1769,9 @@ functions:
       results, ten a page, each page billed 0.002 USD. location_coordinate
       places the search at a point: "latitude,longitude,radius". When Google
       serves a URL as a google.com/goto redirect (domain google.com),
-      breadcrumb and website_name name the site.
-    input:
+      breadcrumb and website_name name the site, goto_url_resolve resolves
+      it, and serp_organic_post queues the search with every URL resolved.
+    input: &serp_organic_input
       type: object
       additionalProperties: false
       required: [keyword]
@@ -1786,7 +1794,7 @@ functions:
     call:
       method: POST
       path: /serp/google/organic/live/advanced
-      body: { keyword: keyword, location_code: location_code, location_name: location_name,
+      body: &serp_organic_body { keyword: keyword, location_code: location_code, location_name: location_name,
               location_coordinate: location_coordinate, language_code: language_code, language_name: language_name,
               depth: depth, device: device, os: os }
       body_list: true
@@ -1831,6 +1839,73 @@ functions:
         - tasks.result.items.items
       sample: *sample
     cost: { per: request, quantity: 40000, unit: microdollars, settle: *settle }
+
+  - name: serp_organic_post
+    class: write
+    act: false
+    description: >-
+      Ask DataForSEO for the Google organic results of a keyword in its
+      standard queue: every URL resolved to its site, where serp_organic, in
+      live mode, may leave google.com/goto redirects. Returns the task id
+      (tasks.0.id): read the results with serp_organic_get once ready (under
+      a minute, at times longer). depth bounds the results, ten a page, each
+      page billed 0.0006 USD. location_coordinate places the search at a
+      point: "latitude,longitude,radius".
+    input: *serp_organic_input
+    examples:
+      - title: Rank of a keyword in Lyon, 20 results, queued
+        input: { keyword: boulangerie, location_name: "Lyon,Auvergne-Rhone-Alpes,France", language_code: fr, depth: 20 }
+    call:
+      method: POST
+      path: /serp/google/organic/task_post
+      body: *serp_organic_body
+      body_list: true
+    output: *envelope
+    cost: { per: request, quantity: 12000, unit: microdollars, settle: *settle }
+
+  - name: serp_organic_get
+    class: read
+    description: >-
+      The Google organic results a serp_organic_post task collected, as
+      serp_organic returns them. While the task runs, refused as
+      task_not_ready: read again later. Free.
+    input:
+      type: object
+      additionalProperties: false
+      required: [task_id]
+      properties:
+        task_id: *task_id
+    examples:
+      - title: The results of a task
+        input: { task_id: "11111111-1111-1111-1111-111111111111" }
+    call: { method: GET, path: "/serp/google/organic/task_get/advanced/{task_id}" }
+    output: *serp_organic_output
+
+  - name: goto_url_resolve
+    class: read
+    description: >-
+      The site URL behind Google redirects (https://google.com/goto?url=...)
+      that serp_organic could not resolve: each goto URL with its url. Free.
+    input:
+      type: object
+      additionalProperties: false
+      required: [goto_urls]
+      properties:
+        goto_urls:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { type: string, pattern: "^https://(www\\.)?google\\.[a-z.]+/goto\\?" }
+          description: "The goto URLs, as serp_organic returns them; up to 200, the results of one search."
+    examples:
+      - title: Resolve two goto URLs
+        input: { goto_urls: ["https://google.com/goto?url=CAESUgHrOzAV", "https://google.com/goto?url=CAESZQHrOzAV"] }
+    call:
+      method: POST
+      path: /appendix/goto_url_converter
+      body: { goto_urls: goto_urls }
+      body_list: true
+    output: *envelope
 
   - name: serp_maps
     class: read
