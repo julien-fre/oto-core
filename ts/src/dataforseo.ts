@@ -3105,7 +3105,7 @@ export const serpOrganic = defineFunction({
   connector: "dataforseo",
   class: "read",
   act: false,
-  description: "Google organic results of a keyword, as Google shows them in one place: position (rank_group, rank_absolute), title, URL, domain, and the other result types (local pack, featured snippet), without their snippet. depth bounds the results, ten a page, each page billed 0.002 USD. location_coordinate places the search at a point: \"latitude,longitude,radius\".",
+  description: "Google organic results of a keyword, as Google shows them in one place: position (rank_group, rank_absolute), title, URL, domain, and the other result types (local pack, featured snippet), without their snippet. depth bounds the results, ten a page, each page billed 0.002 USD. location_coordinate places the search at a point: \"latitude,longitude,radius\". When Google serves a URL as a google.com/goto redirect (domain google.com), breadcrumb and website_name name the site.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -3178,7 +3178,7 @@ export const serpOrganic = defineFunction({
     headers: {},
     bodyList: true,
   },
-  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.refinement_chips", "tasks.result.items.xpath", "tasks.result.items.rectangle", "tasks.result.items.about_this_result", "tasks.result.items.page", "tasks.result.items.position", "tasks.result.items.cache_url", "tasks.result.items.related_search_url", "tasks.result.items.breadcrumb", "tasks.result.items.website_name", "tasks.result.items.is_image", "tasks.result.items.is_video", "tasks.result.items.is_featured_snippet", "tasks.result.items.is_malicious", "tasks.result.items.is_web_story", "tasks.result.items.description", "tasks.result.items.pre_snippet", "tasks.result.items.extended_snippet", "tasks.result.items.images", "tasks.result.items.amp_version", "tasks.result.items.price", "tasks.result.items.highlighted", "tasks.result.items.links", "tasks.result.items.faq", "tasks.result.items.extended_people_also_search", "tasks.result.items.related_result", "tasks.result.items.timestamp", "tasks.result.items.text", "tasks.result.items.booking_url", "tasks.result.items.items"], projection: ["cost", "tasks"] },
+  output: { strip: ["tasks.path", "tasks.data", "tasks.time", "tasks.result.check_url", "tasks.result.refinement_chips", "tasks.result.items.xpath", "tasks.result.items.rectangle", "tasks.result.items.about_this_result", "tasks.result.items.page", "tasks.result.items.position", "tasks.result.items.cache_url", "tasks.result.items.related_search_url", "tasks.result.items.is_image", "tasks.result.items.is_video", "tasks.result.items.is_featured_snippet", "tasks.result.items.is_malicious", "tasks.result.items.is_web_story", "tasks.result.items.description", "tasks.result.items.pre_snippet", "tasks.result.items.extended_snippet", "tasks.result.items.images", "tasks.result.items.amp_version", "tasks.result.items.price", "tasks.result.items.highlighted", "tasks.result.items.links", "tasks.result.items.faq", "tasks.result.items.extended_people_also_search", "tasks.result.items.related_result", "tasks.result.items.timestamp", "tasks.result.items.text", "tasks.result.items.booking_url", "tasks.result.items.items"], projection: ["cost", "tasks"] },
   cost: { per: "request", quantity: 40000, unit: "microdollars", settle: { path: "cost", scale: 1000000 } },
 })
 
@@ -3457,7 +3457,7 @@ export const connector = defineConnector({
   name: "dataforseo",
   label: "DataForSEO",
   namespace: "dataforseo",
-  version: "1.0.2",
+  version: "1.0.3",
   apiVersion: "v3",
   baseUrl: "https://api.dataforseo.com/v3",
   auth: {"kind": "basic", "username": "login", "password": "password"},

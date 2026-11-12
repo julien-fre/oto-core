@@ -1,4 +1,4 @@
-"""La description `dataforseo` 1.0.2 : celle du client existant (`oto.tools.dataforseo`), sans rien y changer, et cinq
+"""La description `dataforseo` 1.0.3 : celle du client existant (`oto.tools.dataforseo`), sans rien y changer, et cinq
 fonctions que le client n'a pas (résultats organiques et Maps, fiche d'établissement, avis Google en dépôt puis relecture).
 
 Une fonction par méthode publique du client, sous son nom, avec ses noms d'arguments et les clés que le client envoie,
@@ -144,7 +144,7 @@ def _request_parts(parts: dict) -> dict:
 
 def test_the_description_is_version_1_0_2_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.2"
+    assert description["connector"]["version"] == "1.0.3"
     check(description, DATAFORSEO)
 
 
@@ -328,11 +328,16 @@ def test_a_refused_login_is_a_401_that_marks_the_account():
 def test_the_organic_results_lose_their_layout():
     answer = {"status_code": 20000, "cost": 0.002, "tasks": [{"id": "t-1", "status_code": 20000, "cost": 0.002,
               "result": [{"items": [{"type": "organic", "rank_group": 1, "xpath": "/html", "rectangle": None,
-                                     "about_this_result": {"url": "https://example.test"}, "domain": "example.test"}]}]}]}
+                                     "about_this_result": {"url": "https://example.test"}, "domain": "google.com",
+                                     "url": "https://google.com/goto?url=x", "breadcrumb": "https://example.test › a",
+                                     "website_name": "Example"}]}]}]}
     result, _ = engine_fake.play(_description(), "serp_organic",
                                  {"keyword": "alpha", "location_code": 2250, "language_code": "fr"},
                                  engine_fake.answer(200, answer))
-    assert result["tasks"][0]["result"][0]["items"] == [{"type": "organic", "rank_group": 1, "domain": "example.test"}]
+    # A google.com/goto URL hides the site: its breadcrumb and name stay, to tell it.
+    assert result["tasks"][0]["result"][0]["items"] == [
+        {"type": "organic", "rank_group": 1, "domain": "google.com", "url": "https://google.com/goto?url=x",
+         "breadcrumb": "https://example.test › a", "website_name": "Example"}]
 
 
 def test_the_account_is_served_without_its_per_endpoint_tables():

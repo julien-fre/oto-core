@@ -3,7 +3,7 @@
 DESCRIPTION = {'connector': {'name': 'dataforseo',
                'label': 'DataForSEO',
                'namespace': 'dataforseo',
-               'version': '1.0.2',
+               'version': '1.0.3',
                'api_version': 'v3',
                'base_url': 'https://api.dataforseo.com/v3',
                'auth': {'kind': 'basic', 'username': 'login', 'password': 'password'},
@@ -3262,7 +3262,8 @@ DESCRIPTION = {'connector': {'name': 'dataforseo',
                                'result types (local pack, featured snippet), without their snippet. depth '
                                'bounds the results, ten a page, each page billed 0.002 USD. '
                                'location_coordinate places the search at a point: '
-                               '"latitude,longitude,radius".',
+                               '"latitude,longitude,radius". When Google serves a URL as a google.com/goto '
+                               'redirect (domain google.com), breadcrumb and website_name name the site.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['keyword'],
@@ -3342,8 +3343,6 @@ DESCRIPTION = {'connector': {'name': 'dataforseo',
                                      'tasks.result.items.position',
                                      'tasks.result.items.cache_url',
                                      'tasks.result.items.related_search_url',
-                                     'tasks.result.items.breadcrumb',
-                                     'tasks.result.items.website_name',
                                      'tasks.result.items.is_image',
                                      'tasks.result.items.is_video',
                                      'tasks.result.items.is_featured_snippet',

@@ -25,7 +25,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `brevo` | Brevo | 1.0.0 | clé | non | 60 | 36 | 16 | 8 | oui | 60 | non | 0 |
 | `claap` | Claap | 1.0.1 | clé | non | 6 | 5 | 0 | 1 | non | 6 | non | 0 |
 | `crisp` | Crisp | 1.0.0 | clé | non | 20 | 20 | 0 | 0 | oui | 20 | non | 0 |
-| `dataforseo` | DataForSEO | 1.0.2 | clé | oui | 59 | 57 | 2 | 0 | oui, avec solde | 49 | non | 0 |
+| `dataforseo` | DataForSEO | 1.0.3 | clé | oui | 59 | 57 | 2 | 0 | oui, avec solde | 49 | non | 0 |
 | `dropcontact` | Dropcontact | 1.0.0 | clé | oui | 3 | 2 | 1 | 0 | oui, avec solde | 1 | non | 0 |
 | `elevenlabs` | ElevenLabs | 1.0.1 | clé | non | 4 | 4 | 0 | 0 | oui | 4 | non | 0 |
 | `fod` | France Open Data | 1.4.0 | clé | oui | 30 | 30 | 0 | 0 | oui | 30 | non | 0 |
