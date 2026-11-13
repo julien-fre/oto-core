@@ -1,4 +1,4 @@
-"""La description `instantly` 1.0.0 et son client (`oto.tools.instantly`) : la même requête, argument par argument.
+"""La description `instantly` 1.0.1 et son client (`oto.tools.instantly`) : la même requête, argument par argument.
 
 Une fonction par méthode du client, sous son nom, avec ses arguments ; seul `headers` de `create_webhook` reste au
 client (un secret, que l'hôte pose côté serveur et qu'aucun agent ne passe). Pour chaque exemple de chaque fonction,
@@ -181,9 +181,9 @@ def _cases():
             yield pytest.param(name, arguments, id=f"{name}: every argument #{i}")
 
 
-def test_the_description_is_version_1_0_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_0_1_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.0.0"
+    assert description["connector"]["version"] == "1.0.1"
     module = connector_module(check(description, INSTANTLY))
     assert module.generated and module.skipped == []
 

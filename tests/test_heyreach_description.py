@@ -1,4 +1,4 @@
-"""La description `heyreach` 1.0.0 et son client (`oto.tools.heyreach`) : la même requête, argument absent compris.
+"""La description `heyreach` 1.0.1 et son client (`oto.tools.heyreach`) : la même requête, argument absent compris.
 
 Une fonction par méthode du client, sous son nom, avec les arguments que la méthode nomme. Pour chaque fonction, deux
 appels : tous ses arguments donnés, puis ses seuls arguments requis ; la requête que le client envoie (verbe, adresse,

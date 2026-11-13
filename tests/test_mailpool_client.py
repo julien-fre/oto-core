@@ -541,6 +541,20 @@ def test_create_failing_after_a_domain_landed_is_partial(capture, cli):
     assert not set(_keys(e.value.created)) & {"password", "secret"}
 
 
+def test_a_second_domain_accepted_without_a_list_is_partial(capture, cli):
+    """The second POST is accepted but its answer lists no mailbox: the first domain's
+    mailboxes are kept for the caller, and the second domain is named as uncertain."""
+    _two_domain_plan(capture)
+    capture["responses"] += [_Resp(200, {"emails": [dict(MAILBOX, id=1)]}), _Resp(200, {"ok": True})]
+    with pytest.raises(mp_pkg.MailpoolCreatePartial) as e:
+        cli.create_mailboxes([NEW, ON_OTHER])
+    assert e.value.done == ["new-outreach.com"] and e.value.not_done == ["other-outreach.com"]
+    assert [m["id"] for m in e.value.created] == [1]
+    assert isinstance(e.value.cause, RuntimeError)
+    assert "accepted the mailboxes of other-outreach.com" in str(e.value.cause)
+    assert "other-outreach.com" in str(e.value)
+
+
 # --- exports -----------------------------------------------------------------
 
 BATCH = {"id": 42, "createdAt": "2026-11-08T10:00:00Z", "status": "in_progress",

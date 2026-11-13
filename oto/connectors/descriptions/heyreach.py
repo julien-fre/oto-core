@@ -3,7 +3,7 @@
 DESCRIPTION = {'connector': {'name': 'heyreach',
                'label': 'HeyReach',
                'namespace': 'heyreach',
-               'version': '1.0.0',
+               'version': '1.0.1',
                'api_version': 'public API (Postman collection, 2026-11)',
                'base_url': 'https://api.heyreach.io/api/public',
                'auth': {'kind': 'api_key', 'in': 'header', 'name': 'X-API-KEY', 'key': 'api_key'},
@@ -55,8 +55,8 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                                'SCHEDULED), creationTime, linkedInUserListId and linkedInUserListName (the '
                                'lead list it draws from), campaignAccountIds (its sender accounts), '
                                'progressStats {totalUsers, totalUsersInProgress, totalUsersPending, '
-                               'totalUsersFinished, totalUsersFailed}, exclusion settings}. Next page: '
-                               'offset + limit, while offset is below totalCount.',
+                               'totalUsersFinished, totalUsersFailed}}; get_campaign has its exclusion '
+                               'settings. Next page: offset + limit, while a page returns limit items.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['limit'],
@@ -96,7 +96,16 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                                   'offset': 'offset',
                                   'keyword': 'keyword',
                                   'statuses': 'statuses',
-                                  'accountIds': 'account_ids'}}},
+                                  'accountIds': 'account_ids'}},
+                'output': {'items': 'items',
+                           'projection': ['id',
+                                          'name',
+                                          'status',
+                                          'creationTime',
+                                          'linkedInUserListId',
+                                          'linkedInUserListName',
+                                          'campaignAccountIds',
+                                          'progressStats']}},
                {'name': 'get_campaign',
                 'class': 'read',
                 'description': 'One campaign: id, name, status, creationTime, linkedInUserListId and '
@@ -177,10 +186,10 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                {'name': 'list_lead_campaigns',
                 'class': 'read',
                 'description': 'The campaigns a lead is in, found by its profile URL, its LinkedIn id '
-                               '(linkedin_id in other answers) or its email: leadFullName, totalCount and '
-                               'items {campaignId, campaignName, campaignStatus, creationTime, leadStatus '
-                               '(Pending, InSequence, Finished, Paused, Failed, Excluded)}. Next page: '
-                               'offset + limit.',
+                               '(linkedin_id in other answers) or its email: items {campaignId, '
+                               'campaignName, campaignStatus, creationTime, leadStatus (Pending, InSequence, '
+                               'Finished, Paused, Failed, Excluded)}. Next page: offset + limit, while a '
+                               'page returns limit items.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['limit'],
@@ -214,13 +223,19 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                                   'linkedinId': 'linkedin_id',
                                   'email': 'email',
                                   'limit': 'limit',
-                                  'offset': 'offset'}}},
+                                  'offset': 'offset'}},
+                'output': {'items': 'items',
+                           'projection': ['campaignId',
+                                          'campaignName',
+                                          'campaignStatus',
+                                          'creationTime',
+                                          'leadStatus']}},
                {'name': 'list_lists',
                 'class': 'read',
-                'description': "The workspace's lead and company lists, one page: totalCount and items {id, "
-                               'name, totalItemsCount, listType (USER_LIST for leads, COMPANY_LIST), '
-                               'creationTime, campaignIds (campaigns that use it)}. Next page: offset + '
-                               'limit.',
+                'description': "The workspace's lead and company lists, one page: items {id, name, "
+                               'totalItemsCount, listType (USER_LIST for leads, COMPANY_LIST), creationTime, '
+                               'campaignIds (campaigns that use it)}. Next page: offset + limit, while a '
+                               'page returns limit items.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['limit'],
@@ -248,7 +263,14 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                                   'offset': 'offset',
                                   'keyword': 'keyword',
                                   'listType': 'list_type',
-                                  'campaignIds': 'campaign_ids'}}},
+                                  'campaignIds': 'campaign_ids'}},
+                'output': {'items': 'items',
+                           'projection': ['id',
+                                          'name',
+                                          'totalItemsCount',
+                                          'listType',
+                                          'creationTime',
+                                          'campaignIds']}},
                {'name': 'get_list',
                 'class': 'read',
                 'description': 'One lead or company list: id, name, totalItemsCount, listType, creationTime, '
@@ -325,7 +347,8 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                {'name': 'list_lead_lists',
                 'class': 'read',
                 'description': 'The lists a lead is in, found by its profile URL, its LinkedIn id or its '
-                               'email: totalCount and items {listId, listName}. Next page: offset + limit.',
+                               'email: items {listId, listName}. Next page: offset + limit, while a page '
+                               'returns limit items.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['limit'],
@@ -358,7 +381,8 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                                   'linkedinId': 'linkedin_id',
                                   'email': 'email',
                                   'limit': 'limit',
-                                  'offset': 'offset'}}},
+                                  'offset': 'offset'}},
+                'output': {'items': 'items', 'projection': ['listId', 'listName']}},
                {'name': 'get_lead',
                 'class': 'read',
                 'description': 'One lead by its LinkedIn profile URL: linkedin_id, firstName, lastName, '
@@ -606,11 +630,12 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                 'output': {'strip': ['correspondentProfile.imageUrl']}},
                {'name': 'list_linkedin_accounts',
                 'class': 'read',
-                'description': "The workspace's LinkedIn sender accounts, one page: totalCount and items "
-                               '{id, firstName, lastName, emailAddress, profileUrl, isActive, authIsValid '
-                               '(false: the session must be reconnected in HeyReach), isValidNavigator, '
-                               'isValidRecruiter, activeCampaigns, cooldown flags, accountLimits (daily '
-                               'limits and maxima)}. Next page: offset + limit.',
+                'description': "The workspace's LinkedIn sender accounts, one page: items {id, firstName, "
+                               'lastName, emailAddress, profileUrl, isActive, authIsValid (false: the '
+                               'session must be reconnected in HeyReach), isValidNavigator, '
+                               'isValidRecruiter, activeCampaigns}; get_linkedin_account has its cooldown '
+                               'flags and daily limits. Next page: offset + limit, while a page returns '
+                               'limit items.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['limit'],
@@ -628,11 +653,23 @@ DESCRIPTION = {'connector': {'name': 'heyreach',
                 'examples': [{'title': 'Every sender', 'input': {'limit': 100}}],
                 'call': {'method': 'POST',
                          'path': '/li_account/GetAll',
-                         'body': {'limit': 'limit', 'offset': 'offset', 'keyword': 'keyword'}}},
+                         'body': {'limit': 'limit', 'offset': 'offset', 'keyword': 'keyword'}},
+                'output': {'items': 'items',
+                           'projection': ['id',
+                                          'firstName',
+                                          'lastName',
+                                          'emailAddress',
+                                          'profileUrl',
+                                          'isActive',
+                                          'authIsValid',
+                                          'isValidNavigator',
+                                          'isValidRecruiter',
+                                          'activeCampaigns']}},
                {'name': 'get_linkedin_account',
                 'class': 'read',
                 'description': 'One LinkedIn sender account: the fields of list_linkedin_accounts, its '
-                               'session state (authIsValid) and its daily limits.',
+                               'session state (authIsValid), its cooldown flags and its daily limits '
+                               '(accountLimits).',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['account_id'],

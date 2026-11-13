@@ -18,7 +18,9 @@ What the caller needs to know, and cannot guess:
 - **One `POST /mailboxes` per domain**: Mailpool refuses a single call
   spanning several domains with 400 "Mailboxes count limit exceeded" even
   with free slots, while one domain per call is accepted. A failure after an
-  earlier domain landed is `MailpoolCreatePartial`.
+  earlier domain landed is `MailpoolCreatePartial`, and so is a domain whose
+  call was accepted but whose answer lists no mailbox: what earlier domains
+  created is never lost.
 - ⚠️ **The create is never retried** (a replay could create twice). On a
   timeout or a 5xx the mailboxes may or may not exist: list the domain's
   mailboxes before calling again.
@@ -59,9 +61,12 @@ class MailpoolCreateRefused(ValueError):
 
 class MailpoolCreatePartial(RuntimeError):
     """The create of one domain failed after earlier domains' landed.
-    `created` = mailboxes created (as `MAILBOX_FIELDS`), `done` / `not_done` =
-    domains, `cause` = the failure. The failed domain's mailboxes may or may
-    not exist when `cause` is a timeout or a 5xx: list them before retrying."""
+    `created` = mailboxes created (as `MAILBOX_FIELDS`), `done` = domains whose
+    mailboxes are known, `not_done` = the others, the failed domain first,
+    `cause` = the failure. The failed domain (`not_done[0]`) is uncertain: its
+    mailboxes may or may not exist when `cause` is a timeout or a 5xx, and they
+    likely exist when Mailpool accepted its call but listed none (`cause` says
+    so): list them before retrying."""
 
     def __init__(self, created: List[Dict[str, Any]], done: List[str],
                  not_done: List[str], cause: BaseException):
@@ -211,16 +216,16 @@ class MailboxCreateMixin:
         for domain, group in groups.items():
             try:
                 out = self._request("POST", "/mailboxes", json=group)
+                got = out.get("emails") if isinstance(out, dict) else out
+                if not isinstance(got, list):
+                    raise RuntimeError(
+                        f"Mailpool accepted the mailboxes of {domain} but its answer lists none: "
+                        f"they may exist, list {domain}'s mailboxes before calling again.")
             except Exception as e:
                 if not done:
                     raise
                 raise MailpoolCreatePartial(created, done,
                                             [d for d in groups if d not in done], e) from e
             done.append(domain)
-            got = out.get("emails") if isinstance(out, dict) else out
-            if not isinstance(got, list):
-                raise RuntimeError(
-                    f"Mailpool accepted the mailboxes of {', '.join(done)} but its answer "
-                    "lists none: list the domains' mailboxes before calling again.")
             created += [project_mailbox(m) for m in got]
         return {"created": created, "plan": plan}
