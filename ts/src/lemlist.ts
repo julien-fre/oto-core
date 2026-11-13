@@ -4503,7 +4503,7 @@ export const connector = defineConnector({
   name: "lemlist",
   label: "lemlist",
   namespace: "lemlist",
-  version: "1.2.2",
+  version: "1.2.3",
   apiVersion: "v1 and v2 routes",
   baseUrl: "https://api.lemlist.com/api",
   auth: {"kind": "basic", "password": "api_key"},

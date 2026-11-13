@@ -289,28 +289,59 @@ class LemlistClient:
     ) -> tuple[List[Campaign], bool]:
         """Walk `GET /campaigns` page by page.
 
-        Returns `(campaigns, truncated)` — `truncated` is True when `max_pages`
-        was reached with a full page still coming, i.e. the list is INCOMPLETE.
+        Returns `(campaigns, truncated)` — `truncated` is True only when
+        `max_pages` cut the list, i.e. campaigns exist beyond the ones returned.
         Returning the flag rather than silently stopping is the whole point: a
         capped list that looks complete is how "this campaign does not exist"
-        gets answered wrongly.
+        gets answered wrongly. The converse matters as much: a complete list
+        flagged as truncated makes the caller hunt for campaigns that are not
+        there.
+
+        The end of the list, from the surest sign to the weakest:
+          • a short or empty page — nothing comes after it, whatever
+            `pagination.nextPage` says: lemlist still announces a next page on
+            its last one (and on the empty pages past it);
+          • `pagination.totalRecords`, when present, against what was read;
+          • a falsy `pagination.nextPage`, which ends a full last page.
+        Status and creator filters are sent to lemlist, which pages the
+        filtered list: a short page of `running` campaigns is the end of them.
+
+        When the ceiling is reached on a full page with nothing saying the list
+        ended, ONE more page is read to know whether anything lies beyond; it
+        is never returned (the ceiling holds).
         """
         out: List[Campaign] = []
-        params = dict(filters)
+        total: Optional[int] = None
         for page in range(1, max_pages + 1):
-            data = self._request("GET", "campaigns", params={
-                **self._campaign_params(limit=self.PAGE_MAX, page=page, **params),
-            })
-            batch, pagination = self._campaign_page(data)
+            batch, pagination = self._campaign_walk_page(page, filters)
             out.extend(batch)
-            # v2 says itself where it stands; trusting that beats counting short
-            # pages, which gets a full last page wrong.
-            if pagination is not None:
-                if not pagination.get("nextPage"):
-                    return out, False
-            elif len(batch) < self.PAGE_MAX:
+            if len(batch) < self.PAGE_MAX:
                 return out, False
-        return out, True
+            total = self._campaign_total(pagination)
+            if total is not None:
+                if len(out) >= total:
+                    return out, False
+            elif pagination is not None and not pagination.get("nextPage"):
+                return out, False
+        if total is not None:
+            return out, len(out) < total
+        beyond, _ = self._campaign_walk_page(max_pages + 1, filters)
+        return out, bool(beyond)
+
+    def _campaign_walk_page(
+        self, page: int, filters: Dict[str, Any],
+    ) -> tuple[List[Campaign], Optional[dict]]:
+        """One full-size page of the walk of `list_all_campaigns`."""
+        return self._campaign_page(self._request("GET", "campaigns", params=(
+            self._campaign_params(limit=self.PAGE_MAX, page=page, **filters))))
+
+    @staticmethod
+    def _campaign_total(pagination: Optional[dict]) -> Optional[int]:
+        """`pagination.totalRecords` when it is a usable count, else None."""
+        total = (pagination or {}).get("totalRecords")
+        if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+            return total
+        return None
 
     def get_campaign(self, campaign_id: str) -> Dict[str, Any]:
         """Get campaign details."""
