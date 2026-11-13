@@ -1,4 +1,4 @@
-"""La description `lemlist` 1.2.2 : celle du client existant (`oto.tools.lemlist`), sans rien y changer.
+"""La description `lemlist` 1.3.0 : celle du client existant (`oto.tools.lemlist`), sans rien y changer.
 
 Une fonction par méthode du client qui envoie une seule requête à `api.lemlist.com/api`, sous son nom, avec ses noms
 d'arguments et les clés que le client envoie à lemlist (chemin, query, corps, parties d'un multipart). Depuis la 1.1.0,
@@ -8,7 +8,9 @@ les méthodes dont le corps est un argument entier, un dictionnaire envoyé tel 
 variables d'un lead, les champs personnalisés du CRM), `additionalProperties: {type: string, personal: true}` ; depuis
 la 1.2.1, les champs personnalisés du CRM, que lemlist type, sont des valeurs simples,
 `additionalProperties: {type: [string, number, boolean], personal: true}` ; depuis la 1.2.2, le texte servi dit que
-l'audio d'un lead est un fichier en transit ou un fichier joint à une page que lit l'appelant. Restent
+l'audio d'un lead est un fichier en transit ou un fichier joint à une page que lit l'appelant ; depuis la 1.3.0,
+les deux recherches de la base partagée prennent au client une vue de la réponse (`fields`, `compact`), hors du
+fichier. Restent
 hors du fichier, au client écrit à la main : les corps formés à partir d'un argument (un identifiant ajouté, un email
 retiré), le corps en tableau nu, les query à clés libres (les variables d'un lead), les compositions et aides locales,
 les routes choisies selon un argument, la relève d'enrichissement (un 404 y est une réponse), les exports CSV et la
@@ -95,6 +97,10 @@ ARGUMENTS_LEFT_OUT = {
     "get_contact_messages": {"mark_as_read": "it writes on a read"},
     "export_campaign_leads": {"format": "the constant json: the CSV form is an export"},
     "upload_lead_audio": {"filename": "the host names the part after the transit file"},
+    "search_people_database": {"fields": "a view of the answer chosen by the call, applied by the client: the format "
+                                         "projects only declared keys", "compact": "goes with fields"},
+    "search_companies_database": {"fields": "a view of the answer chosen by the call, applied by the client: the "
+                                            "format projects only declared keys", "compact": "goes with fields"},
 }
 # Les clés qu'un corps entier ne prend pas, bien que le client les documente, et pourquoi.
 BODY_KEYS_LEFT_OUT = {
@@ -415,7 +421,7 @@ def _values(name: str, function: dict) -> dict:
 
 def test_the_description_is_version_1_2_2_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.2.2"
+    assert description["connector"]["version"] == "1.3.0"
     check(description, LEMLIST)
 
 
