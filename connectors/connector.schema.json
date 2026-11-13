@@ -570,10 +570,24 @@
           "properties": {
             "kind": { "const": "oauth2_jwt_bearer" },
             "token_url": { "description": "Fixed https token endpoint, the audience of the assertion: never a template nor a query. A key whose token_uri differs is refused.", "type": "string", "pattern": "^https://[^\\s{}?#]*[^/\\s{}?#]$" },
-            "scopes": { "description": "Joined by spaces in the scope claim of the assertion.", "$ref": "#/$defs/scope_list" },
+            "scopes": { "description": "Joined by spaces in the scope claim of the assertion. Exclusive of access_levels: a connector without levels keeps scopes, and that is its full level.", "$ref": "#/$defs/scope_list" },
+            "access_levels": { "$ref": "#/$defs/access_levels" },
+            "scope_implies": {
+              "description": "With access_levels: a scope that covers others, as the provider defines it. Never a guessed rule: a broad scope covers a narrower one only when this file says so.",
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": { "minLength": 1 },
+              "additionalProperties": { "$ref": "#/$defs/scope_list" }
+            },
+            "default_level": {
+              "description": "With access_levels: the level of an account whose organisation or team chose none, instead of full. No consent is asked: the level only decides the scope claim of the assertion, so a host that changes it signs the next assertion with the scopes of the new level.",
+              "$ref": "#/$defs/identifier"
+            },
             "key": { "description": "Credential field holding the whole JSON key file of the service account (client_email, private_key, optional private_key_id and token_uri).", "$ref": "#/$defs/identifier" }
           },
-          "required": ["kind", "token_url", "scopes", "key"],
+          "required": ["kind", "token_url", "key"],
+          "oneOf": [{ "required": ["scopes"] }, { "required": ["access_levels"] }],
+          "dependentRequired": { "scope_implies": ["access_levels"], "default_level": ["access_levels"] },
           "additionalProperties": false
         },
         {
@@ -594,7 +608,7 @@
       "items": { "$ref": "#/$defs/text" }
     },
     "access_levels": {
-      "description": "Named access levels of a consent. full is required and filters nothing; any other name (read, support...) is a restricted level. Each level lists the scopes its consent asks for. The host picks one per organisation or team; a function is served at a level when each of its scopes is a scope of the level or implied by one (scope_implies).",
+      "description": "Named access levels of a consent (oauth2_user) or of a service account (oauth2_jwt_bearer). full is required and filters nothing; any other name (read, support...) is a restricted level. Each level lists the scopes its consent asks for, or that the assertion of a service account claims. The host picks one per organisation or team, full by default unless auth.default_level names another; a function is served at a level when each of its scopes is a scope of the level or implied by one (scope_implies).",
       "type": "object",
       "required": ["full"],
       "minProperties": 2,

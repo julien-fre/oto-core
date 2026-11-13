@@ -8,7 +8,8 @@ cases `connectors/_cases/jwt_bearer.yaml`): `service_account_key_not_json` (not 
 `service_account_key_foreign_token_uri` (a `token_uri` that is not `token_url`: a typed text never chooses where a
 signed assertion goes), `service_account_key_unreadable` (not an RSA private key in a PKCS#8 PEM).
 
-The assertion: header `{alg, typ, kid?}` and claims `{iss, scope, aud, iat, exp}`, compact JSON in this order, UTF-8,
+The assertion: header `{alg, typ, kid?}` and claims `{iss, scope, aud, iat, exp}`, `scope` the scopes of the account's
+access level joined by spaces (`levels`; `auth.scopes` without levels), compact JSON in this order, UTF-8,
 base64url without padding, then the RSASSA-PKCS1-v1_5 SHA-256 signature of `header.claims` (`google.auth.crypt`, the
 `google` extra). It goes in the form body of one `POST`, never in a query. `invalid_grant` is the key revoked or the
 account disabled (`TokenRefused`, `marks_account: credential_rejected`); any other refusal, a redirect included, marks
@@ -80,13 +81,14 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def assertion(auth: dict, key: dict, signer: Any, at: int) -> str:
-    """The signed assertion, `at` in seconds since the epoch."""
+def assertion(auth: dict, key: dict, signer: Any, at: int, scopes: list[str]) -> str:
+    """The signed assertion, `at` in seconds since the epoch, claiming `scopes` (those of the account's access level,
+    `levels.scopes`)."""
     header = {"alg": "RS256", "typ": "JWT"}
     key_id: Optional[str] = key.get("private_key_id") or None
     if key_id:
         header["kid"] = key_id
-    claims = {"iss": key["client_email"], "scope": " ".join(auth["scopes"]), "aud": auth["token_url"], "iat": at,
+    claims = {"iss": key["client_email"], "scope": " ".join(scopes), "aud": auth["token_url"], "iat": at,
               "exp": at + ASSERTION_LIFETIME_S}
     signing_input = f"{_segment(header)}.{_segment(claims)}"
     return f"{signing_input}.{_b64url(signer.sign(signing_input.encode('ascii')))}"
@@ -104,15 +106,15 @@ def _refused(label: str):
     return refused
 
 
-def service_account_token(connector: dict, key_text: str, *, session: requests.Session, timeout_s: float,
-                          pace_key: str) -> tokens.Token:
-    """A fresh token for the key: read, signed, exchanged."""
+def service_account_token(connector: dict, key_text: str, *, scopes: list[str], session: requests.Session,
+                          timeout_s: float, pace_key: str) -> tokens.Token:
+    """A fresh token for the key: read, signed for `scopes`, exchanged."""
     auth = connector["auth"]
     label = connector["label"]
     if "{" in auth["token_url"] or not auth["token_url"].startswith("https://"):
         raise EngineError(f"{connector['name']}: auth oauth2_jwt_bearer needs a fixed https token_url.")
     key, signer = read_key(auth, key_text, label)
-    jwt = assertion(auth, key, signer, int(tokens.now()))
+    jwt = assertion(auth, key, signer, int(tokens.now()), scopes)
     target = transport.Target(label=label, base_url=auth["token_url"], timeout_s=timeout_s, pace_key=f"token:{pace_key}")
     request = Request(method="POST", path="", query=(), headers={},
                       body=Form((("grant_type", GRANT_TYPE), ("assertion", jwt))))

@@ -34,7 +34,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `gmail` | Gmail | 1.0.1 | connexion d'une personne (OAuth) | non | 13 | 8 | 2 | 3 | non | 13 | oui | 0 |
 | `google_calendar` | Google Calendar | 1.0.0 | connexion d'une personne (OAuth) | non | 7 | 4 | 0 | 3 | non | 7 | oui | 0 |
 | `google_drive` | Google Drive | 1.0.0 | connexion d'une personne (OAuth) | non | 12 | 5 | 4 | 3 | non | 12 | oui | 0 |
-| `google_search_console` | Google Search Console | 1.0.0 | compte de service (assertion signée) | non | 5 | 5 | 0 | 0 | oui | 5 | non | 0 |
+| `google_search_console` | Google Search Console | 1.1.0 | compte de service (assertion signée) | non | 6 | 5 | 1 | 0 | oui | 6 | oui | 0 |
 | `google_sheets` | Google Sheets | 1.0.0 | connexion d'une personne (OAuth) | non | 5 | 2 | 2 | 1 | non | 5 | oui | 0 |
 | `granola` | Granola | 1.0.0 | clé | non | 8 | 5 | 2 | 1 | oui | 8 | non | 0 |
 | `heyreach` | HeyReach | 1.0.1 | clé | non | 32 | 20 | 4 | 8 | oui | 0 | non | 0 |
@@ -74,7 +74,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `typeform` | Typeform | 1.2.0 | clé | non | 12 | 6 | 1 | 5 | non | 12 | non | 0 |
 | `wttj_ats` | Welcome to the Jungle ATS | 1.0.0 | clé | non | 10 | 7 | 3 | 0 | non | 0 | non | 0 |
 | `yousign` | Yousign | 1.1.1 | clé | non | 13 | 5 | 7 | 1 | oui | 0 | non | 0 |
-| **total : 59** |  |  |  |  | 1449 | 908 | 333 | 208 |  | 972 |  | 0 |
+| **total : 59** |  |  |  |  | 1450 | 908 | 334 | 208 |  | 973 |  | 0 |
 
 ## Par type
 
@@ -82,7 +82,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | --- | ---: | ---: |
 | connexion d'une personne (OAuth) | 7 | 67 |
 | application du client (OAuth entre machines) | 3 | 10 |
-| compte de service (assertion signée) | 1 | 5 |
+| compte de service (assertion signée) | 1 | 6 |
 | clé de l'hôte | 2 | 29 |
 | sans clé | 0 | 0 |
 | clé | 46 | 1338 |

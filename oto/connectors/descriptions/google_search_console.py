@@ -3,12 +3,15 @@
 DESCRIPTION = {'connector': {'name': 'google_search_console',
                'label': 'Google Search Console',
                'namespace': 'google_search_console',
-               'version': '1.0.0',
+               'version': '1.1.0',
                'api_version': 'v1',
                'base_url': 'https://searchconsole.googleapis.com',
                'auth': {'kind': 'oauth2_jwt_bearer',
                         'token_url': 'https://oauth2.googleapis.com/token',
-                        'scopes': ['https://www.googleapis.com/auth/webmasters.readonly'],
+                        'access_levels': {'read': {'scopes': ['https://www.googleapis.com/auth/webmasters.readonly']},
+                                          'full': {'scopes': ['https://www.googleapis.com/auth/webmasters']}},
+                        'scope_implies': {'https://www.googleapis.com/auth/webmasters': ['https://www.googleapis.com/auth/webmasters.readonly']},
+                        'default_level': 'read',
                         'key': 'service_account_key'},
                'credential': [{'name': 'service_account_key',
                                'label': 'Service account key (JSON file, its client_email added as a user of '
@@ -96,6 +99,7 @@ DESCRIPTION = {'connector': {'name': 'google_search_console',
                            'message': 'Search Console is temporarily unavailable: retry later.'}]},
  'functions': [{'name': 'list_sites',
                 'class': 'read',
+                'scopes': ['https://www.googleapis.com/auth/webmasters.readonly'],
                 'description': 'List the Search Console properties this service account can read, each with '
                                'its permissionLevel (SITE_OWNER, SITE_FULL_USER, SITE_RESTRICTED_USER, '
                                'SITE_UNVERIFIED_USER): {siteEntry: [{siteUrl, permissionLevel}]}. siteUrl is '
@@ -108,6 +112,7 @@ DESCRIPTION = {'connector': {'name': 'google_search_console',
                 'cost': {'per': 'request'}},
                {'name': 'query_search_analytics',
                 'class': 'read',
+                'scopes': ['https://www.googleapis.com/auth/webmasters.readonly'],
                 'description': 'Search performance of a property between two dates (inclusive, Pacific '
                                'time): rows of {keys, clicks, impressions, ctr, position}, keys in the order '
                                'of dimensions, sorted by clicks unless grouped by date. No dimension gives '
@@ -269,6 +274,7 @@ DESCRIPTION = {'connector': {'name': 'google_search_console',
                 'cost': {'per': 'request'}},
                {'name': 'inspect_url',
                 'class': 'read',
+                'scopes': ['https://www.googleapis.com/auth/webmasters.readonly'],
                 'description': 'Index status of one URL as Google last saw it (not a live test): '
                                'inspectionResult with indexStatusResult (verdict PASS, PARTIAL, FAIL or '
                                'NEUTRAL, coverageState, robotsTxtState, indexingState, pageFetchState, '
@@ -311,11 +317,12 @@ DESCRIPTION = {'connector': {'name': 'google_search_console',
                 'cost': {'per': 'request'}},
                {'name': 'list_sitemaps',
                 'class': 'read',
+                'scopes': ['https://www.googleapis.com/auth/webmasters.readonly'],
                 'description': 'List the sitemaps submitted for a property, or those of one sitemap index: '
                                '[{path, lastSubmitted, lastDownloaded, isPending, isSitemapsIndex, type, '
                                'warnings, errors, contents: [{type, submitted}]}]; warnings, errors and '
-                               'submitted are counts written as strings. Read one sitemap with get_sitemap. '
-                               'Submitting or removing a sitemap is not offered. Free.',
+                               'submitted are counts written as strings. Read one sitemap with get_sitemap, '
+                               'submit one with add_sitemap. Free.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['site_url'],
@@ -341,6 +348,7 @@ DESCRIPTION = {'connector': {'name': 'google_search_console',
                 'cost': {'per': 'request'}},
                {'name': 'get_sitemap',
                 'class': 'read',
+                'scopes': ['https://www.googleapis.com/auth/webmasters.readonly'],
                 'description': 'Get one submitted sitemap of a property: {path, lastSubmitted, '
                                'lastDownloaded, isPending, isSitemapsIndex, type, warnings, errors, '
                                'contents: [{type, submitted}]}; warnings, errors and submitted are counts '
@@ -367,4 +375,50 @@ DESCRIPTION = {'connector': {'name': 'google_search_console',
                               'message': 'No sitemap at this address was submitted for this property: check '
                                          'its full address.'}],
                 'call': {'method': 'GET', 'path': '/webmasters/v3/sites/{site_url}/sitemaps/{feedpath}'},
+                'cost': {'per': 'request'}},
+               {'name': 'add_sitemap',
+                'class': 'write',
+                'scopes': ['https://www.googleapis.com/auth/webmasters'],
+                'description': 'Submit a sitemap for a property, so Google crawls the addresses it lists: '
+                               'answers {} on success. Submitting an address already submitted submits it '
+                               'again. The sitemap must be reachable by Google and under the property; its '
+                               'processing (isPending, errors, warnings) is read afterwards with '
+                               'get_sitemap. The service account must be an Owner or Full user of the '
+                               'property: Restricted only reads. Free.',
+                'input': {'type': 'object',
+                          'additionalProperties': False,
+                          'required': ['site_url', 'feedpath'],
+                          'properties': {'site_url': {'type': 'string',
+                                                      'pattern': '^(sc-domain:[^\\s/]+|https?://[^\\s]+/)$',
+                                                      'description': 'Property as list_sites names it: '
+                                                                     'sc-domain:example.com, or '
+                                                                     'https://www.example.com/ with its '
+                                                                     'trailing slash.'},
+                                         'feedpath': {'type': 'string',
+                                                      'pattern': '^https?://[^\\s]+$',
+                                                      'description': 'Full address of the sitemap to submit, '
+                                                                     'e.g. '
+                                                                     'https://www.example.com/sitemap.xml.'}}},
+                'examples': [{'title': 'Submit the main sitemap',
+                              'input': {'site_url': 'sc-domain:example.com',
+                                        'feedpath': 'https://www.example.com/sitemap.xml'}},
+                             {'title': 'Submit a sitemap index of a URL-prefix property',
+                              'input': {'site_url': 'https://www.example.com/',
+                                        'feedpath': 'https://www.example.com/sitemap_index.xml'}}],
+                'refusals': [{'code': 'owner_or_full_required',
+                              'when': 403,
+                              'body': {'path': 'error.message', 'contains': ['sufficient permission']},
+                              'message': 'The service account may not submit sitemaps for this property: in '
+                                         'Search Console, Settings > Users and permissions, give its '
+                                         'client_email the Owner or Full permission (Restricted only reads), '
+                                         'or check the property name.'},
+                             {'code': 'owner_or_full_required',
+                              'when': 403,
+                              'body': {'path': 'error.errors.0.reason',
+                                       'equals': ['insufficientPermissions']},
+                              'message': 'The service account may not submit sitemaps for this property: in '
+                                         'Search Console, Settings > Users and permissions, give its '
+                                         'client_email the Owner or Full permission (Restricted only reads), '
+                                         'or check the property name.'}],
+                'call': {'method': 'PUT', 'path': '/webmasters/v3/sites/{site_url}/sitemaps/{feedpath}'},
                 'cost': {'per': 'request'}}]}

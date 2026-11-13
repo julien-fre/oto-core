@@ -717,6 +717,43 @@ def test_microsoft_levels_serve_every_function_at_read():
     assert all(served(f, read, auth["scope_implies"]) for f in description.data["functions"])
 
 
+
+# --- Niveaux d'accès d'un compte de service (règle 7) ---------------------------------
+
+SEARCH_CONSOLE = CONNECTORS / "google_search_console" / "connector.yaml"
+WEBMASTERS = "https://www.googleapis.com/auth/webmasters"
+WEBMASTERS_READONLY = "https://www.googleapis.com/auth/webmasters.readonly"
+
+
+def test_search_console_levels_read_by_default_and_add_sitemap_at_full():
+    """Deux niveaux : `read` par défaut sert les lectures ; `full` sert tout, `add_sitemap` exige le droit d'écriture."""
+    description = check(_load(SEARCH_CONSOLE), SEARCH_CONSOLE)
+    auth = description.data["connector"]["auth"]
+    assert auth["kind"] == "oauth2_jwt_bearer" and "scopes" not in auth
+    assert auth["access_levels"] == {"read": {"scopes": [WEBMASTERS_READONLY]}, "full": {"scopes": [WEBMASTERS]}}
+    assert auth["scope_implies"] == {WEBMASTERS: [WEBMASTERS_READONLY]} and auth["default_level"] == "read"
+    functions = {f["name"]: f for f in description.data["functions"]}
+    assert functions["add_sitemap"]["scopes"] == [WEBMASTERS] and functions["add_sitemap"]["class"] == "write"
+    at_read = {name for name, f in functions.items() if served(f, auth["access_levels"]["read"]["scopes"], auth["scope_implies"])}
+    assert at_read == {name for name, f in functions.items() if f["class"] == "read"} and "add_sitemap" not in at_read
+    assert all(served(f, auth["access_levels"]["full"]["scopes"], auth["scope_implies"]) for f in functions.values())
+    source = connector_module(description).source
+    assert '"defaultLevel": "read"' in source and '"accessLevels": {' in source
+    assert f'scopes: ["{WEBMASTERS}"],' in source
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda a, f: a.update(default_level="admin"), "auth.default_level 'admin' is not a declared access level"),
+    (lambda a, f: f[0].update(scopes=[WEBMASTERS]), "probe 'list_sites' is not served at access level 'read'"),
+    (lambda a, f: a.pop("scope_implies"),
+     f"access level 'read' asks for {WEBMASTERS_READONLY}, which level 'full' does not cover"),
+], ids=["default_level_unknown", "probe_not_served_at_read", "full_without_implication"])
+def test_search_console_level_rules_refuse(mutate, message):
+    description = _load(SEARCH_CONSOLE)
+    mutate(description["connector"]["auth"], description["functions"])
+    with pytest.raises(DescriptionError, match=re.escape(message)):
+        check(description, SEARCH_CONSOLE)
+
 # --- Règle 8 : compte de l'hôte et compte rattaché -----------------------------------
 
 LINKEDIN = CONNECTORS / "linkedin_unipile" / "connector.yaml"
