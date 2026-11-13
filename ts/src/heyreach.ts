@@ -27,7 +27,7 @@ export const listCampaigns = defineFunction({
   connector: "heyreach",
   class: "read",
   act: false,
-  description: "The workspace's campaigns, one page: totalCount and items {id, name, status (DRAFT, IN_PROGRESS, PAUSED, FINISHED, CANCELED, FAILED, STARTING, SCHEDULED), creationTime, linkedInUserListId and linkedInUserListName (the lead list it draws from), campaignAccountIds (its sender accounts), progressStats {totalUsers, totalUsersInProgress, totalUsersPending, totalUsersFinished, totalUsersFailed}, exclusion settings}. Next page: offset + limit, while offset is below totalCount.",
+  description: "The workspace's campaigns, one page: totalCount and items {id, name, status (DRAFT, IN_PROGRESS, PAUSED, FINISHED, CANCELED, FAILED, STARTING, SCHEDULED), creationTime, linkedInUserListId and linkedInUserListName (the lead list it draws from), campaignAccountIds (its sender accounts), progressStats {totalUsers, totalUsersInProgress, totalUsersPending, totalUsersFinished, totalUsersFailed}}; get_campaign has its exclusion settings. Next page: offset + limit, while a page returns limit items.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -65,6 +65,7 @@ export const listCampaigns = defineFunction({
     body: {"limit": "limit", "offset": "offset", "keyword": "keyword", "statuses": "statuses", "accountIds": "account_ids"},
     headers: {},
   },
+  output: { items: "items", projection: ["id", "name", "status", "creationTime", "linkedInUserListId", "linkedInUserListName", "campaignAccountIds", "progressStats"] },
 })
 
 export const getCampaign = defineFunction({
@@ -146,7 +147,7 @@ export const listLeadCampaigns = defineFunction({
   connector: "heyreach",
   class: "read",
   act: false,
-  description: "The campaigns a lead is in, found by its profile URL, its LinkedIn id (linkedin_id in other answers) or its email: leadFullName, totalCount and items {campaignId, campaignName, campaignStatus, creationTime, leadStatus (Pending, InSequence, Finished, Paused, Failed, Excluded)}. Next page: offset + limit.",
+  description: "The campaigns a lead is in, found by its profile URL, its LinkedIn id (linkedin_id in other answers) or its email: items {campaignId, campaignName, campaignStatus, creationTime, leadStatus (Pending, InSequence, Finished, Paused, Failed, Excluded)}. Next page: offset + limit, while a page returns limit items.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -182,6 +183,7 @@ export const listLeadCampaigns = defineFunction({
     body: {"profileUrl": "profile_url", "linkedinId": "linkedin_id", "email": "email", "limit": "limit", "offset": "offset"},
     headers: {},
   },
+  output: { items: "items", projection: ["campaignId", "campaignName", "campaignStatus", "creationTime", "leadStatus"] },
 })
 
 export const listLists = defineFunction({
@@ -189,7 +191,7 @@ export const listLists = defineFunction({
   connector: "heyreach",
   class: "read",
   act: false,
-  description: "The workspace's lead and company lists, one page: totalCount and items {id, name, totalItemsCount, listType (USER_LIST for leads, COMPANY_LIST), creationTime, campaignIds (campaigns that use it)}. Next page: offset + limit.",
+  description: "The workspace's lead and company lists, one page: items {id, name, totalItemsCount, listType (USER_LIST for leads, COMPANY_LIST), creationTime, campaignIds (campaigns that use it)}. Next page: offset + limit, while a page returns limit items.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -219,6 +221,7 @@ export const listLists = defineFunction({
     body: {"limit": "limit", "offset": "offset", "keyword": "keyword", "listType": "list_type", "campaignIds": "campaign_ids"},
     headers: {},
   },
+  output: { items: "items", projection: ["id", "name", "totalItemsCount", "listType", "creationTime", "campaignIds"] },
 })
 
 export const getList = defineFunction({
@@ -314,7 +317,7 @@ export const listLeadLists = defineFunction({
   connector: "heyreach",
   class: "read",
   act: false,
-  description: "The lists a lead is in, found by its profile URL, its LinkedIn id or its email: totalCount and items {listId, listName}. Next page: offset + limit.",
+  description: "The lists a lead is in, found by its profile URL, its LinkedIn id or its email: items {listId, listName}. Next page: offset + limit, while a page returns limit items.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -350,6 +353,7 @@ export const listLeadLists = defineFunction({
     body: {"profileUrl": "profile_url", "linkedinId": "linkedin_id", "email": "email", "limit": "limit", "offset": "offset"},
     headers: {},
   },
+  output: { items: "items", projection: ["listId", "listName"] },
 })
 
 export const getLead = defineFunction({
@@ -662,7 +666,7 @@ export const listLinkedinAccounts = defineFunction({
   connector: "heyreach",
   class: "read",
   act: false,
-  description: "The workspace's LinkedIn sender accounts, one page: totalCount and items {id, firstName, lastName, emailAddress, profileUrl, isActive, authIsValid (false: the session must be reconnected in HeyReach), isValidNavigator, isValidRecruiter, activeCampaigns, cooldown flags, accountLimits (daily limits and maxima)}. Next page: offset + limit.",
+  description: "The workspace's LinkedIn sender accounts, one page: items {id, firstName, lastName, emailAddress, profileUrl, isActive, authIsValid (false: the session must be reconnected in HeyReach), isValidNavigator, isValidRecruiter, activeCampaigns}; get_linkedin_account has its cooldown flags and daily limits. Next page: offset + limit, while a page returns limit items.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -685,6 +689,7 @@ export const listLinkedinAccounts = defineFunction({
     body: {"limit": "limit", "offset": "offset", "keyword": "keyword"},
     headers: {},
   },
+  output: { items: "items", projection: ["id", "firstName", "lastName", "emailAddress", "profileUrl", "isActive", "authIsValid", "isValidNavigator", "isValidRecruiter", "activeCampaigns"] },
 })
 
 export const getLinkedinAccount = defineFunction({
@@ -692,7 +697,7 @@ export const getLinkedinAccount = defineFunction({
   connector: "heyreach",
   class: "read",
   act: false,
-  description: "One LinkedIn sender account: the fields of list_linkedin_accounts, its session state (authIsValid) and its daily limits.",
+  description: "One LinkedIn sender account: the fields of list_linkedin_accounts, its session state (authIsValid), its cooldown flags and its daily limits (accountLimits).",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -1333,7 +1338,7 @@ export const connector = defineConnector({
   name: "heyreach",
   label: "HeyReach",
   namespace: "heyreach",
-  version: "1.0.0",
+  version: "1.0.1",
   apiVersion: "public API (Postman collection, 2026-11)",
   baseUrl: "https://api.heyreach.io/api/public",
   auth: {"kind": "api_key", "in": "header", "name": "X-API-KEY", "key": "api_key"},

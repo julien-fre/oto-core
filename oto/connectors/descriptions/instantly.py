@@ -3,7 +3,7 @@
 DESCRIPTION = {'connector': {'name': 'instantly',
                'label': 'Instantly',
                'namespace': 'instantly',
-               'version': '1.0.0',
+               'version': '1.0.1',
                'api_version': 'v2',
                'base_url': 'https://api.instantly.ai/api/v2',
                'auth': {'kind': 'bearer', 'token': 'api_key'},
@@ -363,13 +363,15 @@ DESCRIPTION = {'connector': {'name': 'instantly',
                {'name': 'list_leads',
                 'class': 'read',
                 'description': 'Leads, by filters: items [{id, email, first_name, last_name, company_name, '
-                               'job_title, campaign, list_id, status (1 active, 2 paused, 3 completed, -1 '
-                               'bounced, -2 unsubscribed, -3 skipped), lt_interest_status, email_open_count, '
-                               'email_reply_count, payload (custom variables), timestamps of the last '
-                               'contact, open, reply}] and next_starting_after. campaign or list_id narrows '
-                               'to one; search matches whole words of the email, names, company and title; '
-                               'contacts lists emails; ids lead ids; filter a state (FILTER_LEAD_INTERESTED, '
-                               'FILTER_VAL_REPLIED…). A read, sent as a POST. Needs leads:read.',
+                               'company_domain, job_title, campaign, list_id, status (1 active, 2 paused, 3 '
+                               'completed, -1 bounced, -2 unsubscribed, -3 skipped), lt_interest_status, '
+                               'verification_status, email_open_count, email_reply_count, email_click_count, '
+                               'timestamps of creation, update, last contact, open, reply, click and '
+                               'interest change}] and next_starting_after; get_lead has its custom variables '
+                               '(payload). campaign or list_id narrows to one; search matches whole words of '
+                               'the email, names, company and title; contacts lists emails; ids lead ids; '
+                               'filter a state (FILTER_LEAD_INTERESTED, FILTER_VAL_REPLIED…). A read, sent '
+                               'as a POST. Needs leads:read.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'properties': {'campaign': {'type': 'string',
@@ -474,7 +476,29 @@ DESCRIPTION = {'connector': {'name': 'instantly',
                                'request_param': 'starting_after',
                                'next': 'next_starting_after',
                                'max_pages': 10},
-                'output': {'items': 'items'}},
+                'output': {'items': 'items',
+                           'projection': ['id',
+                                          'email',
+                                          'first_name',
+                                          'last_name',
+                                          'company_name',
+                                          'company_domain',
+                                          'job_title',
+                                          'campaign',
+                                          'list_id',
+                                          'status',
+                                          'lt_interest_status',
+                                          'verification_status',
+                                          'email_open_count',
+                                          'email_reply_count',
+                                          'email_click_count',
+                                          'timestamp_created',
+                                          'timestamp_updated',
+                                          'timestamp_last_contact',
+                                          'timestamp_last_open',
+                                          'timestamp_last_reply',
+                                          'timestamp_last_click',
+                                          'timestamp_last_interest_change']}},
                {'name': 'get_lead',
                 'class': 'read',
                 'description': 'One lead by id: email, names, company, job_title, phone, website, '
@@ -540,7 +564,12 @@ DESCRIPTION = {'connector': {'name': 'instantly',
                                'request_param': 'starting_after',
                                'next': 'next_starting_after',
                                'max_pages': 10},
-                'output': {'items': 'items'}},
+                'output': {'items': 'items',
+                           'projection': ['id',
+                                          'name',
+                                          'has_enrichment_task',
+                                          'owned_by',
+                                          'timestamp_created']}},
                {'name': 'get_lead_list',
                 'class': 'read',
                 'description': 'One lead list by id. Needs lead_lists:read.',
@@ -603,7 +632,13 @@ DESCRIPTION = {'connector': {'name': 'instantly',
                                'request_param': 'starting_after',
                                'next': 'next_starting_after',
                                'max_pages': 10},
-                'output': {'items': 'items'}},
+                'output': {'items': 'items',
+                           'projection': ['id',
+                                          'label',
+                                          'interest_status',
+                                          'interest_status_label',
+                                          'description',
+                                          'timestamp_created']}},
                {'name': 'get_background_job',
                 'class': 'read',
                 'description': 'A background job by id, as move_leads answers it: type, status (pending, '
@@ -778,9 +813,10 @@ DESCRIPTION = {'connector': {'name': 'instantly',
                 'description': "The workspace's sending accounts (mailboxes): items [{email, first_name, "
                                'last_name, status (1 active, 2 paused, -1 connection error, -2 soft bounce '
                                'error, -3 sending error), warmup_status, stat_warmup_score, daily_limit, '
-                               'provider_code (1 IMAP/SMTP, 2 Google, 3 Microsoft, 4 AWS), status_message}] '
-                               'and next_starting_after. No credential is returned. search matches the '
-                               'email. Needs accounts:read.',
+                               'provider_code (1 IMAP/SMTP, 2 Google, 3 Microsoft, 4 AWS), status_message, '
+                               'setup_pending, timestamps of creation, update and warmup start}] and '
+                               'next_starting_after; get_account has its warmup settings. No credential is '
+                               'returned. search matches the email. Needs accounts:read.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'properties': {'search': {'type': 'string', 'minLength': 1, 'personal': True},
@@ -824,7 +860,20 @@ DESCRIPTION = {'connector': {'name': 'instantly',
                                'request_param': 'starting_after',
                                'next': 'next_starting_after',
                                'max_pages': 10},
-                'output': {'items': 'items'}},
+                'output': {'items': 'items',
+                           'projection': ['email',
+                                          'first_name',
+                                          'last_name',
+                                          'status',
+                                          'status_message',
+                                          'warmup_status',
+                                          'stat_warmup_score',
+                                          'daily_limit',
+                                          'provider_code',
+                                          'setup_pending',
+                                          'timestamp_created',
+                                          'timestamp_updated',
+                                          'timestamp_warmup_start']}},
                {'name': 'get_account',
                 'class': 'read',
                 'description': 'One sending account by its email: status and status_message (the last SMTP '
@@ -1260,6 +1309,14 @@ DESCRIPTION = {'connector': {'name': 'instantly',
                                   'check_duplicates': 'check_duplicates',
                                   'check_duplicates_in_campaigns': 'check_duplicates_in_campaigns',
                                   'skip_invalid_emails': 'skip_invalid_emails'}},
+                'output': {'projection': ['id',
+                                          'type',
+                                          'status',
+                                          'progress',
+                                          'entity_id',
+                                          'entity_type',
+                                          'created_at',
+                                          'updated_at']},
                 'confirm': {'summary': 'Move (or copy) these Instantly leads to another campaign or list: '
                                        'moved into an active campaign, they are emailed.'}},
                {'name': 'create_lead_list',

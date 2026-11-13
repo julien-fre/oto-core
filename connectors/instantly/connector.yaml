@@ -49,7 +49,11 @@
 # - Query booleans are sent true/false; the client writes them so (requests would write True).
 # - Lean answers: list_campaigns and search_campaigns_by_lead drop each campaign's sequences (the email copy, read by
 #   get_campaign); list_emails drops each email's body.html (body.text, content_preview and get_email keep the rest).
-#   The client returns both untouched: these are size choices, not secrets.
+#   list_leads, list_lead_lists, list_lead_labels and list_accounts keep a projection of each item (1.0.1): ids,
+#   names, statuses, counts and dates, without a lead's custom variables, status summaries and step details (get_lead
+#   has them), a label's access grants, an account's warmup settings and signature (get_account has them) and tags.
+#   The client returns all of them untouched: these are size choices, not secrets. move_leads answers one background
+#   job, not a list: its limit caps the leads moved, it pages nothing, and it declares no projection.
 # - Narrower than the reference, named: path ids are UUIDs (a background job id and an account email have their
 #   own pattern); create_webhook takes an https address only; move_leads needs its source (campaign or list_id) and
 #   exactly one destination, never the whole workspace; add_leads takes campaign_id or list_id, exactly one, and in
@@ -75,7 +79,7 @@ connector:
   name: instantly
   label: Instantly
   namespace: instantly
-  version: 1.0.0
+  version: 1.0.1
   api_version: v2
   base_url: https://api.instantly.ai/api/v2
   auth: { kind: bearer, token: api_key }
@@ -329,10 +333,12 @@ functions:
     class: read
     description: >-
       Leads, by filters: items [{id, email, first_name, last_name,
-      company_name, job_title, campaign, list_id, status (1 active, 2 paused,
-      3 completed, -1 bounced, -2 unsubscribed, -3 skipped), lt_interest_status,
-      email_open_count, email_reply_count, payload (custom variables),
-      timestamps of the last contact, open, reply}] and next_starting_after.
+      company_name, company_domain, job_title, campaign, list_id, status (1
+      active, 2 paused, 3 completed, -1 bounced, -2 unsubscribed, -3 skipped),
+      lt_interest_status, verification_status, email_open_count,
+      email_reply_count, email_click_count, timestamps of creation, update,
+      last contact, open, reply, click and interest change}] and
+      next_starting_after; get_lead has its custom variables (payload).
       campaign or list_id narrows to one; search matches whole words of the
       email, names, company and title; contacts lists emails; ids lead ids;
       filter a state (FILTER_LEAD_INTERESTED, FILTER_VAL_REPLIED…). A read,
@@ -373,7 +379,12 @@ functions:
               in_campaign: in_campaign, in_list: in_list, distinct_contacts: distinct_contacts, limit: limit,
               starting_after: starting_after }
     pagination: *pages
-    output: { items: items }
+    output:
+      items: items
+      projection: [id, email, first_name, last_name, company_name, company_domain, job_title, campaign, list_id, status,
+                   lt_interest_status, verification_status, email_open_count, email_reply_count, email_click_count,
+                   timestamp_created, timestamp_updated, timestamp_last_contact, timestamp_last_open,
+                   timestamp_last_reply, timestamp_last_click, timestamp_last_interest_change]
 
   - name: get_lead
     class: read
@@ -420,7 +431,7 @@ functions:
       path: /lead-lists
       query: { search: search, has_enrichment_task: has_enrichment_task, limit: limit, starting_after: starting_after }
     pagination: *pages
-    output: { items: items }
+    output: { items: items, projection: [id, name, has_enrichment_task, owned_by, timestamp_created] }
 
   - name: get_lead_list
     class: read
@@ -462,7 +473,7 @@ functions:
       path: /lead-labels
       query: { search: search, interest_status: interest_status, limit: limit, starting_after: starting_after }
     pagination: *pages
-    output: { items: items }
+    output: { items: items, projection: [id, label, interest_status, interest_status_label, description, timestamp_created] }
 
   - name: get_background_job
     class: read
@@ -590,7 +601,9 @@ functions:
       last_name, status (1 active, 2 paused, -1 connection error, -2 soft
       bounce error, -3 sending error), warmup_status, stat_warmup_score,
       daily_limit, provider_code (1 IMAP/SMTP, 2 Google, 3 Microsoft, 4 AWS),
-      status_message}] and next_starting_after. No credential is returned.
+      status_message, setup_pending, timestamps of creation, update and warmup
+      start}] and next_starting_after; get_account has its warmup settings.
+      No credential is returned.
       search matches the email. Needs accounts:read.
     input:
       type: object
@@ -612,7 +625,10 @@ functions:
       query: { search: search, status: status, provider_code: provider_code, tag_ids: tag_ids, limit: limit,
                starting_after: starting_after }
     pagination: *pages
-    output: { items: items }
+    output:
+      items: items
+      projection: [email, first_name, last_name, status, status_message, warmup_status, stat_warmup_score, daily_limit,
+                   provider_code, setup_pending, timestamp_created, timestamp_updated, timestamp_warmup_start]
 
   - name: get_account
     class: read
@@ -908,6 +924,7 @@ functions:
               contacts: contacts, search: search, filter: filter, limit: limit, copy_leads: copy_leads,
               check_duplicates: check_duplicates, check_duplicates_in_campaigns: check_duplicates_in_campaigns,
               skip_invalid_emails: skip_invalid_emails }
+    output: { projection: [id, type, status, progress, entity_id, entity_type, created_at, updated_at] }
     confirm:
       summary: "Move (or copy) these Instantly leads to another campaign or list: moved into an active campaign, they are emailed."
 
