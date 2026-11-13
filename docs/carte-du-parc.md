@@ -55,7 +55,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `mistral` | Mistral AI | 1.0.1 | clé de l'hôte | oui | 1 | 1 | 0 | 0 | non | 1 | non | 0 |
 | `modjo` | Modjo | 1.0.0 | clé | non | 29 | 26 | 2 | 1 | oui | 29 | non | 0 |
 | `mux` | Mux | 1.0.0 | clé | non | 5 | 3 | 2 | 0 | oui | 5 | non | 0 |
-| `nextmotion` | Nextmotion | 1.1.0 | clé | non | 140 | 69 | 44 | 27 | non | 0 | non | 0 |
+| `nextmotion` | Nextmotion | 1.2.0 | clé | non | 140 | 69 | 44 | 27 | non | 0 | non | 0 |
 | `notion` | Notion | 1.1.0 | clé | non | 22 | 9 | 10 | 3 | non | 22 | non | 0 |
 | `openai` | OpenAI Images | 1.0.0 | clé | non | 3 | 1 | 2 | 0 | oui | 0 | non | 0 |
 | `origami` | Origami | 1.0.0 | clé | non | 19 | 12 | 2 | 5 | oui | 19 | non | 0 |

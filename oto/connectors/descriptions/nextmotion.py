@@ -3,7 +3,7 @@
 DESCRIPTION = {'connector': {'name': 'nextmotion',
                'label': 'Nextmotion',
                'namespace': 'nextmotion',
-               'version': '1.1.0',
+               'version': '1.2.0',
                'api_version': 'v4',
                'base_url': 'https://api.nextmotion.net/open_api',
                'auth': {'kind': 'bearer', 'token': 'api_key'},
@@ -9523,9 +9523,14 @@ DESCRIPTION = {'connector': {'name': 'nextmotion',
                                        'accounting record.'}},
                {'name': 'list_payments',
                 'class': 'read',
-                'description': "List clinic's payments. Each payment embeds its invoice. The embedded "
-                               'invoice carries a nested patient object (personal data). Paginated by limit '
-                               'and offset; the answer is {count, next, previous, data}.',
+                'description': "List clinic's payments, optionally of a period (paid_from, paid_to: payment "
+                               'days, inclusive). Each payment carries payment_time (date-time), its amount '
+                               'per means of payment (cash, card, check, transfer, stripe, voucher, other, '
+                               'custom_medium_list) and embeds its invoice. The embedded invoice carries a '
+                               'nested patient object (personal data) and its lines (invoiced_treatments, '
+                               'each with the id of its treatment); the practitioner of the act is not in '
+                               'the answer. Paginated by limit and offset; the answer is {count, next, '
+                               'previous, data}.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['clinic_id'],
@@ -9539,6 +9544,19 @@ DESCRIPTION = {'connector': {'name': 'nextmotion',
                                                         'description': 'Filter payments matching this '
                                                                        'invoice ID. Payments of that invoice '
                                                                        '(sent as `invoice`).'},
+                                         'paid_from': {'type': 'string',
+                                                       'format': 'date',
+                                                       'description': 'Payments made on or after this day '
+                                                                      '(YYYY-MM-DD, clinic time zone), sent '
+                                                                      'as `payment_time__gte`. For a month, '
+                                                                      'the first day: 2026-10-01.'},
+                                         'paid_to': {'type': 'string',
+                                                     'format': 'date',
+                                                     'description': 'Payments made on or before this day '
+                                                                    '(YYYY-MM-DD, clinic time zone, '
+                                                                    'inclusive), sent as '
+                                                                    '`payment_time__lte`. For a month, the '
+                                                                    'last day: 2026-10-31.'},
                                          'limit': {'type': 'integer',
                                                    'minimum': 1,
                                                    'maximum': 100,
@@ -9550,13 +9568,22 @@ DESCRIPTION = {'connector': {'name': 'nextmotion',
                                                     'description': 'Index of the first item; add limit to '
                                                                    'get the next page.'}}},
                 'examples': [{'title': 'First page of payments',
-                              'input': {'clinic_id': 'd4331aa8-ec2a-5227-ad64-762a043da25d', 'limit': 20}}],
+                              'input': {'clinic_id': 'd4331aa8-ec2a-5227-ad64-762a043da25d', 'limit': 20}},
+                             {'title': 'Payments of one month',
+                              'input': {'clinic_id': 'd4331aa8-ec2a-5227-ad64-762a043da25d',
+                                        'paid_from': '2026-10-01',
+                                        'paid_to': '2026-10-31',
+                                        'limit': 100}}],
                 'refusals': [{'code': 'non_employee_access_denied',
                               'when': 'HTTP 403 with error code non_employee_access_denied',
                               'message': "The key's user is not an employee of this clinic."}],
                 'call': {'method': 'GET',
                          'path': '/v4/clinics/{clinic_id}/payments',
-                         'query': {'invoice': 'invoice_id', 'limit': 'limit', 'offset': 'offset'}}},
+                         'query': {'invoice': 'invoice_id',
+                                   'payment_time__gte': 'paid_from',
+                                   'payment_time__lte': 'paid_to',
+                                   'limit': 'limit',
+                                   'offset': 'offset'}}},
                {'name': 'get_payment',
                 'class': 'read',
                 'description': 'Retrieve a payment. The payment embeds a nested patient object (personal '
