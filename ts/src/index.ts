@@ -41,6 +41,7 @@ import * as modjo from "./modjo"
 import * as mux from "./mux"
 import * as nextmotion from "./nextmotion"
 import * as notion from "./notion"
+import * as openai from "./openai"
 import * as origami from "./origami"
 import * as pappers from "./pappers"
 import * as pennylane from "./pennylane"
@@ -102,6 +103,7 @@ export { modjo }
 export { mux }
 export { nextmotion }
 export { notion }
+export { openai }
 export { origami }
 export { pappers }
 export { pennylane }
@@ -166,6 +168,7 @@ export const connectors: readonly Connector[] = [
   mux.connector,
   nextmotion.connector,
   notion.connector,
+  openai.connector,
   origami.connector,
   pappers.connector,
   pennylane.connector,
