@@ -17,12 +17,20 @@ from __future__ import annotations
 import threading
 import time
 from abc import ABC
+from collections.abc import Callable
 from urllib.parse import urlsplit
 
 import requests
 from requests.auth import HTTPBasicAuth
 
-AUTH_MODES = ("bearer", "header", "query", "basic", "oauth2", "none")
+from .session import SessionConfig, SessionLogin
+
+AUTH_MODES = ("bearer", "header", "query", "basic", "oauth2", "session", "none")
+
+# The modes whose agent only reads: the session mode logs in with a person's password,
+# so its only POST is the login, never the agent's.
+READ_ONLY_MODES = ("session",)
+READ_METHODS = ("GET", "HEAD")
 
 
 # --- auth modes ----------------------------------------------------------------
@@ -38,6 +46,16 @@ class UpstreamAuth(ABC):
 
     def refresh(self, session: requests.Session) -> None:  # noqa: B027
         """Re-authenticate after a 401. No-op by default (static credential)."""
+
+    def needs_login(self, r: requests.Response) -> bool:
+        """Whether this answer asks for a re-authentication and one replay: a 401."""
+        return r.status_code == 401
+
+    def check_replay(self, r: requests.Response) -> None:  # noqa: B027
+        """Look at the replay's answer. No-op by default: its 401 raises as an HTTPError."""
+
+    def after_response(self, session: requests.Session) -> None:  # noqa: B027
+        """After each answer of the API. No-op by default."""
 
 
 class NoAuth(UpstreamAuth):
@@ -131,8 +149,15 @@ class OAuth2ClientCredentials(UpstreamAuth):
         session.headers["Authorization"] = f"Bearer {self._token}"
 
 
-def build_auth(mode: str, fields: dict) -> UpstreamAuth:
+def build_auth(mode: str, fields: dict, *, base_url: str | None = None,
+               guard: Callable[[str], None] | None = None, jar: str | None = None,
+               on_jar: Callable[[str], None] | None = None,
+               timeout: int = 45) -> UpstreamAuth:
     """Build the `UpstreamAuth` for an `auth_mode` + the credential fields.
+
+    The session mode also takes the base URL, the host's egress `guard` (called on
+    each hop of the login, required), the stored cookie `jar` and the `on_jar`
+    callback that receives it to store (see `session.py`).
 
     Raises `ValueError` (actionable message) if the mode is unknown or a
     required field is missing."""
@@ -158,6 +183,13 @@ def build_auth(mode: str, fields: dict) -> UpstreamAuth:
         need("token_url", "client_id", "client_secret")
         return OAuth2ClientCredentials(val("token_url"), val("client_id"),
                                        val("client_secret"), scope=val("scope") or None)
+    if mode == "session":
+        need("username", "password", "session")
+        if not base_url:
+            raise ValueError("auth_mode='session' requires the base URL")
+        return SessionLogin(base_url, val("username"), fields.get("password") or "",
+                            SessionConfig(fields.get("session")), guard=guard, jar=jar,
+                            on_jar=on_jar, timeout=timeout)
     if mode == "none":
         return NoAuth()
     raise ValueError(f"unknown auth_mode: {mode!r} (expected: {'|'.join(AUTH_MODES)})")
@@ -165,7 +197,7 @@ def build_auth(mode: str, fields: dict) -> UpstreamAuth:
 
 # --- forward -------------------------------------------------------------------
 
-METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
+METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
 
 
 class RedirectRefused(ValueError):
@@ -206,20 +238,28 @@ def refuse_redirect(r: requests.Response) -> None:
 class HttpConnectorClient:
     """HTTP node: (base_url, auth_mode, fields) → `.request(method, path, …)`.
 
-    Injects the auth, forwards the method (GET/POST/PUT/PATCH/DELETE), single retry
+    Injects the auth, forwards the method (GET/HEAD/POST/PUT/PATCH/DELETE), single retry
     after re-auth on 401. A 3xx is never followed (`RedirectRefused`). `.get()`/`.post()` = shortcuts. Raises `ValueError` on
     invalid config (non-http(s) scheme, invalid mode/field/method).
+
+    The session mode (`auth_mode='session'`) reads only: GET and HEAD. A 401 or a
+    redirect to the login page triggers one full login and one replay; refused again,
+    `SessionRejected`. `guard`, `jar` and `on_jar` serve that mode only.
 
     Like n8n/Make's HTTP node: write methods are carried through;
     responsibility for what they do lies with the target API (and, for a
     downstream bridge, with ITS own allowlist)."""
 
-    def __init__(self, base_url: str, auth_mode: str, fields: dict, *, timeout: int = 45):
+    def __init__(self, base_url: str, auth_mode: str, fields: dict, *, timeout: int = 45,
+                 guard: Callable[[str], None] | None = None, jar: str | None = None,
+                 on_jar: Callable[[str], None] | None = None):
         base_url = (base_url or "").strip().rstrip("/")
         if urlsplit(base_url).scheme not in ("http", "https"):
             raise ValueError("base_url must be http(s)")
         self._base_url = base_url
-        self._auth = build_auth(auth_mode, fields)
+        self._read_only = (auth_mode or "").strip().lower() in READ_ONLY_MODES
+        self._auth = build_auth(auth_mode, fields, base_url=base_url, guard=guard,
+                                jar=jar, on_jar=on_jar, timeout=timeout)
         self._timeout = timeout
         self._session: requests.Session | None = None
 
@@ -241,6 +281,8 @@ class HttpConnectorClient:
         method = (method or "").strip().upper()
         if method not in METHODS:
             raise ValueError(f"invalid method: {method!r} (expected: {'|'.join(METHODS)})")
+        if self._read_only and method not in READ_METHODS:
+            raise ValueError(f"the session mode only reads: {'|'.join(READ_METHODS)}, not {method}")
         if not path.startswith("/"):
             raise ValueError("path must start with / (relative to base_url)")
         s = self._ready()
@@ -252,9 +294,12 @@ class HttpConnectorClient:
                              timeout=self._timeout, allow_redirects=False)
 
         r = _send()
-        if r.status_code == 401:
+        if self._auth.needs_login(r):
+            r.close()
             self._auth.refresh(s)
             r = _send()
+            self._auth.check_replay(r)
+        self._auth.after_response(s)
         refuse_redirect(r)
         r.raise_for_status()
         return r.json() if r.content else {}
@@ -283,10 +328,12 @@ class HttpConnectorClient:
                          stream=True, allow_redirects=False)
 
         r = _send()
-        if r.status_code == 401:
+        if self._auth.needs_login(r):
             r.close()
             self._auth.refresh(s)
             r = _send()
+            self._auth.check_replay(r)
+        self._auth.after_response(s)
         try:
             refuse_redirect(r)
             r.raise_for_status()

@@ -17,6 +17,7 @@ from .client import (
     build_auth,
     refuse_redirect,
 )
+from .session import SessionHopRefused, SessionRejected, dump_jar, load_jar
 
 __all__ = [
     "AUTH_MODES",
@@ -27,8 +28,12 @@ __all__ = [
     "NoAuth",
     "OAuth2ClientCredentials",
     "RedirectRefused",
+    "SessionHopRefused",
+    "SessionRejected",
     "StaticBearer",
     "UpstreamAuth",
     "build_auth",
+    "dump_jar",
+    "load_jar",
     "refuse_redirect",
 ]

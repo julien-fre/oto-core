@@ -217,3 +217,96 @@ def test_invalid_grant_rejects_the_credential(rsa_key):
         engine.call(descriptions.load("google_search_console"), "list_sites", {},
                     credential={"service_account_key": _key_file(rsa_key)}, session=engine_fake.session(vendor))
     assert raised.value.credential_rejected and raised.value.marks_account == "credential_rejected"
+
+
+# --- niveaux d'accès d'un compte de service (docs/conception/niveaux-d-acces.md) ---------------------------------------
+
+READONLY = "https://www.googleapis.com/auth/webmasters.readonly"
+WEBMASTERS = "https://www.googleapis.com/auth/webmasters"
+SITEMAP = {"site_url": "sc-domain:example.com", "feedpath": "https://www.example.com/sitemap.xml"}
+
+
+def _claimed(request) -> str:
+    form = dict(pair.split("=", 1) for pair in request.body.decode("ascii").split("&"))
+    return _decoded(form["assertion"].split(".")[1])["scope"]
+
+
+@pytest.mark.parametrize("level, scope", [(None, READONLY), ("read", READONLY), ("full", WEBMASTERS)],
+                         ids=["default_level", "read", "full"])
+def test_search_console_claims_the_scopes_of_the_account_level(rsa_key, level, scope):
+    """Sans niveau donné, le niveau par défaut de la description (`read`) ; la lecture est servie aux deux niveaux."""
+    vendor = engine_fake.Vendor(token(), answer(200, {"siteEntry": []}))
+    engine.execute(descriptions.load("google_search_console"), "list_sites", {},
+                   credential={"service_account_key": _key_file(rsa_key)}, session=engine_fake.session(vendor),
+                   access_level=level)
+    assert _claimed(vendor.requests[0]) == scope
+
+
+@pytest.mark.parametrize("level", [None, "read"], ids=["default_level", "read"])
+def test_add_sitemap_is_refused_below_full_and_nothing_is_sent(rsa_key, level):
+    vendor = engine_fake.Vendor()
+    with pytest.raises(engine.Refused) as raised:
+        engine.call(descriptions.load("google_search_console"), "add_sitemap", SITEMAP,
+                    credential={"service_account_key": _key_file(rsa_key)}, session=engine_fake.session(vendor),
+                    access_level=level)
+    assert (raised.value.code, raised.value.status_code) == ("access_level_denied", None)
+    assert "'read'" in str(raised.value) and "add_sitemap" in str(raised.value)
+    assert vendor.requests == []
+
+
+def test_add_sitemap_at_full_puts_the_sitemap_with_a_write_token(rsa_key):
+    vendor = engine_fake.Vendor(token("ya29.write-not-real"), answer(204))
+    result = engine.call(descriptions.load("google_search_console"), "add_sitemap", SITEMAP,
+                         credential={"service_account_key": _key_file(rsa_key)}, session=engine_fake.session(vendor),
+                         access_level="full")
+    assert result == {}
+    exchanged, api = vendor.requests
+    assert _claimed(exchanged) == WEBMASTERS
+    parts = sent(api, "https://searchconsole.googleapis.com")
+    assert (parts["method"], parts["path"]) == (
+        "PUT", "/webmasters/v3/sites/sc-domain%3Aexample.com/sitemaps/https%3A%2F%2Fwww.example.com%2Fsitemap.xml")
+    assert parts["headers"]["authorization"] == "Bearer ya29.write-not-real"
+
+
+def test_add_sitemap_by_a_restricted_user_names_the_permission(rsa_key):
+    refused = answer(403, {"error": {"code": 403, "message": "User does not have sufficient permission for site "
+                                     "'sc-domain:example.com'. See also: https://support.google.com/webmasters/answer/2451999.",
+                                     "errors": [{"reason": "forbidden"}]}})
+    vendor = engine_fake.Vendor(token(), refused)
+    with pytest.raises(engine.Refused) as raised:
+        engine.call(descriptions.load("google_search_console"), "add_sitemap", SITEMAP,
+                    credential={"service_account_key": _key_file(rsa_key)}, session=engine_fake.session(vendor),
+                    access_level="full")
+    assert raised.value.code == "owner_or_full_required"
+
+
+def test_a_token_is_kept_per_level(rsa_key):
+    """Le jeton gardé est indexé par ses droits : un compte passé à `full` signe une nouvelle assertion."""
+    description = descriptions.load("google_search_console")
+    credential = {"service_account_key": _key_file(rsa_key)}
+    vendor = engine_fake.Vendor(token("t-read"), answer(200, {"siteEntry": []}), token("t-full"), answer(200, {"siteEntry": []}))
+    for level in ("read", "full"):
+        engine.execute(description, "list_sites", {}, credential=credential, session=engine_fake.session(vendor),
+                       access_level=level)
+    assert [_claimed(vendor.requests[i]) for i in (0, 2)] == [READONLY, WEBMASTERS]
+
+
+def test_an_undeclared_level_raises_and_nothing_is_sent(rsa_key):
+    vendor = engine_fake.Vendor()
+    with pytest.raises(engine.UnknownAccessLevel):
+        engine.call(descriptions.load("google_search_console"), "list_sites", {},
+                    credential={"service_account_key": _key_file(rsa_key)}, session=engine_fake.session(vendor),
+                    access_level="admin")
+    assert vendor.requests == []
+
+
+def test_a_connector_without_levels_takes_full_or_none_only():
+    """Un connecteur sans niveaux n'a que `full` : aucun niveau, ou `full`, ne change rien ; un autre lève."""
+    vendor = engine_fake.Vendor(token(), answer(200, {"ok": True}), answer(200, {"ok": True}))
+    for level in (None, "full"):
+        assert engine.call(client(), "get_records", {}, credential=CREDENTIAL, session=engine_fake.session(vendor),
+                           access_level=level) == {"ok": True}
+    assert len(vendor.requests) == 3, "one token, kept for both calls: the same scope"
+    with pytest.raises(engine.UnknownAccessLevel):
+        engine.call(client(), "get_records", {}, credential=CREDENTIAL,
+                    session=engine_fake.session(engine_fake.Vendor()), access_level="read")

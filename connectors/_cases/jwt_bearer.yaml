@@ -19,6 +19,9 @@
 # - key_file: the fields of the key file, private_key aside; private_key: how it is added, last (test_key: the test key
 #   framed as a PEM; absent; truncated: a PEM framing only the first line of the test key; not_pem: a text that is not a
 #   PEM); or key_text, the value as is. The value is the key file as compact JSON;
+# - access_level: with auth.access_levels, the level of the account; absent, auth.default_level, else full. The scope
+#   claim of the assertion is the scopes of that level joined by spaces: a service account consents to nothing, its
+#   level only decides what the assertion asks for;
 # - now: the clock, in seconds since the epoch;
 # - assertion: header (alg, typ, then kid when the key has a private_key_id) and claims (iss, scope, aud, iat, exp), each
 #   serialized as compact JSON in this key order, UTF-8, base64url without padding, joined by a dot; then the RS256
@@ -97,6 +100,41 @@ cases:
     token_request: *token_request
     token_answer: { status: 200, headers: {}, body: { access_token: test-access-token-two-not-real, expires_in: 3600, token_type: Bearer } }
     outcome: { headers: { authorization: Bearer test-access-token-two-not-real }, expires_at: 1767315600 }
+
+  - name: assertion_at_default_level
+    auth: &auth_levels
+      kind: oauth2_jwt_bearer
+      token_url: https://oauth2.example.test/token
+      access_levels:
+        read: { scopes: [https://api.example.test/auth/read] }
+        full: { scopes: [https://api.example.test/auth/write] }
+      scope_implies: { "https://api.example.test/auth/write": [https://api.example.test/auth/read] }
+      default_level: read
+      key: service_account_key
+    credential: *credential
+    key_file: *key_file
+    private_key: test_key
+    now: 1767225600
+    # The level read, by default_level: the very assertion of assertion_with_key_id.
+    assertion: *assertion_one
+    token_request: *token_request
+    token_answer: { status: 200, headers: {}, body: { access_token: test-access-token-read-not-real, expires_in: 3600, token_type: Bearer } }
+    outcome: { headers: { authorization: Bearer test-access-token-read-not-real }, expires_at: 1767229200 }
+
+  - name: assertion_at_level_full
+    auth: *auth_levels
+    credential: *credential
+    access_level: full
+    key_file: *key_file
+    private_key: test_key
+    now: 1767225600
+    assertion:
+      header: { alg: RS256, typ: JWT, kid: test-key-id-not-real }
+      claims: { iss: reader@test-project-not-real.example.test, scope: https://api.example.test/auth/write, aud: https://oauth2.example.test/token, iat: 1767225600, exp: 1767229200 }
+      signature: "F6QvDpqaDR_enQQccnB1-bffnBw3fHifDrfbFVqoNkAkt78KADkrqE4tq_CIiDQyp5u7AgdVHz0xIUlQqZJvN4OaqctKDbm4MFOwolON7SqYswV3IqAHvvgISQ-Zac6h8QjDH2sAOf-bYASEcBYyFtQWuFPcljJ3EkTy-6xsN75DUBrSoq_pn7jGYmoHi4QeGxqtJha6F_xfF_-Q_Qq876j6vaNAyYSEXgOUxc8fZEP3HIMbzP_eVoJlrCbDf7zQEthbdbDyyufraDXKN-x5omgLk2-jPM8hseo3EhA2kzmN_ntFLiluwA5M3zi9u6wE82DeXEzUSx10MQOOzqgXZA"
+    token_request: *token_request
+    token_answer: { status: 200, headers: {}, body: { access_token: test-access-token-full-not-real, expires_in: 3600, token_type: Bearer } }
+    outcome: { headers: { authorization: Bearer test-access-token-full-not-real }, expires_at: 1767229200 }
 
   - name: token_refused_invalid_grant
     auth: *auth_one

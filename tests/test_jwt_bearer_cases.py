@@ -69,12 +69,13 @@ def _segment(value: dict) -> str:
     return _b64url(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
-def assertion(auth: dict, key: dict, private: rsa.RSAPrivateKey, now: int) -> tuple[dict, dict, str, str]:
-    """La référence : en-tête, revendications, entrée signée et signature RS256 (PKCS#1 v1.5, SHA-256, déterministe)."""
+def assertion(auth: dict, key: dict, private: rsa.RSAPrivateKey, now: int, scopes: list[str]) -> tuple[dict, dict, str, str]:
+    """La référence : en-tête, revendications, entrée signée et signature RS256 (PKCS#1 v1.5, SHA-256, déterministe) ;
+    `scopes`, ceux du niveau du compte."""
     header = {"alg": "RS256", "typ": "JWT"}
     if key.get("private_key_id"):
         header["kid"] = key["private_key_id"]
-    claims = {"iss": key["client_email"], "scope": " ".join(auth["scopes"]), "aud": auth["token_url"],
+    claims = {"iss": key["client_email"], "scope": " ".join(scopes), "aud": auth["token_url"],
               "iat": now, "exp": now + LIFETIME_S}
     signing_input = f"{_segment(header)}.{_segment(claims)}"
     signature = _b64url(private.sign(signing_input.encode("ascii"), padding.PKCS1v15(), hashes.SHA256()))
@@ -104,7 +105,8 @@ def _value(case: dict) -> str:
 @pytest.mark.parametrize("case", LOADED.cases, ids=[case["name"] for case in LOADED.cases])
 def test_jwt_bearer_case(case):
     key, private = read_key(case["auth"], _value(case))
-    header, claims, signing_input, signature = assertion(case["auth"], key, private, case["now"])
+    header, claims, signing_input, signature = assertion(case["auth"], key, private, case["now"],
+                                                         jwt_bearer_cases.level_scopes(case))
     expected = case["assertion"]
     assert (list(header.items()), list(claims.items()), signature) == \
         (list(expected["header"].items()), list(expected["claims"].items()), expected["signature"])
@@ -127,11 +129,14 @@ API = "https://api.example.test/v1"
 
 
 def _described(case: dict) -> dict:
-    """Une description d'une fonction sans argument, au bloc `auth` et `credential` du cas."""
+    """Une description d'une fonction sans argument, au bloc `auth` et `credential` du cas ; à niveaux, la fonction
+    exige les droits du niveau du cas."""
     connector = {"name": "jwt_bearer_cases", "label": "Jwt bearer cases", "base_url": API, "auth": case["auth"],
                  "credential": case["credential"], "errors": []}
-    return {"connector": connector, "functions": [{"name": "get_records", "class": "read",
-                                                   "call": {"method": "GET", "path": "/records"}}]}
+    function = {"name": "get_records", "class": "read", "call": {"method": "GET", "path": "/records"}}
+    if "access_levels" in case["auth"]:
+        function["scopes"] = jwt_bearer_cases.level_scopes(case)
+    return {"connector": connector, "functions": [function]}
 
 
 @pytest.fixture
@@ -147,7 +152,7 @@ def _engine_call(case: dict, *answers):
     vendor = engine_fake.Vendor(*answers)
     field = case["credential"][0]["name"]
     engine.call(_described(case), "get_records", {}, credential={field: _value(case)},
-                session=engine_fake.session(vendor))
+                session=engine_fake.session(vendor), access_level=case.get("access_level"))
     return vendor
 
 
@@ -165,7 +170,7 @@ def test_jwt_bearer_case_against_the_engine(case, clock):
         vendor = engine_fake.Vendor(token_answer)
         with pytest.raises(engine.TokenRefused) as refused:
             engine.call(_described(case), "get_records", {}, credential={case["credential"][0]["name"]: _value(case)},
-                        session=engine_fake.session(vendor))
+                        session=engine_fake.session(vendor), access_level=case.get("access_level"))
         assert ("credential_rejected" if refused.value.credential_rejected else "upstream_error") == outcome["refusal"]
         assert len(vendor.requests) == 1, "a redirect is never followed"
         assert jwt not in str(refused.value) and "private_key" not in str(refused.value)
@@ -201,7 +206,8 @@ def test_google_auth_signs_and_verifies_the_same_assertion(case, monkeypatch):
     from google.auth import _helpers, crypt, jwt
 
     key = json.loads(_value(case))
-    header, _, signing_input, signature = assertion(case["auth"], *read_key(case["auth"], _value(case)), case["now"])
+    header, _, signing_input, signature = assertion(case["auth"], *read_key(case["auth"], _value(case)), case["now"],
+                                                    jwt_bearer_cases.level_scopes(case))
     signer = crypt.RSASigner.from_service_account_info(key)
     assert _b64url(signer.sign(signing_input)) == signature
     assert signer.key_id == header.get("kid")
@@ -216,7 +222,9 @@ def test_google_auth_signs_and_verifies_the_same_assertion(case, monkeypatch):
 def test_the_cases_cover_the_mode():
     kids = {"kid" in case["assertion"]["header"] for case in LOADED.cases}
     assert kids == {True, False}
-    assert any(len(case["auth"]["scopes"]) > 1 for case in LOADED.cases)
+    assert any(len(case["auth"].get("scopes", [])) > 1 for case in LOADED.cases)
+    leveled = [case for case in LOADED.cases if "access_levels" in case["auth"]]
+    assert {"access_level" in case for case in leveled} == {True, False}, "a level given, and the default level"
     assert any("token_uri" not in case["key_file"] for case in LOADED.cases)
     assert {case["outcome"].get("refusal") for case in LOADED.cases} == {None, *jwt_bearer_cases.TOKEN_REFUSALS}
     assert {case["refusal"] for case in LOADED.refused} == set(jwt_bearer_cases.KEY_REFUSALS)
@@ -268,8 +276,15 @@ FIRST_REFUSED = LOADED.refused[0]["name"]
     (lambda d: _case(d, FIRST)["token_request"].update(body="grant_type=x"), "ends with the one {assertion}"),
     (lambda d: _case(d, FIRST_REFUSED).update(key_file={"client_email": "x"}, private_key="absent"), "does not match the jwt bearer cases form"),
     (lambda d: _case(d, FIRST_REFUSED).update(name=FIRST), "declared twice"),
+    (lambda d: _case(d, "assertion_at_level_full").update(access_level="admin"), "access_level 'admin' is not a level of auth"),
+    (lambda d: _case(d, FIRST).update(access_level="full"), "access_level 'full' is not a level of auth"),
+    (lambda d: _case(d, "assertion_at_level_full").update(access_level="read"), "is not the scopes of the account's level"),
+    (lambda d: _case(d, "assertion_at_level_full")["auth"].update(default_level="admin"), "auth.default_level 'admin' is not a declared access level"),
+    (lambda d: _case(d, "assertion_at_level_full")["auth"].update(scopes=["https://api.example.test/auth/read"]),
+     "does not match the description schema"),
 ], ids=["key_not_a_field", "second_field", "key_not_secret", "without_scopes", "token_url_template", "kind_not_jwt_bearer",
-        "request_elsewhere", "body_without_assertion", "key_text_and_key_file", "name_twice"])
+        "request_elsewhere", "body_without_assertion", "key_text_and_key_file", "name_twice", "level_unknown",
+        "level_without_levels", "claims_not_of_the_level", "default_level_unknown", "levels_and_scopes"])
 def test_a_case_is_checked_like_a_description(tmp_path, mutate, message):
     with pytest.raises(DescriptionError, match=re.escape(message) if "{" in message else message):
         jwt_bearer_cases.load(_write(tmp_path, mutate))

@@ -41,7 +41,8 @@ pas dire :
    l'implication dit la même chose) et chacune de ses clés est un droit d'un
    niveau ; `full` couvre chaque droit d'un niveau restreint et chaque droit exigé
    par une fonction (`full` ne filtre rien) ; l'identité du consentement et la
-   sonde sont servies à chaque niveau ;
+   sonde sont servies à chaque niveau ; `default_level` (compte de service) nomme
+   un niveau déclaré ;
 8. l'identité d'un compte rattaché (`account_identity`, l'identifiant du compte chez
    un tiers qui héberge les comptes de ses utilisateurs) : son nom n'est ni celui
    d'un champ de `credential`, ni d'un réglage, ni d'une valeur de `from_token` ;
@@ -1229,7 +1230,8 @@ def served(function: dict, scopes: list[str], implies: dict[str, list[str]]) -> 
 
 
 def check_access_levels(data: dict, where: str) -> None:
-    """Règle 7 : implication close et utile, `full` couvre tout, identité et sonde servies à chaque niveau."""
+    """Règle 7 : implication close et utile, `full` couvre tout, identité et sonde servies à chaque niveau, niveau par
+    défaut déclaré."""
     auth = data["connector"]["auth"]
     levels = auth.get("access_levels")
     if levels is None:
@@ -1245,6 +1247,9 @@ def check_access_levels(data: dict, where: str) -> None:
                 f"{where}: auth.scope_implies: {scope!r} implies a scope that implies {', '.join(missing)}, "
                 f"which {scope!r} must then list too"
             )
+    default = auth.get("default_level")
+    if default is not None and default not in levels:
+        raise DescriptionError(f"{where}: auth.default_level {default!r} is not a declared access level")
     full = covered(levels["full"]["scopes"], implies)
     for name, level in levels.items():
         beyond = sorted(set(level["scopes"]) - full)
@@ -1258,11 +1263,12 @@ def check_access_levels(data: dict, where: str) -> None:
             raise DescriptionError(
                 f"{where}: function {function['name']}: scope(s) {', '.join(beyond)} not covered by level 'full'"
             )
-    identity = auth["identity"]
+    # Un compte de service (`oauth2_jwt_bearer`) n'a pas d'identité de consentement : seule la sonde est jugée.
+    identity = auth.get("identity")
     roles = []
-    if "function" in identity:
+    if identity is not None and "function" in identity:
         roles.append(("auth.identity", identity["function"], next(f for f in data["functions"] if f["name"] == identity["function"])))
-    else:
+    elif identity is not None:
         roles.append(("auth.identity", identity["url"], identity))
     if "probe" in data["connector"]:
         name = data["connector"]["probe"]["function"]

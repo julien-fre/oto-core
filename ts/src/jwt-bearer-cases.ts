@@ -30,6 +30,8 @@ export type JwtBearerCase = JwtBearerKey & {
   readonly name: string
   readonly auth: Auth
   readonly credential: readonly CredentialField[]
+  /** With `auth.accessLevels`: the level of the account; absent, `auth.defaultLevel`, else `full` (`levelScopes`). */
+  readonly accessLevel?: string
   readonly now: number
   readonly assertion: {
     readonly header: { readonly [name: string]: string }
@@ -58,6 +60,19 @@ export type JwtBearerRefusedKey = JwtBearerKey & {
 // The PEM label, never written with its dashes: secret guards refuse a private key header written in clear.
 const PEM_LABEL = "PRIVATE KEY"
 const pem = (body: string): string => `-----BEGIN ${PEM_LABEL}-----\n${body}-----END ${PEM_LABEL}-----\n`
+
+/**
+ * The scopes the assertion of a case claims: `auth.scopes`, or those of the account's level (`accessLevel`, else
+ * `auth.defaultLevel`, else `full`).
+ */
+export function levelScopes(auth: Auth, accessLevel?: string): readonly string[] {
+  if (auth.kind !== "oauth2_jwt_bearer") throw new Error(`not a service account: ${auth.kind}`)
+  if (auth.accessLevels === undefined) return auth.scopes
+  const level = accessLevel ?? auth.defaultLevel ?? "full"
+  const scopes = auth.accessLevels[level]
+  if (scopes === undefined) throw new Error(`access level not declared: ${level}`)
+  return scopes.scopes
+}
 
 /** The value of the key field of a case: `keyText` as is, or `keyFile` as compact JSON, its private key added last. */
 export function credentialValue(key: JwtBearerKey): string {
@@ -147,6 +162,101 @@ export const jwtBearerCases: readonly JwtBearerCase[] = [
       "body": {"access_token": "test-access-token-two-not-real", "expires_in": 3600, "token_type": "Bearer"}
     },
     outcome: {"headers": {"authorization": "Bearer test-access-token-two-not-real"}, "expiresAt": 1767315600},
+  },
+  {
+    name: "assertion_at_default_level",
+    auth: {
+      "kind": "oauth2_jwt_bearer",
+      "tokenUrl": "https://oauth2.example.test/token",
+      "accessLevels": {
+        "read": {"scopes": ["https://api.example.test/auth/read"]},
+        "full": {"scopes": ["https://api.example.test/auth/write"]}
+      },
+      "scopeImplies": {"https://api.example.test/auth/write": ["https://api.example.test/auth/read"]},
+      "defaultLevel": "read",
+      "key": "service_account_key"
+    },
+    credential: [{"name": "service_account_key", "label": "Service account key (JSON)", "secret": true, "holder": "account"}],
+    keyFile: {
+      "type": "service_account",
+      "project_id": "test-project-not-real",
+      "private_key_id": "test-key-id-not-real",
+      "client_email": "reader@test-project-not-real.example.test",
+      "client_id": "100000000000000000001",
+      "token_uri": "https://oauth2.example.test/token"
+    },
+    privateKey: "test_key",
+    now: 1767225600,
+    assertion: {
+      "header": {"alg": "RS256", "typ": "JWT", "kid": "test-key-id-not-real"},
+      "claims": {
+        "iss": "reader@test-project-not-real.example.test",
+        "scope": "https://api.example.test/auth/read",
+        "aud": "https://oauth2.example.test/token",
+        "iat": 1767225600,
+        "exp": 1767229200
+      },
+      "signature": "H5Gm6GIpKnChyX4j5W_f-PWP2BedNB8GMT0VzI5zHoRQwd8WnHtxcg9nV-FnsokEMPcI_ZtaqHVCgG_UhKcyVBAhb0D2fC_DP6i0sA3tvtK4sp3GRWSDGp7paCEFBAqmlQUqQZvTsElLXge8zFtNZWKHOaHMENOtheuviIlEaS0ZG6bUqr62uPn_HVwngGTG8_Uo8kjwdZzwdUURmdUT_9p05BQy-_iKwYE3VVZOBcJSkEUt9uVlGq849eo7PQ2O3GUzHeoVi2OBAJJ3sef9GSMKc36kAgq_V30mWqaDT4RetiXZRC6dOgrJD0CsUYgenqfr-OKIHjkCQ9JDn5Et6A"
+    },
+    tokenRequest: {
+      "url": "https://oauth2.example.test/token",
+      "contentType": "application/x-www-form-urlencoded",
+      "body": "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={assertion}"
+    },
+    tokenAnswer: {
+      "status": 200,
+      "headers": {},
+      "body": {"access_token": "test-access-token-read-not-real", "expires_in": 3600, "token_type": "Bearer"}
+    },
+    outcome: {"headers": {"authorization": "Bearer test-access-token-read-not-real"}, "expiresAt": 1767229200},
+  },
+  {
+    name: "assertion_at_level_full",
+    auth: {
+      "kind": "oauth2_jwt_bearer",
+      "tokenUrl": "https://oauth2.example.test/token",
+      "accessLevels": {
+        "read": {"scopes": ["https://api.example.test/auth/read"]},
+        "full": {"scopes": ["https://api.example.test/auth/write"]}
+      },
+      "scopeImplies": {"https://api.example.test/auth/write": ["https://api.example.test/auth/read"]},
+      "defaultLevel": "read",
+      "key": "service_account_key"
+    },
+    credential: [{"name": "service_account_key", "label": "Service account key (JSON)", "secret": true, "holder": "account"}],
+    keyFile: {
+      "type": "service_account",
+      "project_id": "test-project-not-real",
+      "private_key_id": "test-key-id-not-real",
+      "client_email": "reader@test-project-not-real.example.test",
+      "client_id": "100000000000000000001",
+      "token_uri": "https://oauth2.example.test/token"
+    },
+    privateKey: "test_key",
+    accessLevel: "full",
+    now: 1767225600,
+    assertion: {
+      "header": {"alg": "RS256", "typ": "JWT", "kid": "test-key-id-not-real"},
+      "claims": {
+        "iss": "reader@test-project-not-real.example.test",
+        "scope": "https://api.example.test/auth/write",
+        "aud": "https://oauth2.example.test/token",
+        "iat": 1767225600,
+        "exp": 1767229200
+      },
+      "signature": "F6QvDpqaDR_enQQccnB1-bffnBw3fHifDrfbFVqoNkAkt78KADkrqE4tq_CIiDQyp5u7AgdVHz0xIUlQqZJvN4OaqctKDbm4MFOwolON7SqYswV3IqAHvvgISQ-Zac6h8QjDH2sAOf-bYASEcBYyFtQWuFPcljJ3EkTy-6xsN75DUBrSoq_pn7jGYmoHi4QeGxqtJha6F_xfF_-Q_Qq876j6vaNAyYSEXgOUxc8fZEP3HIMbzP_eVoJlrCbDf7zQEthbdbDyyufraDXKN-x5omgLk2-jPM8hseo3EhA2kzmN_ntFLiluwA5M3zi9u6wE82DeXEzUSx10MQOOzqgXZA"
+    },
+    tokenRequest: {
+      "url": "https://oauth2.example.test/token",
+      "contentType": "application/x-www-form-urlencoded",
+      "body": "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={assertion}"
+    },
+    tokenAnswer: {
+      "status": 200,
+      "headers": {},
+      "body": {"access_token": "test-access-token-full-not-real", "expires_in": 3600, "token_type": "Bearer"}
+    },
+    outcome: {"headers": {"authorization": "Bearer test-access-token-full-not-real"}, "expiresAt": 1767229200},
   },
   {
     name: "token_refused_invalid_grant",
