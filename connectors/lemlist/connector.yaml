@@ -5,6 +5,10 @@
 # The function names, the argument names and the keys sent to lemlist are the client's; the client is not changed
 # (tests/test_lemlist_description.py reads it to keep both equal).
 #
+# 1.3.0: the client's search_people_database and search_companies_database take a view of the answer, fields (a
+# keep-list, dotted paths) and compact (a preset), applied to each result by the client and never sent to lemlist; the
+# functions below do not take them (a view chosen by the call is not an output the format says). Nothing else changes.
+#
 # 1.2.2: the audio of upload_lead_audio may also be a file on a page the caller reads (its link /f/<id>), never
 # consumed; the served text says both kinds of file. Needs oto-core from its commit 9e58c01.
 #
@@ -92,14 +96,15 @@
 #   auto_review and auto_review_conditions of create_campaign (they turn adding a lead into a send; oto 1 serves
 #   them apart), webhook_url of enrich and enrich_lead (lemlist posts the result to an address of the caller's),
 #   mark_as_read of get_contact_messages (it writes on a read), filename of upload_lead_audio (the host names the
-#   part after the transit file).
+#   part after the transit file), fields and compact of search_people_database and search_companies_database (a
+#   view of the answer chosen by the call, applied by the client).
 # Pagination is by offset or page, without a next cursor in most answers: none is declared, the agent passes the
 # page.
 connector:
   name: lemlist
   label: lemlist
   namespace: lemlist
-  version: 1.2.2
+  version: 1.3.0
   api_version: v1 and v2 routes
   base_url: https://api.lemlist.com/api
   auth:
