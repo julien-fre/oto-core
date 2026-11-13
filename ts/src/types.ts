@@ -87,8 +87,8 @@ export type AccessLevel = { readonly scopes: readonly string[] }
  * porte `full` (il ne filtre rien) et au moins un niveau restreint (`read`, `support`…), et `scopeImplies`, un droit qui
  * en couvre d'autres, tel que le fournisseur le définit (jamais une règle devinée ; close : un droit impliqué n'en
  * implique pas d'autres que la clé ne liste pas). L'hôte choisit un niveau par organisation, puis par équipe, qui le
- * restreint sans jamais l'élargir ; `full` par défaut. Une fonction est servie à un niveau quand chacun de ses `scopes`
- * est un droit du niveau ou impliqué par l'un d'eux ; sinon elle sort de ce que voit l'agent et l'appel est refusé par
+ * restreint sans jamais l'élargir ; `full` par défaut (un compte de service peut en nommer un autre, `defaultLevel`).
+ * Une fonction est servie à un niveau quand chacun de ses `scopes` est un droit du niveau ou impliqué par l'un d'eux ; sinon elle sort de ce que voit l'agent et l'appel est refusé par
  * `access_level_denied`, qui nomme le niveau et l'opération. Le consentement demande les droits du niveau en vigueur au
  * départ, signé dans l'état du flux ; passer d'un niveau restreint à `full` demande un nouveau consentement.
  */
@@ -97,6 +97,19 @@ export type OAuthScopes =
   | {
       readonly accessLevels: { readonly full: AccessLevel; readonly [level: string]: AccessLevel }
       readonly scopeImplies?: { readonly [scope: string]: readonly string[] }
+      readonly scopes?: never
+    }
+
+/**
+ * Les droits d'un compte de service : `scopes` (le niveau `full`), ou des niveaux d'accès comme ceux d'un consentement
+ * (`OAuthScopes`), dont `defaultLevel`, le niveau d'un compte sans réglage, qui doit être un niveau déclaré.
+ */
+export type ServiceAccountScopes =
+  | { readonly scopes: readonly string[]; readonly accessLevels?: never; readonly scopeImplies?: never; readonly defaultLevel?: never }
+  | {
+      readonly accessLevels: { readonly full: AccessLevel; readonly [level: string]: AccessLevel }
+      readonly scopeImplies?: { readonly [scope: string]: readonly string[] }
+      readonly defaultLevel?: string
       readonly scopes?: never
     }
 
@@ -163,8 +176,12 @@ export type Auth =
    * en RS256 l'assertion `{ iss: client_email, scope: scopes joints par des espaces, aud: tokenUrl, iat, exp: iat + 3600 }`,
    * l'échange à `tokenUrl` (POST en formulaire, `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, `assertion`,
    * aucune redirection suivie) contre un jeton envoyé en `Authorization: Bearer`. Cas communs : `./jwt-bearer-cases`.
+   * Les droits : `scopes`, ou des niveaux d'accès (`accessLevels`, `scopeImplies`, comme un consentement) ; le `scope` de
+   * l'assertion est alors celui du niveau du compte, et `defaultLevel` nomme le niveau d'un compte dont l'organisation
+   * ou l'équipe n'a choisi aucun (`full` sans lui). Aucun consentement : changer de niveau change seulement les droits de
+   * la prochaine assertion (le jeton gardé est indexé par ses droits).
    */
-  | { readonly kind: "oauth2_jwt_bearer"; readonly tokenUrl: string; readonly scopes: readonly string[]; readonly key: string }
+  | ({ readonly kind: "oauth2_jwt_bearer"; readonly tokenUrl: string; readonly key: string } & ServiceAccountScopes)
   | { readonly kind: "none" }
 
 /**

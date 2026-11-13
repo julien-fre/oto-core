@@ -35,7 +35,7 @@ Un connecteur partagé se décrit dans un fichier YAML, `connectors/<nom>/connec
 | Ce document | Le fichier, le bloc `connector`, le bloc `functions` (classe, côté d'action, donnée personnelle, délai, pagination), le bloc `exposure`, les contrôles. |
 | [Sortie d'une fonction](sortie.md) | `output.items`, `strip`, `projection`, `sample`. |
 | [Compte](compte.md) | `auth`, `credential`, `settings`, gabarits d'adresse, `oauth2_user`, compte de service (`oauth2_jwt_bearer`), compte de l'hôte et compte rattaché. |
-| [Niveaux d'accès](niveaux-d-acces.md) | `access_levels`, `scope_implies`, `scopes` d'une fonction. |
+| [Niveaux d'accès](niveaux-d-acces.md) | `access_levels`, `scope_implies`, `default_level` (compte de service), `scopes` d'une fonction. |
 | [Corps d'une requête](corps-de-requete.md) | Corps en table, emboîté, entier, et ses clés libres. |
 | [Fichiers](fichiers.md) | `call.files` et `output.file`. |
 | [Erreurs et signal de refus](signal-de-refus.md) | `errors`, `refusals`, `marks_account`, `body`. |
@@ -208,3 +208,4 @@ Deux gardes de CI :
 - 2026-11-03 : redécoupage de la note en documents par sujet ; les résumés par connecteur sortent pour la carte du parc et l'en-tête de chaque description — décidé par le responsable produit (source : demande de rationalisation des connecteurs).
 - 2026-11-06 : `effect` (`send`, `destroy`) sur une fonction sensible, facultatif, sans défaut, pour qu'un hôte distingue un envoi d'une destruction — décidé par Alexis (source : lecteur générique d'oto 1, décision du 05/11).
 - 2026-11-06 : septième mode d'authentification, `oauth2_jwt_bearer`, le compte de service ([compte](compte.md), « Le compte de service ») — décidé par le mainteneur (source : lecture de Search Console par un agent).
+- 2026-11-13 : le compte de service reçoit des niveaux d'accès et un niveau par défaut (`default_level`) ([niveaux d'accès](niveaux-d-acces.md)) — décidé par le mainteneur (source : envoi d'un sitemap à Search Console).

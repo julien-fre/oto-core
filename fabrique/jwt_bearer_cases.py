@@ -4,7 +4,9 @@
 assertion en RS256 et l'échange contre un jeton. Un cas porte un bloc `auth` et un `credential` en forme source, la clé
 (`key_file` et le mode de sa clé privée, ou `key_text`, un texte tel quel), une horloge (`now`, en secondes), et attend
 l'assertion exacte (en-tête, revendications, signature), la requête de jeton exacte, la réponse simulée et ce qu'elle
-donne : l'en-tête de l'appel et l'échéance, ou un refus nommé. Une clé refusée (`refused`) l'est avant tout envoi, par
+donne : l'en-tête de l'appel et l'échéance, ou un refus nommé. Un compte à niveaux d'accès (`auth.access_levels`) porte
+le niveau du compte (`access_level`, sinon `auth.default_level`, sinon `full`) : le `scope` de l'assertion est celui
+de ce niveau (`level_scopes`). Une clé refusée (`refused`) l'est avant tout envoi, par
 un refus nommé, le même des deux côtés.
 
 Aucune clé privée en clair dans un fichier : le fichier porte le corps base64 d'une clé RSA de test jetable
@@ -77,6 +79,7 @@ SCHEMA = {
                              "token_answer", "outcome"],
                 "properties": {
                     "name": _NAME, "auth": _AUTH, "credential": {"type": "array"}, "key_file": _STRINGS,
+                    "access_level": _NAME,
                     "private_key": {"const": "test_key"},
                     "now": {"type": "integer", "minimum": 1},
                     "assertion": {
@@ -160,8 +163,20 @@ def credential_value(key: dict, test_key: str) -> str:
     return json.dumps(file, ensure_ascii=False, separators=(",", ":"))
 
 
+def level_scopes(case: dict) -> list[str]:
+    """Les droits que revendique l'assertion d'un cas : `auth.scopes`, ou ceux du niveau du compte (`access_level`,
+    sinon `auth.default_level`, sinon `full`). La même règle que `levelScopes` de la sortie TypeScript."""
+    auth = case["auth"]
+    if "access_levels" not in auth:
+        return list(auth["scopes"])
+    return list(auth["access_levels"][case.get("access_level", auth.get("default_level", "full"))]["scopes"])
+
+
 def _check_account(case: dict, where: str) -> None:
     checked = description(case)
+    if "access_levels" in case["auth"]:
+        # Un connecteur à niveaux : sa fonction déclare ses droits, ceux du niveau du cas.
+        checked["functions"][0]["scopes"] = level_scopes(case)
     check_schema(checked, where)
     check_rules(checked, where)
 
@@ -179,9 +194,21 @@ def load(path: pathlib.Path = CASES) -> JwtBearerCases:
     if twice:
         raise DescriptionError(f"{where}: case name(s) declared twice: {', '.join(twice)}")
     for case in data["cases"] + data["refused"]:
+        levels = case["auth"].get("access_levels", {})
+        level = case.get("access_level")
+        if level is not None and level not in levels:
+            raise DescriptionError(f"{where}: case {case['name']}: access_level {level!r} is not a level of auth")
+        default = case["auth"].get("default_level")
+        if levels and default is not None and default not in levels:
+            # Jugé avant `level_scopes`, qui lit le niveau du cas : la règle 7 de la fabrique, au même message.
+            raise DescriptionError(f"{where}: case {case['name']}: auth.default_level {default!r} is not a declared "
+                                   "access level")
+    for case in data["cases"] + data["refused"]:
         _check_account(case, f"{where}: case {case['name']}")
     for case in data["cases"]:
         at = f"{where}: case {case['name']}"
+        if case["assertion"]["claims"]["scope"] != " ".join(level_scopes(case)):
+            raise DescriptionError(f"{at}: assertion.claims.scope is not the scopes of the account's level, joined by spaces")
         request = case["token_request"]
         if request["url"] != case["auth"]["token_url"]:
             raise DescriptionError(f"{at}: token_request.url is not auth.token_url")
@@ -211,6 +238,8 @@ export type JwtBearerCase = JwtBearerKey & {
   readonly name: string
   readonly auth: Auth
   readonly credential: readonly CredentialField[]
+  /** With `auth.accessLevels`: the level of the account; absent, `auth.defaultLevel`, else `full` (`levelScopes`). */
+  readonly accessLevel?: string
   readonly now: number
   readonly assertion: {
     readonly header: { readonly [name: string]: string }
@@ -239,6 +268,19 @@ export type JwtBearerRefusedKey = JwtBearerKey & {
 // The PEM label, never written with its dashes: secret guards refuse a private key header written in clear.
 const PEM_LABEL = "PRIVATE KEY"
 const pem = (body: string): string => `-----BEGIN ${PEM_LABEL}-----\\n${body}-----END ${PEM_LABEL}-----\\n`
+
+/**
+ * The scopes the assertion of a case claims: `auth.scopes`, or those of the account's level (`accessLevel`, else
+ * `auth.defaultLevel`, else `full`).
+ */
+export function levelScopes(auth: Auth, accessLevel?: string): readonly string[] {
+  if (auth.kind !== "oauth2_jwt_bearer") throw new Error(`not a service account: ${auth.kind}`)
+  if (auth.accessLevels === undefined) return auth.scopes
+  const level = accessLevel ?? auth.defaultLevel ?? "full"
+  const scopes = auth.accessLevels[level]
+  if (scopes === undefined) throw new Error(`access level not declared: ${level}`)
+  return scopes.scopes
+}
 
 /** The value of the key field of a case: `keyText` as is, or `keyFile` as compact JSON, its private key added last. */
 export function credentialValue(key: JwtBearerKey): string {
@@ -275,7 +317,8 @@ def _outcome(outcome: dict) -> dict:
 
 def _case_source(case: dict) -> str:
     request = case["token_request"]
-    entries = _account_entries(case) + [
+    level = [("accessLevel", js(case["access_level"]))] if "access_level" in case else []
+    entries = _account_entries(case) + level + [
         ("now", js(case["now"])),
         ("assertion", js_block(case["assertion"], 2)),
         ("tokenRequest", js_block({"url": request["url"], "contentType": request["content_type"], "body": request["body"]}, 2)),

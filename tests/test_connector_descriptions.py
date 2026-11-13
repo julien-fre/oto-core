@@ -284,9 +284,43 @@ def _jwt_bearer_with_token_urls(d):
     d["connector"]["auth"]["token_urls"] = {"setting": "region", "values": {"us": "https://us.example.test/token"}}
 
 
-def _jwt_bearer_with_access_levels(d):
+def _jwt_bearer_with_levels(d):
+    """Sellsy en compte de service à niveaux : `read` par défaut, `full` qui implique la lecture."""
     _jwt_bearer(d)
-    d["connector"]["auth"]["access_levels"] = {"full": {"scopes": ["a"]}, "read": {"scopes": ["a"]}}
+    auth = d["connector"]["auth"]
+    del auth["scopes"]
+    auth.update(access_levels={"read": {"scopes": [READ]}, "full": {"scopes": [ALL]}}, scope_implies={ALL: [READ]},
+                default_level="read")
+    for function in d["functions"]:
+        function["scopes"] = [READ]
+
+
+def _jwt_bearer_with_levels_and_scopes(d):
+    _jwt_bearer_with_levels(d)
+    d["connector"]["auth"]["scopes"] = [ALL]
+
+
+def _jwt_bearer_with_levels_without_full(d):
+    _jwt_bearer_with_levels(d)
+    d["connector"]["auth"]["access_levels"] = {"read": {"scopes": [READ]}, "write": {"scopes": [ALL]}}
+
+
+def _jwt_bearer_function_scopes_without_levels(d):
+    _jwt_bearer(d)
+    d["functions"][0]["scopes"] = ["https://api.example.test/auth/read"]
+
+
+def _jwt_bearer_scope_implies_without_levels(d):
+    _jwt_bearer(d, scope_implies={ALL: [READ]})
+
+
+def _jwt_bearer_default_level_without_levels(d):
+    _jwt_bearer(d, default_level="full")
+
+
+def _jwt_bearer_function_without_scopes_with_levels(d):
+    _jwt_bearer_with_levels(d)
+    del d["functions"][1]["scopes"]
 
 
 def _jwt_bearer_with_sub(d):
@@ -302,6 +336,13 @@ def test_jwt_bearer_mutation_base_is_valid():
     """Les variantes `oauth2_jwt_bearer` ci-dessous partent d'une description valide : chacune n'échoue que par sa faute."""
     description = _sellsy()
     _jwt_bearer(description)
+    _validate(description)
+
+
+def test_jwt_bearer_with_access_levels_is_valid():
+    """Un compte de service peut déclarer des niveaux d'accès, comme un consentement, et un niveau par défaut."""
+    description = _sellsy()
+    _jwt_bearer_with_levels(description)
     _validate(description)
 
 
@@ -338,7 +379,10 @@ def test_oauth2_user_mutation_base_is_valid():
     _authorize_param_set_by_the_host, _unknown_pkce,
     _jwt_bearer_without_token_url, _jwt_bearer_without_scopes, _jwt_bearer_with_empty_scopes, _jwt_bearer_without_key,
     _jwt_bearer_token_url_template, _jwt_bearer_token_url_with_query, _jwt_bearer_token_url_not_https,
-    _jwt_bearer_with_token_urls, _jwt_bearer_with_access_levels, _jwt_bearer_with_sub, _jwt_bearer_without_credential,
+    _jwt_bearer_with_token_urls, _jwt_bearer_with_sub, _jwt_bearer_without_credential,
+    _jwt_bearer_with_levels_and_scopes, _jwt_bearer_with_levels_without_full, _jwt_bearer_function_scopes_without_levels,
+    _jwt_bearer_scope_implies_without_levels, _jwt_bearer_default_level_without_levels,
+    _jwt_bearer_function_without_scopes_with_levels,
 ], ids=lambda f: f.__name__.lstrip("_"))
 def test_invalid_description_is_rejected(mutate):
     description = _sellsy()
