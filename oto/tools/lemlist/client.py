@@ -19,6 +19,7 @@ import requests
 
 from ..common.credentials import require
 from ..common import raise_for_upstream
+from . import database_views
 
 _HTTP_TIMEOUT = (10, 60)  # (connect, read) — never wait indefinitely
 
@@ -2333,22 +2334,40 @@ class LemlistClient:
     def search_people_database(
         self, *, filters: List[dict] = None, page: int = None,
         size: int = None, excludes: List[str] = None, search: str = None,
+        fields: List[str] = None, compact: bool = False,
     ) -> Any:
-        """Search the shared people database."""
+        """Search the shared people database.
+
+        `fields` (names, dotted paths such as `experiences.title`) keeps only
+        those keys of each result; `compact` keeps a preset (identity, title,
+        LinkedIn, current positions only). Both are applied here, never sent
+        to lemlist; neither given, the page is lemlist's own
+        (`database_views`)."""
+        view = database_views.view_of(fields, compact)
         body = {k: v for k, v in {
             "filters": filters, "page": page, "size": size,
             "excludes": excludes, "search": search,
         }.items() if v is not None}
-        return self._request("POST", "database/people", json=body)
+        return database_views.shape_page(
+            self._request("POST", "database/people", json=body), view, "people")
 
     def search_companies_database(
         self, *, filters: List[dict] = None, page: int = None, size: int = None,
+        fields: List[str] = None, compact: bool = False,
     ) -> Any:
-        """Search the shared companies database."""
+        """Search the shared companies database.
+
+        `fields` (names, dotted paths) keeps only those keys of each result;
+        `compact` keeps a preset (name, domain, headcount, country, industry)
+        and its job posts reduced to the latest few, title and dates. Both are
+        applied here, never sent to lemlist; neither given, the page is
+        lemlist's own (`database_views`)."""
+        view = database_views.view_of(fields, compact)
         body = {k: v for k, v in
                 {"filters": filters, "page": page, "size": size}.items()
                 if v is not None}
-        return self._request("POST", "database/companies", json=body)
+        return database_views.shape_page(
+            self._request("POST", "database/companies", json=body), view, "companies")
 
     def get_database_filters(self) -> Any:
         """The filters the shared database accepts — read this before building
