@@ -448,10 +448,83 @@ class LemlistClient:
         (`stopOnEmailReplied`, `stopOnMeetingBooked`, `stopOnLinkClicked`),
         tracking toggles, `aiFeatures`, `onReplied`, and `autoReview` /
         `autoReviewConditions`.
+
+        ⚠️ `sendUserIds` replaces the sender pool with the FIRST account of each
+        channel type of each user (lemlist's reference): a user with six
+        mailboxes ends up sending from one. To pick the mailboxes, use
+        `replace_campaign_senders` / `add_campaign_senders`. A key lemlist does
+        not know (sendUsers, a key of its ANSWER) is dropped without error:
+        the answer echoes only the keys it applied.
         """
         if "autoReviewConditions" in data:
             self._check_auto_review_conditions(data["autoReviewConditions"])
         return self._request("PATCH", f"campaigns/{campaign_id}", json=data)
+
+    # --- Campaign sender pool --------------------------------------------------
+    #
+    # The pool is who sends a campaign, and from WHICH account: a sender is a
+    # user (`usr_…`) and its channels, each an account (`usm_…` mailbox, a
+    # WhatsApp account, a phone number; none for LinkedIn). Only these routes
+    # attach several mailboxes of one user. Email Pro plan (402 otherwise); a
+    # campaign whose sender is chosen per lead (dynamic strategy) answers 409.
+
+    #: Channel types of a sender in the pool.
+    SENDER_CHANNEL_TYPES = ("email", "linkedin", "whatsapp", "phone")
+
+    @classmethod
+    def _check_senders(cls, senders: List[dict], *, allow_empty: bool) -> None:
+        """The pool body lemlist validates with a bare 400: checked here first."""
+        if not isinstance(senders, list):
+            raise ValueError("senders must be a list of {userId, channels?}")
+        if not senders and not allow_empty:
+            raise ValueError("senders is empty — nothing to add")
+        for sender in senders:
+            if not isinstance(sender, dict) or not sender.get("userId"):
+                raise ValueError(f"each sender needs a userId (usr_…), got {sender!r}")
+            unknown = set(sender) - {"userId", "channels"}
+            if unknown:
+                raise ValueError(f"unknown sender keys {sorted(unknown)} — expected userId, channels")
+            channels = sender.get("channels")
+            if channels is None:
+                continue
+            if not isinstance(channels, list) or not channels:
+                raise ValueError("channels, when given, is a non-empty list of {type, id?, alias?}")
+            for channel in channels:
+                if not isinstance(channel, dict):
+                    raise ValueError(f"each channel is an object, got {channel!r}")
+                unknown = set(channel) - {"type", "id", "alias"}
+                if unknown:
+                    raise ValueError(f"unknown channel keys {sorted(unknown)} — expected type, id, alias")
+                if channel.get("type") not in cls.SENDER_CHANNEL_TYPES:
+                    raise ValueError(
+                        f"channel type must be one of {cls.SENDER_CHANNEL_TYPES}, got {channel.get('type')!r}")
+                if "alias" in channel and not (channel["type"] == "email" and channel.get("id")):
+                    raise ValueError("alias goes only on an email channel that names its mailbox id")
+
+    def get_campaign_senders(self, campaign_id: str) -> Dict[str, Any]:
+        """The sender pool of a campaign: `{data: {senderStrategy, readOnly,
+        senders: [{userId, email, channels: [{type, id, …}], diagnostics}], …}}`."""
+        return self._request("GET", f"campaigns/{campaign_id}/senders")
+
+    def add_campaign_senders(self, campaign_id: str, senders: List[dict]) -> Dict[str, Any]:
+        """Add senders and channels to the pool — never removes any.
+
+        `senders`: `[{userId, channels?: [{type, id?, alias?}]}]`. A sender
+        without `channels` gets every healthy account of each channel type the
+        steps use; name the mailboxes (`{type: "email", id: "usm_…"}`) to choose.
+        """
+        self._check_senders(senders, allow_empty=False)
+        return self._request(
+            "POST", f"campaigns/{campaign_id}/senders", json={"senders": senders})
+
+    def replace_campaign_senders(self, campaign_id: str, senders: List[dict]) -> Dict[str, Any]:
+        """Replace the WHOLE pool: a sender or channel left out is removed, `[]`
+        clears it. Same `senders` shape as `add_campaign_senders`. The answer's
+        `impact.contactedLeads` counts the contacted leads that keep a removed
+        sender."""
+        self._check_senders(senders, allow_empty=True)
+        return self._request(
+            "PUT", f"campaigns/{campaign_id}/senders", json={"senders": senders})
 
     def get_campaign_statutes(self, campaign_id: str) -> Dict[str, Any]:
         """Validation statutes — the same engine the lemlist UI runs.
@@ -1651,10 +1724,18 @@ class LemlistClient:
     # than merged into a single one, which would lie about what was done.
 
     def list_unsubscribes(self, *, offset: int = None, limit: int = None) -> Any:
-        """List unsubscribed emails and domains (v1)."""
+        """List unsubscribed emails and domains — the SAME list as
+        `list_unsubscribed_variables` now.
+
+        The v1 listing route (`GET /unsubscribes`) is no longer served (404
+        "Route not found"); the v2 listing holds the emails and domains too
+        (plus LinkedIn URLs and phones). Kept under this name so its callers
+        keep working; rows are `{_id, value, source, createdAt}`, at most 100
+        per page.
+        """
         params = {k: v for k, v in {"offset": offset, "limit": limit}.items()
                   if v is not None}
-        return self._request("GET", "unsubscribes", params=params)
+        return self._request("GET", "v2/unsubscribes/variables", params=params)
 
     def get_unsubscribe(self, email: str) -> Dict[str, Any]:
         """Read one unsubscribed email or domain (v1)."""

@@ -3,7 +3,7 @@
 DESCRIPTION = {'connector': {'name': 'lemlist',
                'label': 'lemlist',
                'namespace': 'lemlist',
-               'version': '1.4.0',
+               'version': '1.5.0',
                'api_version': 'v1 and v2 routes',
                'base_url': 'https://api.lemlist.com/api',
                'auth': {'kind': 'basic', 'password': 'api_key'},
@@ -169,10 +169,11 @@ DESCRIPTION = {'connector': {'name': 'lemlist',
                {'name': 'update_campaign',
                 'class': 'write',
                 'description': 'Change the settings of a campaign: only the keys given in data change. Its '
-                               'name, its senders (sendUserIds replaces the sender pool), the stop rules, '
-                               'the tracking, the AI handling of replies, and what happens to a lead on a '
-                               'reply, a click or a booked meeting. Auto-review is not set here: it turns '
-                               'adding a lead into a send.',
+                               'name, its senders (sendUserIds replaces the sender pool, with the first '
+                               'account of each channel type of each user: to choose the mailboxes, '
+                               'replace_campaign_senders), the stop rules, the tracking, the AI handling of '
+                               'replies, and what happens to a lead on a reply, a click or a booked meeting. '
+                               'Auto-review is not set here: it turns adding a lead into a send.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['campaign_id', 'data'],
@@ -196,7 +197,13 @@ DESCRIPTION = {'connector': {'name': 'lemlist',
                                                                                                 '(usr_…), '
                                                                                                 'replacing '
                                                                                                 'the sender '
-                                                                                                'pool. '
+                                                                                                'pool with '
+                                                                                                'the first '
+                                                                                                'account of '
+                                                                                                'each '
+                                                                                                'channel '
+                                                                                                'type of '
+                                                                                                'each user. '
                                                                                                 'Refused on '
                                                                                                 'a campaign '
                                                                                                 'whose '
@@ -502,6 +509,162 @@ DESCRIPTION = {'connector': {'name': 'lemlist',
                                         'data': {'onReplied': {'campaignProgress': 'pause',
                                                                'createNewTask': True}}}}],
                 'call': {'method': 'PATCH', 'path': '/campaigns/{campaign_id}', 'body': 'data'},
+                'cost': {'per': 'request'}},
+               {'name': 'get_campaign_senders',
+                'class': 'read',
+                'description': 'The sender pool of a campaign: its strategy, whether it is read-only, and '
+                               'each sender (userId, email) with its enabled channels (type, id of the '
+                               'mailbox or account, alias) and their diagnostics.',
+                'input': {'type': 'object',
+                          'additionalProperties': False,
+                          'required': ['campaign_id'],
+                          'properties': {'campaign_id': {'type': 'string',
+                                                         'minLength': 1,
+                                                         'description': 'Campaign id (cam_…).'}}},
+                'examples': [{'title': 'Who sends a campaign, from which mailboxes',
+                              'input': {'campaign_id': 'cam_example1'}}],
+                'call': {'method': 'GET', 'path': '/campaigns/{campaign_id}/senders'},
+                'cost': {'per': 'request'}},
+               {'name': 'add_campaign_senders',
+                'class': 'write',
+                'description': 'Add senders and channels to the sender pool of a campaign; nothing is '
+                               'removed. A sender without channels gets every healthy account of each '
+                               'channel type the steps use; name the mailboxes to choose them.',
+                'input': {'type': 'object',
+                          'additionalProperties': False,
+                          'required': ['campaign_id', 'senders'],
+                          'properties': {'campaign_id': {'type': 'string',
+                                                         'minLength': 1,
+                                                         'description': 'Campaign id (cam_…).'},
+                                         'senders': {'type': 'array',
+                                                     'minItems': 1,
+                                                     'description': 'The senders, each a user and the '
+                                                                    'accounts it sends from.',
+                                                     'items': {'type': 'object',
+                                                               'additionalProperties': False,
+                                                               'required': ['userId'],
+                                                               'properties': {'userId': {'type': 'string',
+                                                                                         'minLength': 1,
+                                                                                         'description': 'User '
+                                                                                                        'id '
+                                                                                                        '(usr_…).'},
+                                                                              'channels': {'type': 'array',
+                                                                                           'minItems': 1,
+                                                                                           'items': {'type': 'object',
+                                                                                                     'additionalProperties': False,
+                                                                                                     'required': ['type'],
+                                                                                                     'properties': {'type': {'type': 'string',
+                                                                                                                             'enum': ['email',
+                                                                                                                                      'linkedin',
+                                                                                                                                      'whatsapp',
+                                                                                                                                      'phone']},
+                                                                                                                    'id': {'type': 'string',
+                                                                                                                           'minLength': 1,
+                                                                                                                           'description': 'The '
+                                                                                                                                          'mailbox '
+                                                                                                                                          'id '
+                                                                                                                                          '(usm_…), '
+                                                                                                                                          'WhatsApp '
+                                                                                                                                          'account '
+                                                                                                                                          'id '
+                                                                                                                                          'or '
+                                                                                                                                          'phone '
+                                                                                                                                          'number; '
+                                                                                                                                          'none '
+                                                                                                                                          'for '
+                                                                                                                                          'linkedin.'},
+                                                                                                                    'alias': {'type': 'string',
+                                                                                                                              'minLength': 1,
+                                                                                                                              'description': 'Email '
+                                                                                                                                             'only, '
+                                                                                                                                             'with '
+                                                                                                                                             'id: '
+                                                                                                                                             'the '
+                                                                                                                                             'address '
+                                                                                                                                             'the '
+                                                                                                                                             'mailbox '
+                                                                                                                                             'sends '
+                                                                                                                                             'as.'}}}}}}}}},
+                'examples': [{'title': 'Two mailboxes of one user',
+                              'input': {'campaign_id': 'cam_example1',
+                                        'senders': [{'userId': 'usr_example1',
+                                                     'channels': [{'type': 'email', 'id': 'usm_example1'},
+                                                                  {'type': 'email',
+                                                                   'id': 'usm_example2'}]}]}}],
+                'call': {'method': 'POST',
+                         'path': '/campaigns/{campaign_id}/senders',
+                         'body': {'senders': 'senders'}},
+                'cost': {'per': 'request'}},
+               {'name': 'replace_campaign_senders',
+                'class': 'write',
+                'description': 'Replace the whole sender pool of a campaign: a sender or a channel left out '
+                               'is removed, an empty list clears the pool. impact.contactedLeads counts the '
+                               'contacted leads that keep a removed sender.',
+                'input': {'type': 'object',
+                          'additionalProperties': False,
+                          'required': ['campaign_id', 'senders'],
+                          'properties': {'campaign_id': {'type': 'string',
+                                                         'minLength': 1,
+                                                         'description': 'Campaign id (cam_…).'},
+                                         'senders': {'type': 'array',
+                                                     'minItems': 0,
+                                                     'description': 'The senders, each a user and the '
+                                                                    'accounts it sends from.',
+                                                     'items': {'type': 'object',
+                                                               'additionalProperties': False,
+                                                               'required': ['userId'],
+                                                               'properties': {'userId': {'type': 'string',
+                                                                                         'minLength': 1,
+                                                                                         'description': 'User '
+                                                                                                        'id '
+                                                                                                        '(usr_…).'},
+                                                                              'channels': {'type': 'array',
+                                                                                           'minItems': 1,
+                                                                                           'items': {'type': 'object',
+                                                                                                     'additionalProperties': False,
+                                                                                                     'required': ['type'],
+                                                                                                     'properties': {'type': {'type': 'string',
+                                                                                                                             'enum': ['email',
+                                                                                                                                      'linkedin',
+                                                                                                                                      'whatsapp',
+                                                                                                                                      'phone']},
+                                                                                                                    'id': {'type': 'string',
+                                                                                                                           'minLength': 1,
+                                                                                                                           'description': 'The '
+                                                                                                                                          'mailbox '
+                                                                                                                                          'id '
+                                                                                                                                          '(usm_…), '
+                                                                                                                                          'WhatsApp '
+                                                                                                                                          'account '
+                                                                                                                                          'id '
+                                                                                                                                          'or '
+                                                                                                                                          'phone '
+                                                                                                                                          'number; '
+                                                                                                                                          'none '
+                                                                                                                                          'for '
+                                                                                                                                          'linkedin.'},
+                                                                                                                    'alias': {'type': 'string',
+                                                                                                                              'minLength': 1,
+                                                                                                                              'description': 'Email '
+                                                                                                                                             'only, '
+                                                                                                                                             'with '
+                                                                                                                                             'id: '
+                                                                                                                                             'the '
+                                                                                                                                             'address '
+                                                                                                                                             'the '
+                                                                                                                                             'mailbox '
+                                                                                                                                             'sends '
+                                                                                                                                             'as.'}}}}}}}}},
+                'examples': [{'title': 'Three mailboxes of one user, and nothing else',
+                              'input': {'campaign_id': 'cam_example1',
+                                        'senders': [{'userId': 'usr_example1',
+                                                     'channels': [{'type': 'email', 'id': 'usm_example1'},
+                                                                  {'type': 'email', 'id': 'usm_example2'},
+                                                                  {'type': 'email',
+                                                                   'id': 'usm_example3'}]}]}}],
+                'call': {'method': 'PUT',
+                         'path': '/campaigns/{campaign_id}/senders',
+                         'body': {'senders': 'senders'}},
                 'cost': {'per': 'request'}},
                {'name': 'get_campaign_statutes',
                 'class': 'read',
@@ -1910,7 +2073,9 @@ DESCRIPTION = {'connector': {'name': 'lemlist',
                 'cost': {'per': 'request'}},
                {'name': 'list_unsubscribes',
                 'class': 'read',
-                'description': 'List the unsubscribed emails and domains (v1 list).',
+                'description': 'List the unsubscribed emails and domains: the same list as '
+                               'list_unsubscribed_variables (the v1 listing route is no longer served), rows '
+                               '{_id, value, source, createdAt}, at most 100 per page.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'properties': {'offset': {'type': 'integer',
@@ -1919,7 +2084,7 @@ DESCRIPTION = {'connector': {'name': 'lemlist',
                                          'limit': {'type': 'integer', 'minimum': 1}}},
                 'examples': [{'title': 'The unsubscribe list', 'input': {'limit': 100}}],
                 'call': {'method': 'GET',
-                         'path': '/unsubscribes',
+                         'path': '/v2/unsubscribes/variables',
                          'query': {'offset': 'offset', 'limit': 'limit'}},
                 'cost': {'per': 'request'}},
                {'name': 'get_unsubscribe',

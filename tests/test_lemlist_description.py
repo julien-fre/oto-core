@@ -150,7 +150,7 @@ CLASSES = {
         "search_people_database", "search_companies_database", "get_database_filters", "list_personas", "get_team",
         "get_team_credits", "get_team_senders", "get_user", "get_user_channels", "get_team_crm_users",
         "get_crm_filters", "list_fields", "get_lemwarm_settings", "list_deliverability_alerts",
-        "get_deliverability_alert", "list_webhooks",
+        "get_deliverability_alert", "list_webhooks", "get_campaign_senders",
     },
     "write": {
         "create_campaign", "pause_campaign", "duplicate_campaign", "create_schedule", "associate_schedule",
@@ -159,6 +159,7 @@ CLASSES = {
         "create_task", "ignore_tasks", "create_persona", "test_email_account", "start_lemwarm", "pause_lemwarm",
         "create_deliverability_alert", "update_campaign", "update_ab_variant", "update_schedule", "update_lead",
         "update_draft", "update_lemwarm_settings", "update_deliverability_alert", "upsert_contact", "upsert_company",
+        "add_campaign_senders", "replace_campaign_senders",
     },
     "sensitive": {
         # Envoie, ou lance ce qui envoie, à une vraie personne.
@@ -229,6 +230,8 @@ VALUES = {
     "scope_entities": ["mbx_example1"], "channel_config": {"email": {"enabled": False}}, "recheck_delay_hours": 6,
     "target_url": "https://hooks.example.test/lemlist", "secret": "signing-text", "zap_id": "z1",
     "hook_id": "hok_example1",
+    "senders": [{"userId": "usr_example1", "channels": [{"type": "email", "id": "usm_example1"},
+                                                        {"type": "email", "id": "usm_example2", "alias": "a@example.test"}]}],
 }
 # Un argument du même nom qui n'a pas le même vocabulaire d'une fonction à l'autre.
 VALUES_OF = {
@@ -422,9 +425,9 @@ def _values(name: str, function: dict) -> dict:
     return {argument: values[argument] for argument in function["input"]["properties"]}
 
 
-def test_the_description_is_version_1_4_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_5_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.4.0"
+    assert description["connector"]["version"] == "1.5.0"
     check(description, LEMLIST)
 
 

@@ -1109,3 +1109,84 @@ def test_add_webhook_is_first_leaves_lowercase_in_the_url():
     query = _sent_query(lambda c: c.add_webhook(
         "https://example.com/hook", campaign_id="cam_1", is_first=True))
     assert query == [("campaignId", "cam_1"), ("isFirst", "true")]
+
+
+# --- La liste v1 des désinscriptions ne se sert plus (404) ; le pool d'expéditeurs --
+
+
+def _calls_of(monkeypatch, body=None):
+    calls = []
+
+    def fake_request(method, url, headers=None, **kwargs):
+        calls.append({"method": method, "url": url, **kwargs})
+        return _Resp(200, body if body is not None else {})
+
+    monkeypatch.setattr(lm.requests, "request", fake_request)
+    return calls
+
+
+def test_list_unsubscribes_reads_the_v2_list_not_the_withdrawn_v1_route(monkeypatch):
+    rows = [{"_id": "uns_1", "value": "example.test", "source": "api"}]
+    calls = _calls_of(monkeypatch, rows)
+    out = lm.LemlistClient(api_key="k").list_unsubscribes(limit=100, offset=200)
+    assert out == rows
+    assert calls[0]["method"] == "GET"
+    assert calls[0]["url"] == f"{lm.LemlistClient.BASE_URL}/v2/unsubscribes/variables"
+    assert calls[0]["params"] == {"limit": 100, "offset": 200}
+
+
+def test_list_unsubscribes_and_list_unsubscribed_variables_are_the_same_request(monkeypatch):
+    calls = _calls_of(monkeypatch, [])
+    c = lm.LemlistClient(api_key="k")
+    c.list_unsubscribes(limit=10)
+    c.list_unsubscribed_variables(limit=10)
+    assert (calls[0]["method"], calls[0]["url"], calls[0]["params"]) == (
+        calls[1]["method"], calls[1]["url"], calls[1]["params"])
+
+
+SIX_MAILBOXES = [{"userId": "usr_1", "channels": [
+    {"type": "email", "id": f"usm_{i}"} for i in range(1, 7)]}]
+
+
+def test_replace_campaign_senders_puts_every_mailbox(monkeypatch):
+    calls = _calls_of(monkeypatch, {"data": {"senders": []}})
+    lm.LemlistClient(api_key="k").replace_campaign_senders("cam_1", SIX_MAILBOXES)
+    assert calls[0]["method"] == "PUT"
+    assert calls[0]["url"].endswith("/campaigns/cam_1/senders")
+    assert calls[0]["json"] == {"senders": SIX_MAILBOXES}
+    assert len(calls[0]["json"]["senders"][0]["channels"]) == 6
+
+
+def test_add_campaign_senders_posts_and_get_reads_the_pool(monkeypatch):
+    calls = _calls_of(monkeypatch, {"data": {"senders": []}})
+    c = lm.LemlistClient(api_key="k")
+    c.add_campaign_senders("cam_1", [{"userId": "usr_1"}])
+    c.get_campaign_senders("cam_1")
+    assert [(k["method"], k["url"].rsplit("/api/", 1)[1]) for k in calls] == [
+        ("POST", "campaigns/cam_1/senders"), ("GET", "campaigns/cam_1/senders")]
+    assert calls[0]["json"] == {"senders": [{"userId": "usr_1"}]}
+
+
+def test_replace_with_an_empty_list_clears_the_pool_but_add_refuses_it(monkeypatch):
+    calls = _calls_of(monkeypatch)
+    c = lm.LemlistClient(api_key="k")
+    c.replace_campaign_senders("cam_1", [])
+    assert calls[0]["json"] == {"senders": []}
+    with pytest.raises(ValueError, match="empty"):
+        c.add_campaign_senders("cam_1", [])
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("senders, match", [
+    ([{"channels": [{"type": "email"}]}], "userId"),
+    ([{"userId": "usr_1", "mailboxes": ["usm_1"]}], "unknown sender keys"),
+    ([{"userId": "usr_1", "channels": []}], "non-empty"),
+    ([{"userId": "usr_1", "channels": [{"type": "mail", "id": "usm_1"}]}], "channel type"),
+    ([{"userId": "usr_1", "channels": [{"type": "email", "sendUserMailboxId": "usm_1"}]}], "unknown channel keys"),
+    ([{"userId": "usr_1", "channels": [{"type": "email", "alias": "a@example.test"}]}], "alias"),
+])
+def test_the_pool_body_is_checked_before_any_call(monkeypatch, senders, match):
+    calls = _calls_of(monkeypatch)
+    with pytest.raises(ValueError, match=match):
+        lm.LemlistClient(api_key="k").replace_campaign_senders("cam_1", senders)
+    assert calls == []
