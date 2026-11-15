@@ -3,7 +3,7 @@
 DESCRIPTION = {'connector': {'name': 'linkedin_unipile',
                'label': 'LinkedIn (Unipile)',
                'namespace': 'linkedin_unipile',
-               'version': '1.3.1',
+               'version': '1.3.2',
                'api_version': 'v2',
                'base_url': 'https://api.unipile.com/v2/{account_id}',
                'auth': {'kind': 'api_key', 'in': 'header', 'name': 'X-API-KEY', 'key': 'api_key'},
