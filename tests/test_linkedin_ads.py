@@ -165,6 +165,24 @@ def test_analytics_one_pivot_matches_the_documented_sample(li):
         "landingPageClicks,reactions,shares,costInLocalCurrency")
 
 
+def test_objective_type_alone_goes_through_the_statistics_finder(li):
+    li.get_analytics(["OBJECTIVE_TYPE"], "2024-01-01", account_ids=[1])
+    assert _url(li).startswith(f"{BASE}/adAnalytics?q=statistics&pivots=List(OBJECTIVE_TYPE)")
+
+
+def test_requests_sends_the_url_unchanged(li):
+    """The structure must reach LinkedIn as built: `requests` must not re-encode
+    `( ) , :` nor decode the `%3A` of a URN."""
+    import requests
+
+    li.search_campaigns(506333826, statuses=["ACTIVE"], campaign_group_ids=[42])
+    li.get_creative(520866471, 120491345)
+    li.get_analytics(["MEMBER_COMPANY"], "2024-05-28", "2024-09-30",
+                     account_ids=[502840441])
+    for appel in li.session.appels:
+        assert requests.Request("GET", appel["url"]).prepare().url == appel["url"]
+
+
 def test_analytics_several_pivots_use_the_statistics_finder_and_open_end(li):
     li.get_analytics(["CAMPAIGN", "CREATIVE"], "2024-01-01", campaign_ids=[1234567])
     assert _url(li) == (

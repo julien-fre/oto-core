@@ -73,6 +73,8 @@ PIVOTS = ("COMPANY", "ACCOUNT", "SHARE", "CAMPAIGN", "CREATIVE", "CAMPAIGN_GROUP
           "PLACEMENT_NAME", "IMPRESSION_DEVICE_TYPE", "OBJECTIVE_TYPE", "EVENT_STAGE")
 #: Pivots the statistics finder (2-3 pivots) refuses: professional demographics.
 DEMOGRAPHIC_PIVOTS = tuple(p for p in PIVOTS if p.startswith("MEMBER_"))
+#: Pivots only the statistics finder documents: alone, they still go through it.
+STATISTICS_ONLY_PIVOTS = ("OBJECTIVE_TYPE",)
 #: Metrics returned when the caller names none (LinkedIn returns only impressions and
 #: clicks without `fields`).
 DEFAULT_METRICS = ("impressions", "clicks", "costInLocalCurrency", "landingPageClicks",
@@ -326,14 +328,15 @@ class LinkedInAdsClient:
                       account_ids: Optional[Iterable[Any]] = None,
                       campaign_group_ids: Optional[Iterable[Any]] = None,
                       campaign_ids: Optional[Iterable[Any]] = None,
-                      creative_ids: Optional[Iterable[Any]] = None,
                       fields: Optional[Iterable[str]] = None) -> dict:
         """adAnalytics: one row per pivot value (and per period of `time_granularity`).
 
         One pivot → the analytics finder (professional demographics allowed); two or
-        three → the statistics finder (no `MEMBER_*` pivot). At least one facet
-        (accounts, campaign groups, campaigns, creatives). Dates inclusive, UTC; `end`
-        open means up to today. `dateRange` and `pivotValues` are always returned.
+        three, or `OBJECTIVE_TYPE` → the statistics finder (no `MEMBER_*` pivot). At
+        least one facet (accounts, campaign groups, campaigns) — per-creative rows are
+        `pivots=["CREATIVE"]` over campaigns or an account: LinkedIn documents no
+        creative facet. Dates inclusive, UTC; `end` open means up to today.
+        `dateRange` and `pivotValues` are always returned.
         ⚠️ An empty `elements` means no activity OR no read access to that data."""
         pivots = _choices("pivots", pivots, PIVOTS)
         if not 1 <= len(pivots) <= MAX_PIVOTS:
@@ -354,11 +357,10 @@ class LinkedInAdsClient:
             ("campaignGroups", _ids("campaign_group_ids", campaign_group_ids,
                                     "campaign_group")),
             ("campaigns", _ids("campaign_ids", campaign_ids, "campaign")),
-            ("creatives", _ids("creative_ids", creative_ids, "creative")),
         ]
         if not any(values for _, values in facets):
-            raise ValueError("Name at least one of account_ids, campaign_group_ids, "
-                             "campaign_ids or creative_ids.")
+            raise ValueError("Name at least one of account_ids, campaign_group_ids or "
+                             "campaign_ids.")
         metrics = list(fields or DEFAULT_METRICS)
         for m in metrics:
             if not _METRIC.match(str(m)):
@@ -370,7 +372,7 @@ class LinkedInAdsClient:
                              f"pivotValues included); got {len(metrics)}.")
         date_range = f"(start:{restli_date(day_start)}" + (
             f",end:{restli_date(day_end)})" if day_end else ")")
-        if len(pivots) == 1:
+        if len(pivots) == 1 and pivots[0] not in STATISTICS_ONLY_PIVOTS:
             head = [("q", "analytics"), ("pivot", pivots[0])]
         else:
             head = [("q", "statistics"), ("pivots", restli_list(pivots))]
