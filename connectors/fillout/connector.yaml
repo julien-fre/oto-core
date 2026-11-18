@@ -1,0 +1,315 @@
+# yaml-language-server: $schema=../connector.schema.json
+# Fillout REST API: https://fillout.com/help/fillout-rest-api
+# OpenAPI: https://www.fillout.com/help/openapi.json
+#
+# Qualification
+# - Access: one API key per Fillout organization, created by an organization
+#   admin (Settings > Developer), on every plan. It opens every workspace of
+#   the organization and cannot be narrowed to a workspace or to read only.
+#   Regenerating it invalidates the old one at once.
+# - Auth: Authorization: Bearer <api key>.
+# - Rights: fixed; the API does not say them. Unfinished submissions
+#   (status in_progress) need the Business, Team or Enterprise plan.
+# - Cost: free, per request.
+# - Commits: creating submissions records answers as if a respondent had sent
+#   them, and can fire the form's integrations; deleting a submission is
+#   irreversible; a webhook sends every new submission, with all its answers,
+#   to an outside endpoint.
+# - Hidden from the agent: the edit link of a submission (it opens the
+#   submission for editing without a login), never requested and stripped.
+#   Unknown: whether file upload answers carry URLs that open without a login.
+# - Limits: 5 requests per second per key; 10 requests per minute for
+#   creating or deleting submissions.
+# - Address: one host per region (us, eu); a key queried on the wrong region
+#   gets a 400 that names the right host.
+# - Owner: a product sold to many companies.
+#
+# Not described here:
+# - self-hosted Fillout (a free base URL from the account's settings);
+# - the Database API (Fillout tables) and the Build API, opened by the same key;
+# - preview responses (includePreview): test submissions, not answers.
+connector:
+  name: fillout
+  label: Fillout
+  namespace: fillout
+  version: 1.0.0
+  api_version: v1
+  base_urls:
+    setting: region
+    values:
+      us: https://api.fillout.com/v1/api
+      eu: https://eu-api.fillout.com/v1/api
+  auth:
+    kind: bearer
+    token: api_key
+  credential:
+    - { name: api_key, label: Organization API key, secret: true }
+  settings:
+    - { name: region, label: Data region, type: choice, choices: [us, eu], default: us }
+  modes: [byo_user, byo_org]
+  timeout_s: 60
+  rate_limit: { requests: 5, seconds: 1 }
+  probe: { function: list_forms }
+  errors:
+    - { status: 400, code: invalid_request, retryable: false,
+        message: "Fillout rejected the request: check the arguments. If the message names another API host, the account's data region setting is wrong." }
+    - { status: 401, code: access_rejected, retryable: false, marks_account: credential_rejected,
+        message: "Fillout rejected the API key: unknown, or replaced by a regenerated one." }
+    - { status: 403, code: not_allowed, retryable: false,
+        message: "Fillout refused the operation: the organization's plan does not include it (unfinished submissions need Business or above)." }
+    - { status: 404, code: not_found, retryable: false,
+        message: "Fillout object not found: check the id." }
+    - { status: 429, code: rate_limited, retryable: true,
+        message: "Fillout rate limit reached (5 requests per second, 10 per minute to create or delete submissions): retry later." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
+        message: "Fillout is temporarily unavailable: retry later." }
+
+functions:
+  - name: list_forms
+    class: read
+    description: >-
+      List every form of the Fillout organization: [{name, formId}]. The
+      formId is the last segment of the form's public URL and is what every
+      other function takes. No filter and no pagination.
+    input:
+      type: object
+      additionalProperties: false
+      properties: {}
+    examples:
+      - title: All forms
+        input: {}
+    call: { method: GET, path: /forms }
+    cost: { per: request }
+
+  - name: get_form
+    class: read
+    description: >-
+      Get one Fillout form's structure: {id, name, questions: [{id, name,
+      type}], calculations, urlParameters, scheduling, payments, quiz}. A
+      submission's questions[].id points to these questions; create_submissions
+      needs these ids. The question options and logic are not returned.
+    input:
+      type: object
+      additionalProperties: false
+      required: [form_id]
+      properties:
+        form_id: &form_id
+          type: string
+          minLength: 1
+          not: { enum: [".", ".."] }
+          description: "The form's public id (formId from list_forms)."
+    examples:
+      - title: One form's questions
+        input: { form_id: "foAdHjd1Duus" }
+    refusals:
+      - &form_not_found { code: form_not_found, when: 404, message: "No form with this id in this Fillout organization." }
+    call: { method: GET, path: "/forms/{form_id}" }
+    cost: { per: request }
+
+  - name: list_submissions
+    class: read
+    description: >-
+      List the submissions of one Fillout form, oldest first by default:
+      {responses: [{submissionId, submissionTime, lastUpdatedAt, questions:
+      [{id, name, type, value}], calculations, urlParameters, scheduling,
+      payments, quiz, login: {email}}], totalResponses, pageCount}. Only
+      finished submissions unless status is in_progress. Page with limit and
+      offset; totalResponses says how many match.
+    input:
+      type: object
+      additionalProperties: false
+      required: [form_id]
+      properties:
+        form_id: *form_id
+        limit: { type: integer, minimum: 1, maximum: 150, default: 50, description: "Submissions per page." }
+        offset: { type: integer, minimum: 0, default: 0, description: "Number of submissions to skip." }
+        after_date: { type: string, format: date-time, description: "Only submissions sent after this time (ISO 8601)." }
+        before_date: { type: string, format: date-time, description: "Only submissions sent before this time (ISO 8601)." }
+        status:
+          enum: [finished, in_progress]
+          description: "finished by default; in_progress lists unfinished ones (Business plan and above)."
+        sort: { enum: [asc, desc], description: "By submission time; asc upstream by default." }
+        search: { type: string, minLength: 1, description: "Only submissions containing this text." }
+    examples:
+      - title: Latest 20 submissions since 1 November 2026
+        input: { form_id: "foAdHjd1Duus", after_date: "2026-11-01T00:00:00Z", sort: desc, limit: 20 }
+      - title: Second page of 150
+        input: { form_id: "foAdHjd1Duus", limit: 150, offset: 150 }
+    refusals:
+      - *form_not_found
+    call:
+      method: GET
+      path: "/forms/{form_id}/submissions"
+      query: { limit: limit, offset: offset, afterDate: after_date, beforeDate: before_date,
+               status: status, sort: sort, search: search }
+    output:
+      strip: [responses.editLink]
+      sample:
+        responses:
+          - &sample_submission
+            submissionId: abc123
+            submissionTime: "2026-11-02T09:30:00.000Z"
+            lastUpdatedAt: "2026-11-02T09:30:00.000Z"
+            questions: [{ id: nameQ, name: Name, type: ShortAnswer, value: Ada Lovelace }]
+            editLink: "https://forms.example.test/t/edit/abc123"
+        totalResponses: 1
+        pageCount: 1
+    cost: { per: request }
+
+  - name: get_submission
+    class: read
+    description: >-
+      Get one submission of a Fillout form: {submission: {submissionId,
+      submissionTime, lastUpdatedAt, questions: [{id, name, type, value}],
+      calculations, urlParameters, scheduling, payments, quiz, login}}.
+    input:
+      type: object
+      additionalProperties: false
+      required: [form_id, submission_id]
+      properties:
+        form_id: *form_id
+        submission_id: &submission_id
+          type: string
+          minLength: 1
+          not: { enum: [".", ".."] }
+          description: "The submissionId."
+    examples:
+      - title: One submission
+        input: { form_id: "foAdHjd1Duus", submission_id: "abc123" }
+    refusals:
+      - &submission_not_found { code: submission_not_found, when: 404, message: "No submission with this id on this form, or no such form." }
+    call: { method: GET, path: "/forms/{form_id}/submissions/{submission_id}" }
+    output:
+      strip: [submission.editLink]
+      sample: { submission: *sample_submission }
+    cost: { per: request }
+
+  - name: create_submissions
+    class: write
+    description: >-
+      Record up to 10 submissions on one Fillout form, as if respondents had
+      sent them, and return them: {submissions: [...]}. Each one is {questions:
+      [{id, value}]} with the question ids from get_form, plus optional
+      urlParameters [{id, name, value}], submissionTime, scheduling, payments
+      and login {email}. The form's integrations and notifications may run as
+      for a real submission. Limited to 10 calls per minute.
+    input:
+      type: object
+      additionalProperties: false
+      required: [form_id, submissions]
+      properties:
+        form_id: *form_id
+        submissions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            required: [questions]
+            properties:
+              questions:
+                type: array
+                items:
+                  type: object
+                  required: [id, value]
+                  properties:
+                    id: { type: string, minLength: 1 }
+                    value: { description: "The answer, in the question type's shape." }
+              urlParameters: { type: array, items: { type: object, required: [id, name, value] } }
+              submissionTime: { type: string, format: date-time }
+              lastUpdatedAt: { type: string, format: date-time }
+              scheduling: { type: array, items: { type: object } }
+              payments: { type: array, items: { type: object } }
+              login: { type: object, required: [email], properties: { email: { type: string, format: email } } }
+          description: "Submissions to record."
+    examples:
+      - title: Record one answer imported from another tool
+        input:
+          form_id: "foAdHjd1Duus"
+          submissions:
+            - questions: [{ id: "nameQ", value: "Ada Lovelace" }, { id: "emailQ", value: "ada@example.com" }]
+              submissionTime: "2026-11-02T09:30:00Z"
+    refusals:
+      - *form_not_found
+    call:
+      method: POST
+      path: "/forms/{form_id}/submissions"
+      body: { submissions: submissions }
+    output:
+      strip: [submissions.editLink]
+      sample: { submissions: [*sample_submission] }
+    cost: { per: request }
+
+  - name: delete_submission
+    class: sensitive
+    description: >-
+      Delete one submission of a Fillout form and its answers, irreversibly.
+      Limited to 10 calls per minute.
+    input:
+      type: object
+      additionalProperties: false
+      required: [form_id, submission_id]
+      properties:
+        form_id: *form_id
+        submission_id: *submission_id
+    examples:
+      - title: Delete a test submission
+        input: { form_id: "foAdHjd1Duus", submission_id: "abc123" }
+    refusals:
+      - *submission_not_found
+    call: { method: DELETE, path: "/forms/{form_id}/submissions/{submission_id}" }
+    confirm:
+      summary: "Delete submission {submission_id} of form {form_id}: irreversible."
+    cost: { per: request }
+
+  - name: create_webhook
+    class: sensitive
+    description: >-
+      Have Fillout post every new submission of one form, with all its
+      answers, to url, and return {id}, the webhook id that delete_webhook
+      takes: keep it, the API cannot list webhooks.
+    input:
+      type: object
+      additionalProperties: false
+      required: [form_id, url]
+      properties:
+        form_id: *form_id
+        url: { type: string, format: uri, pattern: "^https://", description: "https endpoint that receives the submissions." }
+    examples:
+      - title: Send submissions to an endpoint
+        input: { form_id: "foAdHjd1Duus", url: "https://hooks.example.com/fillout" }
+    refusals:
+      - *form_not_found
+    call:
+      method: POST
+      path: /webhook/create
+      body: { formId: form_id, url: url }
+    confirm:
+      summary: "Send every new submission of form {form_id}, with its answers, to {url}."
+    cost: { per: request }
+
+  - name: delete_webhook
+    class: sensitive
+    description: >-
+      Remove one Fillout webhook by the id create_webhook returned: its
+      endpoint stops receiving submissions.
+    input:
+      type: object
+      additionalProperties: false
+      required: [webhook_id]
+      properties:
+        webhook_id: { type: string, minLength: 1, description: "The id create_webhook returned." }
+    examples:
+      - title: Remove a webhook
+        input: { webhook_id: "12345" }
+    call:
+      method: POST
+      path: /webhook/delete
+      body: { webhookId: webhook_id }
+    confirm:
+      summary: "Remove webhook {webhook_id}: its endpoint stops receiving submissions."
+    cost: { per: request }
+
+exposure:
+  mode: per_connector
+  tool: fillout

@@ -11,7 +11,49 @@ from .._common import (SheetsClientError, _choice, _column_bounds, _column_index
 _SORT_ORDER = {'asc': 'ASCENDING', 'desc': 'DESCENDING'}
 
 
+def _entered(value) -> dict:
+    """A cell's `userEnteredValue`, typed: bool before number (a bool IS an int)."""
+    if isinstance(value, bool):
+        return {'userEnteredValue': {'boolValue': value}}
+    if isinstance(value, (int, float)):
+        return {'userEnteredValue': {'numberValue': value}}
+    if value.startswith('='):
+        return {'userEnteredValue': {'formulaValue': value}}
+    return {'userEnteredValue': {'stringValue': value}}
+
+
 class _DataMixin:
+    def fill(self, spreadsheet_id: str, range: str, value) -> dict:
+        """Put ONE value in every cell of a bounded range, in one call: a constant
+        (text, number, true/false), or a formula (`=IF(C2>0;"Payé";"À relancer")`)
+        written as for the FIRST cell and copied to the others, its relative
+        references following each row and column as a fill-down would.
+
+        The range is bounded on both axes (`'Suivi'!F2:F120`): an open `F2:F` would
+        reach the last row of the grid, far below the data."""
+        grid = self._grid_range(spreadsheet_id, range)
+        if not {'startRowIndex', 'endRowIndex', 'startColumnIndex',
+                'endColumnIndex'} <= set(grid):
+            raise SheetsClientError(
+                f"range {range!r}: bounded rows and columns, e.g. 'Tab'!F2:F120")
+        if value is None or isinstance(value, (list, dict)):
+            raise SheetsClientError("value: one text, number, true/false or formula")
+        if isinstance(value, str) and value.startswith('='):
+            first = {**grid, 'endRowIndex': grid['startRowIndex'] + 1,
+                     'endColumnIndex': grid['startColumnIndex'] + 1}
+            requests = [{'updateCells': {'range': first, 'fields': 'userEnteredValue',
+                                         'rows': [{'values': [_entered(value)]}]}},
+                        {'copyPaste': {'source': first, 'destination': grid,
+                                       'pasteType': 'PASTE_FORMULA'}}]
+        else:
+            requests = [{'repeatCell': {'range': grid, 'cell': _entered(value),
+                                        'fields': 'userEnteredValue'}}]
+        self._batch(spreadsheet_id, requests)
+        cells = ((grid['endRowIndex'] - grid['startRowIndex'])
+                 * (grid['endColumnIndex'] - grid['startColumnIndex']))
+        return {'range': range, 'cells': cells,
+                'formula': isinstance(value, str) and value.startswith('=')}
+
     def sort(self, spreadsheet_id: str, range: str, sort_by: List[dict]) -> dict:
         """Sort the rows of a range by one or more of its columns, in order:
         `[{"column": "C", "order": "desc"}, {"column": "A"}]` (asc by default). The

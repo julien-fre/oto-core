@@ -38,6 +38,7 @@ EXPECTED_MEMBERS = {
     'delete_rows': '(self, spreadsheet_id: str, sheet, start_row: int, end_row: int) -> dict',
     'delete_sheet': '(self, spreadsheet_id: str, sheet) -> dict',
     'dropdown': '(self, spreadsheet_id: str, range: str, options: List[str]) -> dict',
+    'fill': '(self, spreadsheet_id: str, range: str, value) -> dict',
     'find_replace': '(self, spreadsheet_id: str, find: str, replacement: str, range: Optional[str] = None, match_case: bool = False, whole_cell: bool = False) -> dict',
     'format': '(self, spreadsheet_id: str, range: str, style: dict) -> dict',
     'freeze': '(self, spreadsheet_id: str, sheet, rows: Optional[int] = None, cols: Optional[int] = None) -> dict',

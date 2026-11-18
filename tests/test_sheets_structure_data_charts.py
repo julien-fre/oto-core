@@ -302,3 +302,48 @@ def test_delete_chart():
     client, batch = _client()
     assert client.delete_chart("sid", "7") == {"id": 7, "deleted": True}
     assert _requests(batch) == [{"deleteEmbeddedObject": {"objectId": 7}}]
+
+
+# --- remplir une plage -----------------------------------------------------------------
+
+def test_fill_constante_en_une_requete():
+    client, batch = _client()
+    out = client.fill("sid", "'Suivi'!F2:F120", "À relancer")
+    assert _requests(batch) == [{"repeatCell": {
+        "range": {"sheetId": 0, "startRowIndex": 1, "endRowIndex": 120,
+                  "startColumnIndex": 5, "endColumnIndex": 6},
+        "cell": {"userEnteredValue": {"stringValue": "À relancer"}},
+        "fields": "userEnteredValue"}}]
+    assert out == {"range": "'Suivi'!F2:F120", "cells": 119, "formula": False}
+
+
+@pytest.mark.parametrize("value, typed", [
+    (0, {"numberValue": 0}), (1.5, {"numberValue": 1.5}), (True, {"boolValue": True})])
+def test_fill_type_la_valeur(value, typed):
+    client, batch = _client()
+    client.fill("sid", "'Suivi'!A1:B2", value)
+    assert _requests(batch)[0]["repeatCell"]["cell"] == {"userEnteredValue": typed}
+
+
+def test_fill_formule_posee_en_tete_puis_recopiee():
+    client, batch = _client()
+    out = client.fill("sid", "'Suivi'!G2:G50", '=IF(C2>0;"Payé";"À relancer")')
+    first, copy = _requests(batch)
+    assert first["updateCells"]["range"] == {"sheetId": 0, "startRowIndex": 1, "endRowIndex": 2,
+                                             "startColumnIndex": 6, "endColumnIndex": 7}
+    assert first["updateCells"]["rows"] == [{"values": [{"userEnteredValue": {
+        "formulaValue": '=IF(C2>0;"Payé";"À relancer")'}}]}]
+    assert copy["copyPaste"]["source"] == first["updateCells"]["range"]
+    assert copy["copyPaste"]["destination"]["endRowIndex"] == 50
+    assert copy["copyPaste"]["pasteType"] == "PASTE_FORMULA"
+    assert out["formula"] is True and out["cells"] == 49
+
+
+@pytest.mark.parametrize("range_, value, motif", [
+    ("'Suivi'!F2:F", "x", "bounded"), ("'Suivi'!F:F", "x", "bounded"),
+    ("'Suivi'!F2:F9", None, "value"), ("'Suivi'!F2:F9", ["x"], "value")])
+def test_fill_refuse_avant_tout_appel(range_, value, motif):
+    client, batch = _client()
+    with pytest.raises(SheetsClientError, match=motif):
+        client.fill("sid", range_, value)
+    batch.assert_not_called()

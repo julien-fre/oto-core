@@ -249,7 +249,7 @@ export const connector = defineConnector({
   name: "google_sheets",
   label: "Google Sheets",
   namespace: "google_sheets",
-  version: "1.0.0",
+  version: "1.0.1",
   apiVersion: "v4",
   baseUrl: "https://sheets.googleapis.com/v4",
   auth: {

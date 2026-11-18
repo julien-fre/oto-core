@@ -12,6 +12,7 @@ import * as crisp from "./crisp"
 import * as dataforseo from "./dataforseo"
 import * as dropcontact from "./dropcontact"
 import * as elevenlabs from "./elevenlabs"
+import * as fillout from "./fillout"
 import * as fod from "./fod"
 import * as folk from "./folk"
 import * as fullenrich from "./fullenrich"
@@ -74,6 +75,7 @@ export { crisp }
 export { dataforseo }
 export { dropcontact }
 export { elevenlabs }
+export { fillout }
 export { fod }
 export { folk }
 export { fullenrich }
@@ -139,6 +141,7 @@ export const connectors: readonly Connector[] = [
   dataforseo.connector,
   dropcontact.connector,
   elevenlabs.connector,
+  fillout.connector,
   fod.connector,
   folk.connector,
   fullenrich.connector,
