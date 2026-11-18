@@ -21,6 +21,11 @@ Retouche du 2026-11-15 : `GET /unsubscribes` (la liste v1) sort de la doc et
 répond 404 — `list_unsubscribes` lit la liste v2 ; trois routes du pool
 d'expéditeurs d'une campagne (`GET`/`POST`/`PUT /campaigns/{id}/senders`)
 entrent. 143 lignes.
+
+Retouche du 2026-11-18 : les quatre autres routes v1 des désinscriptions
+(`GET`/`POST`/`DELETE /unsubscribes/{email}`, `GET /unsubs/export`) sortent de
+la doc et ne sont plus servies — les méthodes du même nom envoient la requête
+v2 des variables de même sens. 139 lignes.
 """
 from __future__ import annotations
 
@@ -166,10 +171,6 @@ DOCUMENTED: tuple[tuple[str, str], ...] = (
     ("GET", "team/credits"),  # team_get-team-credits
     ("GET", "team/crmUsers"),  # crm_get-team-crm-users
     ("GET", "team/senders"),  # team_get-team-senders
-    ("GET", "unsubs/export"),  # unsubscribes_export-unsubscribes
-    ("DELETE", "unsubscribes/{}"),  # unsubscribes_delete-unsubscribe-email
-    ("GET", "unsubscribes/{}"),  # unsubscribes_get-unsubscribe-by-email
-    ("POST", "unsubscribes/{}"),  # unsubscribes_add-unsubscribe-email-or-domain
     ("GET", "user/channels"),  # users_get-user-channels
     ("POST", "user/email-accounts"),  # email-accounts_connect-email-account
     ("DELETE", "user/email-accounts/{}"),  # email-accounts_disconnect-email-account
@@ -202,9 +203,9 @@ DOCUMENTED: tuple[tuple[str, str], ...] = (
 
 
 def test_l_inventaire_documente_est_complet():
-    """Le relevé lui-même : 143 routes distinctes, aucune ligne en double."""
-    assert len(DOCUMENTED) == 143
-    assert len(set(DOCUMENTED)) == 143
+    """Le relevé lui-même : 139 routes distinctes, aucune ligne en double."""
+    assert len(DOCUMENTED) == 139
+    assert len(set(DOCUMENTED)) == 139
 
 
 def test_chaque_endpoint_documente_a_un_chemin_dans_le_client():

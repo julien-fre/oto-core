@@ -1963,44 +1963,24 @@ export const listUnsubscribes = defineFunction({
   cost: { per: "request" },
 })
 
-export const getUnsubscribe = defineFunction({
-  name: "lemlist.get_unsubscribe",
-  connector: "lemlist",
-  class: "read",
-  act: false,
-  description: "Read one unsubscribed email or domain (v1 list).",
-  schema: {
-    "type": "object",
-    "additionalProperties": false,
-    "required": ["email"],
-    "properties": {"email": {"type": "string", "minLength": 1, "personal": true, "description": "Email address or domain."}}
-  },
-  examples: [
-    { title: "Is this address unsubscribed", input: {"email": "marie@example.test"} },
-  ],
-  refusals: [],
-  request: {
-    method: "GET",
-    path: "/unsubscribes/{email}",
-    pathParams: ["email"],
-    query: {},
-    body: {},
-    headers: {},
-  },
-  cost: { per: "request" },
-})
-
 export const addUnsubscribe = defineFunction({
   name: "lemlist.add_unsubscribe",
   connector: "lemlist",
   class: "sensitive",
   act: true,
-  description: "Add an email, or a whole domain, to the unsubscribe list (v1): lemlist never sends to it again.",
+  description: "Add an email, or a whole domain (@example.com), to the unsubscribe list: lemlist never sends to it again. The same request as unsubscribe_variable; idempotent.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "required": ["email"],
-    "properties": {"email": {"type": "string", "minLength": 1, "personal": true, "description": "Email address or domain."}}
+    "properties": {
+      "email": {
+        "type": "string",
+        "minLength": 1,
+        "personal": true,
+        "description": "Email address, or a domain written @example.com."
+      }
+    }
   },
   examples: [
     { title: "Unsubscribe an address", input: {"email": "marie@example.test"} },
@@ -2008,7 +1988,7 @@ export const addUnsubscribe = defineFunction({
   refusals: [],
   request: {
     method: "POST",
-    path: "/unsubscribes/{email}",
+    path: "/v2/unsubscribes/variables/{email}",
     pathParams: ["email"],
     query: {},
     body: {},
@@ -2023,12 +2003,19 @@ export const deleteUnsubscribe = defineFunction({
   connector: "lemlist",
   class: "sensitive",
   act: true,
-  description: "Remove an email or a domain from the unsubscribe list (v1): lemlist may send to it again.",
+  description: "Remove an email or a domain from the unsubscribe list: lemlist may send to it again. The same request as resubscribe_variable.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "required": ["email"],
-    "properties": {"email": {"type": "string", "minLength": 1, "personal": true, "description": "Email address or domain."}}
+    "properties": {
+      "email": {
+        "type": "string",
+        "minLength": 1,
+        "personal": true,
+        "description": "Email address, or a domain written @example.com."
+      }
+    }
   },
   examples: [
     { title: "Resubscribe an address", input: {"email": "marie@example.test"} },
@@ -2036,7 +2023,7 @@ export const deleteUnsubscribe = defineFunction({
   refusals: [],
   request: {
     method: "DELETE",
-    path: "/unsubscribes/{email}",
+    path: "/v2/unsubscribes/variables/{email}",
     pathParams: ["email"],
     query: {},
     body: {},
@@ -4658,7 +4645,7 @@ export const connector = defineConnector({
   name: "lemlist",
   label: "lemlist",
   namespace: "lemlist",
-  version: "1.5.0",
+  version: "1.6.0",
   apiVersion: "v1 and v2 routes",
   baseUrl: "https://api.lemlist.com/api",
   auth: {"kind": "basic", "password": "api_key"},
@@ -4723,7 +4710,6 @@ export const connector = defineConnector({
     getBatchCampaignStats,
     getCampaignReports,
     listUnsubscribes,
-    getUnsubscribe,
     addUnsubscribe,
     deleteUnsubscribe,
     listUnsubscribedVariables,

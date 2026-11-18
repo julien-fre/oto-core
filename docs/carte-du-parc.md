@@ -44,7 +44,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `instantly` | Instantly | 1.0.1 | clé | non | 34 | 21 | 5 | 8 | oui | 0 | non | 0 |
 | `jefacture` | jefacture.com | 1.0.0 | connexion d'une personne (OAuth) | non | 11 | 11 | 0 | 0 | non | 11 | non | 0 |
 | `klaviyo` | Klaviyo | 1.0.0 | clé | non | 25 | 19 | 2 | 4 | oui | 25 | non | 0 |
-| `lemlist` | lemlist | 1.5.0 | clé | non | 128 | 58 | 34 | 36 | oui | 128 | non | 0 |
+| `lemlist` | lemlist | 1.6.0 | clé | non | 127 | 57 | 34 | 36 | oui | 127 | non | 0 |
 | `linear` | Linear | 1.0.0 | clé | non | 27 | 12 | 9 | 6 | oui | 0 | non | 0 |
 | `linkedin_unipile` | LinkedIn (Unipile) | 1.3.2 | clé de l'hôte | oui | 28 | 24 | 1 | 3 | oui | 0 | non | 0 |
 | `mailpool` | Mailpool | 1.1.1 | clé | non | 21 | 16 | 5 | 0 | non | 21 | non | 0 |
@@ -75,7 +75,7 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | `typeform` | Typeform | 1.2.0 | clé | non | 12 | 6 | 1 | 5 | non | 12 | non | 0 |
 | `wttj_ats` | Welcome to the Jungle ATS | 1.0.0 | clé | non | 10 | 7 | 3 | 0 | non | 0 | non | 0 |
 | `yousign` | Yousign | 1.1.1 | clé | non | 13 | 5 | 7 | 1 | oui | 0 | non | 0 |
-| **total : 60** |  |  |  |  | 1457 | 911 | 338 | 208 |  | 977 |  | 0 |
+| **total : 60** |  |  |  |  | 1456 | 910 | 338 | 208 |  | 976 |  | 0 |
 
 ## Par type
 
@@ -86,4 +86,4 @@ Une ligne par connecteur décrit, par ordre alphabétique. Le type se déduit de
 | compte de service (assertion signée) | 1 | 6 |
 | clé de l'hôte | 2 | 29 |
 | sans clé | 0 | 0 |
-| clé | 47 | 1345 |
+| clé | 47 | 1344 |

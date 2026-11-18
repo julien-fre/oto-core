@@ -5,6 +5,14 @@
 # The function names, the argument names and the keys sent to lemlist are the client's; the client is not changed
 # (tests/test_lemlist_description.py reads it to keep both equal).
 #
+# 1.6.0: the per-address unsubscribe functions send the v2 variables requests, the v1 routes (/unsubscribes/{email},
+# /unsubs/export) being no longer served nor in lemlist's reference: add_unsubscribe is POST and delete_unsubscribe
+# DELETE /v2/unsubscribes/variables/{email}, the same requests as unsubscribe_variable and resubscribe_variable; the
+# client's export_unsubscribes reads /v2/unsubscribes/exports/variables. get_unsubscribe leaves the file: the client
+# reads GET /v2/unsubscribes/variables/{email} and answers unsubscribed false on lemlist's 404 "Variable not found",
+# an answer and not an error, which the format does not say (get_unsubscribed_variable stays, the same request,
+# refused on that 404). Nothing else changes.
+#
 # 1.5.0: the sender pool of a campaign, get_campaign_senders, add_campaign_senders and replace_campaign_senders (GET,
 # POST and PUT /campaigns/{id}/senders): the only routes that choose WHICH mailboxes of a user send, where sendUserIds
 # of update_campaign takes the first account of each channel type of each user (lemlist's reference). list_unsubscribes
@@ -101,6 +109,7 @@
 #   get_campaign_stats, sync_activities, status, unsubscribe_lead (delete_lead without action);
 # - a route chosen by an argument: mark_lead_interested and mark_lead_not_interested (one campaign, or all);
 # - get_enrichment: a 404 is an answer (enrichmentStatus not-found), not an error;
+# - get_unsubscribe: a 404 is an answer (Variable not found: not on the list, unsubscribed false), not an error;
 # - CSV exports: export_leads, export_unsubscribes, export_unsubscribed_variables, export_unsubscribed_contacts,
 #   export_contact_list (a rendered file in a later lot);
 # - connect_email_account: the SMTP and IMAP passwords of a mailbox would be arguments, which the host journals;
@@ -116,7 +125,7 @@ connector:
   name: lemlist
   label: lemlist
   namespace: lemlist
-  version: 1.5.0
+  version: 1.6.0
   api_version: v1 and v2 routes
   base_url: https://api.lemlist.com/api
   auth:
@@ -1435,41 +1444,26 @@ functions:
       query: { offset: offset, limit: limit }
     cost: *request
 
-  - name: get_unsubscribe
-    class: read
-    description: Read one unsubscribed email or domain (v1 list).
-    input:
-      type: object
-      additionalProperties: false
-      required: [email]
-      properties:
-        email: &email_or_domain { type: string, minLength: 1, personal: true, description: "Email address or domain." }
-    examples:
-      - title: Is this address unsubscribed
-        input: { email: marie@example.test }
-    call: { method: GET, path: "/unsubscribes/{email}" }
-    cost: *request
-
   - name: add_unsubscribe
     class: sensitive
-    description: "Add an email, or a whole domain, to the unsubscribe list (v1): lemlist never sends to it again."
+    description: "Add an email, or a whole domain (@example.com), to the unsubscribe list: lemlist never sends to it again. The same request as unsubscribe_variable; idempotent."
     input:
       type: object
       additionalProperties: false
       required: [email]
       properties:
-        email: *email_or_domain
+        email: &email_or_domain { type: string, minLength: 1, personal: true, description: "Email address, or a domain written @example.com." }
     examples:
       - title: Unsubscribe an address
         input: { email: marie@example.test }
     confirm:
       summary: "Unsubscribe {email} from every lemlist send."
-    call: { method: POST, path: "/unsubscribes/{email}" }
+    call: { method: POST, path: "/v2/unsubscribes/variables/{email}" }
     cost: *request
 
   - name: delete_unsubscribe
     class: sensitive
-    description: "Remove an email or a domain from the unsubscribe list (v1): lemlist may send to it again."
+    description: "Remove an email or a domain from the unsubscribe list: lemlist may send to it again. The same request as resubscribe_variable."
     input:
       type: object
       additionalProperties: false
@@ -1481,7 +1475,7 @@ functions:
         input: { email: marie@example.test }
     confirm:
       summary: "Remove {email} from the lemlist unsubscribe list: it can receive messages again."
-    call: { method: DELETE, path: "/unsubscribes/{email}" }
+    call: { method: DELETE, path: "/v2/unsubscribes/variables/{email}" }
     cost: *request
 
   - name: list_unsubscribed_variables

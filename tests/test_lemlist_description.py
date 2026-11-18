@@ -1,4 +1,4 @@
-"""La description `lemlist` 1.4.0 : celle du client existant (`oto.tools.lemlist`), sans rien y changer.
+"""La description `lemlist` 1.6.0 : celle du client existant (`oto.tools.lemlist`), sans rien y changer.
 
 Une fonction par méthode du client qui envoie une seule requête à `api.lemlist.com/api`, sous son nom, avec ses noms
 d'arguments et les clés que le client envoie à lemlist (chemin, query, corps, parties d'un multipart). Depuis la 1.1.0,
@@ -11,10 +11,13 @@ la 1.2.1, les champs personnalisés du CRM, que lemlist type, sont des valeurs s
 l'audio d'un lead est un fichier en transit ou un fichier joint à une page que lit l'appelant ; depuis la 1.3.0,
 les deux recherches de la base partagée prennent au client une vue de la réponse (`fields`, `compact`), hors du
 fichier ; depuis la 1.4.0, la lecture des activités aussi, et `list_all_campaigns` ne se dit plus tronquée quand
-la liste est complète (client seul). Restent
+la liste est complète (client seul) ; depuis la 1.6.0, l'ajout et le retrait d'une adresse désinscrite passent
+par les routes v2 des variables, les routes v1 n'étant plus servies, et la lecture d'une adresse sort du fichier
+(un 404 « Variable not found » y est une réponse, `unsubscribed: false`). Restent
 hors du fichier, au client écrit à la main : les corps formés à partir d'un argument (un identifiant ajouté, un email
 retiré), le corps en tableau nu, les query à clés libres (les variables d'un lead), les compositions et aides locales,
-les routes choisies selon un argument, la relève d'enrichissement (un 404 y est une réponse), les exports CSV et la
+les routes choisies selon un argument, la relève d'enrichissement et la lecture d'une adresse désinscrite (un 404 y
+est une réponse), les exports CSV et la
 connexion d'une boîte par ses mots de passe.
 Les gardes ci-dessous lisent le client lui-même : un endpoint, un argument ou une clé qu'il ajoute sans la description
 fait échouer le test ; une écriture servie du côté lecture aussi.
@@ -80,6 +83,7 @@ LEFT_OUT = {
     "mark_lead_interested": "the route depends on whether campaign_id is given",
     "mark_lead_not_interested": "the route depends on whether campaign_id is given",
     "get_enrichment": "a 404 is an answer (enrichmentStatus not-found), not an error",
+    "get_unsubscribe": "a 404 is an answer (Variable not found: unsubscribed false), not an error",
     "export_leads": "a CSV export",
     "export_unsubscribes": "a CSV export",
     "export_unsubscribed_variables": "a CSV export",
@@ -141,7 +145,7 @@ CLASSES = {
         "list_campaigns", "get_campaign", "get_campaign_statutes", "get_sequences", "get_ab_variant",
         "list_schedules", "get_schedule", "get_campaign_schedules", "get_lead", "get_lead_by_email",
         "get_campaign_leads", "get_activities", "get_campaign_stats_v2", "get_batch_campaign_stats",
-        "get_campaign_reports", "list_unsubscribes", "get_unsubscribe", "list_unsubscribed_variables",
+        "get_campaign_reports", "list_unsubscribes", "list_unsubscribed_variables",
         "get_unsubscribed_variable", "get_contact_subscription", "list_contacts", "get_contact",
         "list_contact_lists", "list_companies", "get_company_notes", "list_inboxes", "get_contact_messages",
         "list_inbox_labels", "get_inbox_label", "list_drafts", "get_draft", "list_tasks", "list_watch_lists",
@@ -425,9 +429,9 @@ def _values(name: str, function: dict) -> dict:
     return {argument: values[argument] for argument in function["input"]["properties"]}
 
 
-def test_the_description_is_version_1_5_0_and_passes_the_fabrique():
+def test_the_description_is_version_1_6_0_and_passes_the_fabrique():
     description = _description()
-    assert description["connector"]["version"] == "1.5.0"
+    assert description["connector"]["version"] == "1.6.0"
     check(description, LEMLIST)
 
 
@@ -548,14 +552,16 @@ def test_each_call_costs_one_request_and_nothing_is_paginated():
 def test_only_the_401_marks_the_account_as_a_refused_key():
     """Le client lève la même erreur pour tout statut au-delà de 400 : il ne nomme aucun refus. Marquer le 401 n'est
     donc pas plus large que lui, et un 401 de lemlist veut dire « clé refusée » : seule cette ligne marque le compte,
-    en `credential_rejected` ; aucune ne lit le corps. Un 5xx n'est pas rejouable."""
+    en `credential_rejected` ; aucune ne lit le corps. Un 5xx n'est pas rejouable. Le garde lit les méthodes
+    décrites : une méthode hors du fichier où un 404 est une réponse (`get_unsubscribe`) n'en fait pas partie."""
     errors = _description()["connector"]["errors"]
     marking = [e for e in errors if "marks_account" in e]
     assert marking == [{"status": 401, "code": "key_refused", "retryable": False,
                         "marks_account": "credential_rejected", "message": marking[0]["message"]}]
     assert not [e for e in errors if "body" in e]
     assert not [r for f in _functions().values() for r in f.get("refusals", [])]
-    assert "status_code ==" not in inspect.getsource(LemlistClient)
+    for name in _functions():
+        assert "status_code ==" not in inspect.getsource(getattr(LemlistClient, name)), name
     assert {e["code"] for e in errors if e["retryable"]} == {"rate_limited"}
 
 

@@ -807,8 +807,8 @@ def test_les_exports_rendent_du_TEXTE_et_non_du_json(monkeypatch):
     c = lm.LemlistClient(api_key="k")
 
     assert c.export_unsubscribes() == "None"
-    # Abréviation de lemlist : /unsubs/, pas /unsubscribes/.
-    assert captured["url"].endswith("/unsubs/export")
+    # La route v1 (`/unsubs/export`) n'est plus servie : l'export v2 des variables.
+    assert captured["url"].endswith("/v2/unsubscribes/exports/variables")
 
     c.export_unsubscribed_variables()
     assert captured["url"].endswith("/v2/unsubscribes/exports/variables")
@@ -1142,6 +1142,97 @@ def test_list_unsubscribes_and_list_unsubscribed_variables_are_the_same_request(
     c.list_unsubscribed_variables(limit=10)
     assert (calls[0]["method"], calls[0]["url"], calls[0]["params"]) == (
         calls[1]["method"], calls[1]["url"], calls[1]["params"])
+
+
+# --- Une adresse désinscrite : les routes v2 des variables, un 404 « Variable not found » est une réponse --
+
+
+class _TextResp(_Resp):
+    """Une réponse en texte nu, que `.json()` ne lit pas (la forme que la doc lemlist donne au 404)."""
+
+    def json(self):
+        raise ValueError("not JSON")
+
+
+def _answers(monkeypatch, resp):
+    calls = []
+
+    def fake_request(method, url, headers=None, **kwargs):
+        calls.append({"method": method, "url": url, **kwargs})
+        return resp
+
+    monkeypatch.setattr(lm.requests, "request", fake_request)
+    return calls
+
+
+@pytest.mark.parametrize("method, verb", [
+    ("get_unsubscribe", "GET"), ("add_unsubscribe", "POST"), ("delete_unsubscribe", "DELETE")])
+def test_per_address_unsubscribe_sends_the_v2_variables_route(monkeypatch, method, verb):
+    calls = _answers(monkeypatch, _Resp(200, {"_id": "uns_1", "value": "a@example.test"}))
+    getattr(lm.LemlistClient(api_key="k"), method)("a@example.test")
+    assert calls[0]["method"] == verb
+    assert calls[0]["url"] == f"{lm.LemlistClient.BASE_URL}/v2/unsubscribes/variables/a@example.test"
+
+
+@pytest.mark.parametrize("v1_method, v2_method", [
+    ("add_unsubscribe", "unsubscribe_variable"), ("delete_unsubscribe", "resubscribe_variable"),
+    ("get_unsubscribe", "get_unsubscribed_variable")])
+def test_per_address_unsubscribe_is_the_same_request_as_its_v2_twin(monkeypatch, v1_method, v2_method):
+    calls = _answers(monkeypatch, _Resp(200, {"_id": "uns_1"}))
+    c = lm.LemlistClient(api_key="k")
+    getattr(c, v1_method)("@example.test")
+    getattr(c, v2_method)("@example.test")
+    assert (calls[0]["method"], calls[0]["url"]) == (calls[1]["method"], calls[1]["url"])
+
+
+def test_get_unsubscribe_on_the_list_says_unsubscribed_true(monkeypatch):
+    record = {"_id": "uns_1", "value": "@example.test", "variable": "@example.test", "source": "api"}
+    _answers(monkeypatch, _Resp(200, record))
+    assert lm.LemlistClient(api_key="k").get_unsubscribe("@example.test") == {**record, "unsubscribed": True}
+
+
+@pytest.mark.parametrize("resp", [
+    _Resp(404, {"error": "Variable not found"}),   # la forme JSON
+    _TextResp(404, "Variable not found"),          # la forme texte de la doc
+], ids=["json", "text"])
+def test_get_unsubscribe_not_on_the_list_is_an_answer_not_an_error(monkeypatch, resp):
+    _answers(monkeypatch, resp)
+    assert lm.LemlistClient(api_key="k").get_unsubscribe("a@example.test") == {
+        "value": "a@example.test", "unsubscribed": False}
+
+
+@pytest.mark.parametrize("resp", [
+    # Une route inconnue : ne JAMAIS se lire « pas désinscrit » sur une vérification avant envoi.
+    _Resp(404, {"statusCode": 404, "error": "Not Found",
+                "message": "Route GET:/api/v2/unsubscribes/variables/variable not found"}),
+    _Resp(404, {"error": "Lead not found"}),
+    _Resp(401, "Unauthorized"),
+    _Resp(500, {"error": "Variable not found"}),
+], ids=["route-404", "other-404", "401", "500"])
+def test_get_unsubscribe_any_other_refusal_still_raises(monkeypatch, resp):
+    _answers(monkeypatch, resp)
+    with pytest.raises(UpstreamHTTPError) as e:
+        lm.LemlistClient(api_key="k").get_unsubscribe("variable")
+    assert e.value.status_code == resp.status_code
+
+
+def test_get_unsubscribed_variable_still_raises_on_variable_not_found(monkeypatch):
+    """La fonction v2 brute, décrite, reste une requête unitaire : le 404 y est un refus."""
+    _answers(monkeypatch, _Resp(404, {"error": "Variable not found"}))
+    with pytest.raises(UpstreamHTTPError):
+        lm.LemlistClient(api_key="k").get_unsubscribed_variable("a@example.test")
+
+
+def test_no_unsubscribe_method_sends_a_v1_route(monkeypatch):
+    calls = _answers(monkeypatch, _Resp(200, {"_id": "uns_1"}))
+    c = lm.LemlistClient(api_key="k")
+    c.list_unsubscribes()
+    c.get_unsubscribe("a@example.test")
+    c.add_unsubscribe("a@example.test")
+    c.delete_unsubscribe("a@example.test")
+    c.export_unsubscribes()
+    paths = [call["url"][len(lm.LemlistClient.BASE_URL):] for call in calls]
+    assert all(p.startswith("/v2/unsubscribes/") for p in paths), paths
 
 
 SIX_MAILBOXES = [{"userId": "usr_1", "channels": [

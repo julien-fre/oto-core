@@ -18,10 +18,26 @@ from typing import Optional, Dict, Any, List
 import requests
 
 from ..common.credentials import require
-from ..common import raise_for_upstream
+from ..common import UpstreamHTTPError, raise_for_upstream
 from . import activity_views, database_views
 
 _HTTP_TIMEOUT = (10, 60)  # (connect, read) — never wait indefinitely
+
+_VARIABLE_NOT_FOUND = "variable not found"
+
+
+def _is_variable_not_found(body: Any) -> bool:
+    """Whether a 404 body is lemlist's "this value is not on the unsubscribe
+    list" — `{"error": "Variable not found"}` in JSON, or the bare text. Exact
+    match, case aside: a 404 of another kind (an unknown route answers
+    `{"statusCode": 404, "error": "Not Found", "message": "Route … not
+    found"}`) is a refusal, never an answer."""
+    if isinstance(body, dict):
+        texts = [body.get("error"), body.get("message")]
+    else:
+        texts = [body]
+    return any(isinstance(t, str) and t.strip().lower() == _VARIABLE_NOT_FOUND
+               for t in texts)
 
 
 def _query(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1712,50 +1728,67 @@ class LemlistClient:
 
     # --- Unsubscribes ---------------------------------------------------------
     #
-    # THREE lists, not one, and lemlist documents them separately because they
-    # do not carry the same objects:
-    #   • v1 "unsubscribes" — emails and DOMAINS, flat;
-    #   • v2 "variables"    — any identifying value (email, domain, LinkedIn
-    #     URL, phone), with a bulk import;
-    #   • v2 "contacts"     — the do-not-contact flag set on a CONTACT of the
+    # TWO lists, and lemlist documents them separately because they do not
+    # carry the same objects:
+    #   • v2 "variables" — any identifying value (email, domain written
+    #     `@example.com`, LinkedIn URL, phone), with a bulk import;
+    #   • v2 "contacts"  — the do-not-contact flag set on a CONTACT of the
     #     lemlist CRM, not on a value.
-    # Unsubscribing an address in v1 does not set the contact's flag, and
-    # vice versa. The three families are therefore exposed as they are rather
-    # than merged into a single one, which would lie about what was done.
+    # Unsubscribing an address does not set the contact's flag, and vice versa:
+    # the two families are exposed as they are rather than merged into one,
+    # which would lie about what was done.
+    #
+    # The v1 routes (`/unsubscribes`, `/unsubscribes/{email}`, `/unsubs/export`)
+    # are no longer served nor in lemlist's reference. The methods named after
+    # them (`list_unsubscribes`, `get_unsubscribe`, `add_unsubscribe`,
+    # `delete_unsubscribe`, `export_unsubscribes`) are kept so their callers
+    # keep working, and send the v2 variables request of the same meaning.
 
     def list_unsubscribes(self, *, offset: int = None, limit: int = None) -> Any:
-        """List unsubscribed emails and domains — the SAME list as
-        `list_unsubscribed_variables` now.
-
-        The v1 listing route (`GET /unsubscribes`) is no longer served (404
-        "Route not found"); the v2 listing holds the emails and domains too
-        (plus LinkedIn URLs and phones). Kept under this name so its callers
-        keep working; rows are `{_id, value, source, createdAt}`, at most 100
-        per page.
-        """
+        """List unsubscribed emails and domains — the SAME request as
+        `list_unsubscribed_variables`: rows `{_id, value, source, createdAt}`,
+        LinkedIn URLs and phones included, at most 100 per page."""
         params = {k: v for k, v in {"offset": offset, "limit": limit}.items()
                   if v is not None}
         return self._request("GET", "v2/unsubscribes/variables", params=params)
 
     def get_unsubscribe(self, email: str) -> Dict[str, Any]:
-        """Read one unsubscribed email or domain (v1)."""
-        return self._request("GET", f"unsubscribes/{email}")
+        """Is this email or domain unsubscribed? Never raises for an absent one.
+
+        Reads `GET /v2/unsubscribes/variables/{email}`. Unsubscribed: the
+        record, `{_id, value, variable, source}`, plus `unsubscribed: True`.
+        Not on the list (lemlist answers 404 "Variable not found"):
+        `{value, unsubscribed: False}`. Any other refusal, a 404 of another
+        kind included, raises `UpstreamHTTPError`. A domain is matched in the
+        form lemlist stores it, `@example.com`.
+        """
+        try:
+            record = self._request("GET", f"v2/unsubscribes/variables/{email}")
+        except UpstreamHTTPError as e:
+            if e.status_code == 404 and _is_variable_not_found(e.body):
+                return {"value": email, "unsubscribed": False}
+            raise
+        if not isinstance(record, dict):
+            record = {"record": record}
+        return {**record, "unsubscribed": True}
 
     def add_unsubscribe(self, email: str) -> Dict[str, Any]:
-        """Add an email — or a whole DOMAIN — to the unsubscribe list (v1)."""
-        return self._request("POST", f"unsubscribes/{email}")
+        """Add an email — or a whole domain, `@example.com` — to the unsubscribe
+        list: the same request as `unsubscribe_variable`. Idempotent: an
+        address already on the list returns its existing record."""
+        return self._request("POST", f"v2/unsubscribes/variables/{email}")
 
     def delete_unsubscribe(self, email: str) -> Dict[str, Any]:
-        """Remove an email or domain from the unsubscribe list (v1)."""
-        return self._request("DELETE", f"unsubscribes/{email}")
+        """Remove an email or domain from the unsubscribe list: the same
+        request as `resubscribe_variable` (400 when it is not on the list,
+        409 when its source, lead or abuse, protects it)."""
+        return self._request("DELETE", f"v2/unsubscribes/variables/{email}")
 
     def export_unsubscribes(self) -> str:
-        """Export the v1 unsubscribe list as CSV.
-
-        ⚠️ The path is `/unsubs/export`, NOT `/unsubscribes/export` — lemlist's
-        own abbreviation, and the kind of detail a "tidy-up" would break.
-        """
-        return self._request("GET", "unsubs/export", as_text=True)
+        """Export the unsubscribe list as CSV: the same request as
+        `export_unsubscribed_variables`."""
+        return self._request(
+            "GET", "v2/unsubscribes/exports/variables", as_text=True)
 
     def list_unsubscribed_variables(
         self, *, offset: int = None, limit: int = None,
