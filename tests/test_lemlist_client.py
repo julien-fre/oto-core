@@ -1188,7 +1188,46 @@ def test_per_address_unsubscribe_is_the_same_request_as_its_v2_twin(monkeypatch,
 def test_get_unsubscribe_on_the_list_says_unsubscribed_true(monkeypatch):
     record = {"_id": "uns_1", "value": "@example.test", "variable": "@example.test", "source": "api"}
     _answers(monkeypatch, _Resp(200, record))
-    assert lm.LemlistClient(api_key="k").get_unsubscribe("@example.test") == {**record, "unsubscribed": True}
+    assert lm.LemlistClient(api_key="k").get_unsubscribe("@example.test") == {
+        **record, "matched": "@example.test", "unsubscribed": True}
+
+
+def _sequence(monkeypatch, *resps):
+    calls = []
+    queue = list(resps)
+
+    def fake_request(method, url, headers=None, **kwargs):
+        calls.append(url.rsplit("/variables/", 1)[1])
+        return queue.pop(0)
+
+    monkeypatch.setattr(lm.requests, "request", fake_request)
+    return calls
+
+
+def test_get_unsubscribe_an_address_of_an_unsubscribed_domain_says_true(monkeypatch):
+    """lemlist matche exactement : l'adresse n'est pas listée, son domaine l'est."""
+    record = {"_id": "uns_2", "value": "@example.test", "source": "api"}
+    calls = _sequence(monkeypatch, _Resp(404, {"error": "Variable not found"}), _Resp(200, record))
+    out = lm.LemlistClient(api_key="k").get_unsubscribe("jane@example.test")
+    assert calls == ["jane@example.test", "@example.test"]
+    assert out == {**record, "value": "jane@example.test", "matched": "@example.test",
+                   "unsubscribed": True}
+
+
+def test_get_unsubscribe_a_listed_address_does_not_ask_for_its_domain(monkeypatch):
+    record = {"_id": "uns_1", "value": "jane@example.test"}
+    calls = _sequence(monkeypatch, _Resp(200, record))
+    out = lm.LemlistClient(api_key="k").get_unsubscribe("jane@example.test")
+    assert calls == ["jane@example.test"]
+    assert out["matched"] == "jane@example.test" and out["unsubscribed"] is True
+
+
+def test_get_unsubscribe_a_refusal_on_the_domain_check_still_raises(monkeypatch):
+    """Jamais « pas désinscrit » quand le domaine n'a pas pu être vérifié."""
+    _sequence(monkeypatch, _Resp(404, {"error": "Variable not found"}), _Resp(401, "Unauthorized"))
+    with pytest.raises(UpstreamHTTPError) as e:
+        lm.LemlistClient(api_key="k").get_unsubscribe("jane@example.test")
+    assert e.value.status_code == 401
 
 
 @pytest.mark.parametrize("resp", [

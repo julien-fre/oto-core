@@ -1762,19 +1762,36 @@ class LemlistClient:
         kind included, raises `UpstreamHTTPError`. A domain is matched in the
         form lemlist stores it, `@example.com`.
 
-        ⚠️ The match is EXACT: `unsubscribed: False` means "this value is not
-        listed", not "this person may be contacted". An address whose DOMAIN
-        is unsubscribed reads False on the address; check `@<its domain>` too.
+        lemlist matches EXACTLY, so an address whose DOMAIN is unsubscribed
+        is not listed itself. For an address (`jane@example.com`) the domain
+        `@example.com` is checked too: listed → `unsubscribed: True`,
+        `matched: "@example.com"` (the record found). `matched` names the
+        value that answered (the address itself, or its domain).
         """
+        record = self._unsubscribe_record(email)
+        if record is not None:
+            return {**record, "value": email, "matched": email,
+                    "unsubscribed": True}
+        local, at, domain = email.rpartition("@")
+        if local and at and domain:
+            par_domaine = self._unsubscribe_record(f"@{domain}")
+            if par_domaine is not None:
+                return {**par_domaine, "value": email,
+                        "matched": f"@{domain}", "unsubscribed": True}
+        return {"value": email, "unsubscribed": False}
+
+    def _unsubscribe_record(self, value: str) -> Optional[Dict[str, Any]]:
+        """The unsubscribe record for this exact value, or None when lemlist
+        answers 404 "Variable not found". Any other refusal raises."""
         try:
-            record = self._request("GET", f"v2/unsubscribes/variables/{email}")
+            record = self._request("GET", f"v2/unsubscribes/variables/{value}")
         except UpstreamHTTPError as e:
             if e.status_code == 404 and _is_variable_not_found(e.body):
-                return {"value": email, "unsubscribed": False}
+                return None
             raise
         if not isinstance(record, dict):
             record = {"record": record}
-        return {**record, "unsubscribed": True}
+        return record
 
     def add_unsubscribe(self, email: str) -> Dict[str, Any]:
         """Add an email — or a whole domain, `@example.com` — to the unsubscribe
