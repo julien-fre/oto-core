@@ -114,3 +114,108 @@ def test_http_error_is_typed(monkeypatch):
     with pytest.raises(UpstreamHTTPError) as e:
         _client().run_status("nope")
     assert e.value.status_code == 404
+
+
+# --- reprises : 429 (et 502/503/504 en lecture), jamais un départ ambigu ---------
+
+@pytest.fixture()
+def file_de_reponses(monkeypatch):
+    """`Session.request` rend, dans l'ordre, les réponses de `reponses` (posées par le
+    test) ; `envois` compte les envois, `attentes` les pauses demandées."""
+    etat = {"reponses": [], "envois": [], "attentes": []}
+
+    def fake_request(self, method, url, **kwargs):
+        etat["envois"].append((method, url))
+        return etat["reponses"].pop(0)
+
+    monkeypatch.setattr(ap.requests.Session, "request", fake_request)
+    monkeypatch.setattr(ap, "_sleep", etat["attentes"].append)
+    return etat
+
+
+def _r429(retry_after=None):
+    r = _Resp(429, {"error": {"type": "rate-limit-exceeded"}})
+    if retry_after is not None:
+        r.headers = {"Retry-After": str(retry_after)}
+    return r
+
+
+@pytest.mark.parametrize("appel", [
+    lambda c: c.run_status("run-1"),
+    lambda c: c.dataset_items("ds-1"),
+    lambda c: c.actor("apify/x"),
+    lambda c: c.store_search("maps"),
+    lambda c: c.actors(),
+    lambda c: c.abort_run("run-1"),
+    lambda c: c.run("apify/x"),
+    lambda c: c.run_sync_dataset_items("apify/x"),
+])
+def test_a_429_is_retried_then_succeeds(file_de_reponses, appel):
+    """Un 429 est refusé AVANT tout traitement : le rejouer est sûr, départ compris."""
+    file_de_reponses["reponses"] = [_r429(), _r429(), _Resp(200, {"data": {"id": "run-1"}})]
+    assert appel(_client()) == {"data": {"id": "run-1"}}
+    assert len(file_de_reponses["envois"]) == 3
+    assert len(file_de_reponses["attentes"]) == 2
+
+
+def test_the_backoff_doubles_from_half_a_second(file_de_reponses):
+    """Le backoff documenté par Apify : entre le délai et son double, le délai doublant
+    depuis 500 ms."""
+    file_de_reponses["reponses"] = [_r429(), _r429(), _r429(), _Resp(200, {})]
+    _client().run_status("run-1")
+    a, b, c = file_de_reponses["attentes"]
+    assert 0.5 <= a <= 1.0 and 1.0 <= b <= 2.0 and 2.0 <= c <= 4.0
+
+
+def test_a_short_retry_after_is_followed(file_de_reponses):
+    file_de_reponses["reponses"] = [_r429(retry_after=3), _Resp(200, {})]
+    _client().dataset_items("ds-1")
+    assert file_de_reponses["attentes"] == [3.0]
+
+
+def test_a_long_retry_after_is_not_slept_away(file_de_reponses):
+    """Une attente qu'on ne peut pas tenir revient à l'appelant, nommée — jamais dormie."""
+    file_de_reponses["reponses"] = [_r429(retry_after=120)]
+    with pytest.raises(UpstreamHTTPError) as e:
+        _client().run_status("run-1")
+    assert e.value.status_code == 429 and e.value.retry_after == 120.0
+    assert file_de_reponses["attentes"] == [] and len(file_de_reponses["envois"]) == 1
+
+
+def test_it_gives_up_after_max_retries(file_de_reponses):
+    file_de_reponses["reponses"] = [_r429() for _ in range(ap.MAX_RETRIES + 1)]
+    with pytest.raises(UpstreamHTTPError) as e:
+        _client().run_status("run-1")
+    assert e.value.status_code == 429
+    assert len(file_de_reponses["envois"]) == ap.MAX_RETRIES + 1 == 4
+    assert len(file_de_reponses["attentes"]) == ap.MAX_RETRIES
+
+
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_a_gateway_error_is_retried_on_a_read(file_de_reponses, status):
+    file_de_reponses["reponses"] = [_Resp(status, "bad gateway"), _Resp(200, [{"a": 1}])]
+    assert _client().dataset_items("ds-1") == [{"a": 1}]
+    assert len(file_de_reponses["envois"]) == 2
+
+
+@pytest.mark.parametrize("depart", [
+    lambda c: c.run("apify/x"),
+    lambda c: c.run_sync_dataset_items("apify/x"),
+])
+@pytest.mark.parametrize("status", [500, 502, 503, 504])
+def test_a_start_is_never_replayed_on_an_ambiguous_error(file_de_reponses, depart, status):
+    """Un 5xx sur un départ ne dit pas si le run est parti, et Apify n'offre aucune clé
+    d'idempotence : le rejouer pourrait lancer — et facturer — un second run."""
+    file_de_reponses["reponses"] = [_Resp(status, "upstream error")]
+    with pytest.raises(UpstreamHTTPError) as e:
+        depart(_client())
+    assert e.value.status_code == status
+    assert len(file_de_reponses["envois"]) == 1 and file_de_reponses["attentes"] == []
+
+
+@pytest.mark.parametrize("status", [400, 401, 402, 403, 404, 408, 500])
+def test_a_final_refusal_is_never_retried(file_de_reponses, status):
+    file_de_reponses["reponses"] = [_Resp(status, {"error": {"type": "x"}})]
+    with pytest.raises(UpstreamHTTPError):
+        _client().run_status("run-1")
+    assert len(file_de_reponses["envois"]) == 1
