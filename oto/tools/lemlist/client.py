@@ -1761,6 +1761,10 @@ class LemlistClient:
         `{value, unsubscribed: False}`. Any other refusal, a 404 of another
         kind included, raises `UpstreamHTTPError`. A domain is matched in the
         form lemlist stores it, `@example.com`.
+
+        ⚠️ The match is EXACT: `unsubscribed: False` means "this value is not
+        listed", not "this person may be contacted". An address whose DOMAIN
+        is unsubscribed reads False on the address; check `@<its domain>` too.
         """
         try:
             record = self._request("GET", f"v2/unsubscribes/variables/{email}")
