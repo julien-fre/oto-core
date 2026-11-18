@@ -26,9 +26,11 @@ retry (`_request(retry_on=…)`), nothing by default:
   started — and Apify documents no idempotency key for a start: replaying it could start,
   and bill, a second run. It is raised, never replayed.
 
-At most `MAX_RETRIES` retries; a `Retry-After` the answer carries is followed when it is
-short (≤ `RETRY_AFTER_MAX_S`), and a longer one is not slept away: the error is raised at
-once, its `retry_after` set, for the caller to decide.
+At most `MAX_RETRIES` retries, and never past `RETRY_BUDGET_S` from the first send: a
+long poll (`run_status(wait_for_finish=60)`) that fails at the end of its wait is raised at
+once, as before, not replayed for minutes behind a caller's own budget. A `Retry-After` the
+answer carries is followed when it is short (≤ `RETRY_AFTER_MAX_S`), and a longer one is
+not slept away: the error is raised at once, its `retry_after` set, for the caller to decide.
 
 Requires: requests
 """
@@ -51,6 +53,8 @@ BACKOFF_S = 0.5
 BACKOFF_MAX_S = 8.0
 #: The longest `Retry-After` slept here; beyond, the error goes back to the caller.
 RETRY_AFTER_MAX_S = 10.0
+#: No retry once this long has passed since the first send, its wait included.
+RETRY_BUDGET_S = 20.0
 
 #: What a READ (or the abort) retries: the rate limit and a gateway's transient errors.
 RETRY_READ: FrozenSet[int] = frozenset({429, 502, 503, 504})
@@ -61,6 +65,11 @@ RETRY_START: FrozenSet[int] = frozenset({429})
 def _sleep(seconds: float) -> None:
     """The wait between two sends — a seam, so a test does not sleep."""
     time.sleep(seconds)
+
+
+def _now() -> float:
+    """The clock of `RETRY_BUDGET_S` — a seam, so a test can drive it."""
+    return time.monotonic()
 
 
 def _backoff(attempt: int) -> float:
@@ -100,6 +109,7 @@ class ApifyClient:
                  retry_on: FrozenSet[int] = frozenset(), **kwargs) -> Any:
         """One call, retried on the statuses `retry_on` names (none by default: a call
         site says what it may replay — module docstring, « Retries »)."""
+        start = _now()
         for attempt in range(MAX_RETRIES + 1):
             resp = self.session.request(method, f"{self.BASE_URL}{path}",
                                         timeout=timeout, **kwargs)
@@ -108,7 +118,10 @@ class ApifyClient:
             asked = retry_after_seconds(resp)
             if asked is not None and asked > RETRY_AFTER_MAX_S:
                 break   # too long to hold here: raised with its `retry_after`
-            _sleep(asked if asked is not None else _backoff(attempt))
+            wait = asked if asked is not None else _backoff(attempt)
+            if _now() - start + wait > RETRY_BUDGET_S:
+                break   # past the budget (a long poll that failed late): raised now
+            _sleep(wait)
         raise_for_upstream(resp, service="apify")
         return resp.json() if resp.content else {}
 

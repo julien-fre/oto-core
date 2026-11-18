@@ -130,6 +130,7 @@ def file_de_reponses(monkeypatch):
 
     monkeypatch.setattr(ap.requests.Session, "request", fake_request)
     monkeypatch.setattr(ap, "_sleep", etat["attentes"].append)
+    monkeypatch.setattr(ap, "_now", lambda: etat.get("horloge", 0.0))
     return etat
 
 
@@ -219,3 +220,15 @@ def test_a_final_refusal_is_never_retried(file_de_reponses, status):
     with pytest.raises(UpstreamHTTPError):
         _client().run_status("run-1")
     assert len(file_de_reponses["envois"]) == 1
+
+
+def test_a_long_poll_that_fails_late_is_not_replayed(file_de_reponses, monkeypatch):
+    """Un `run_status(wait_for_finish=60)` qui reçoit un 504 au bout de son attente
+    n'est pas rejoué trois fois de plus : passé `RETRY_BUDGET_S`, l'erreur remonte."""
+    horloge = iter([0.0, 60.0])
+    monkeypatch.setattr(ap, "_now", lambda: next(horloge))
+    file_de_reponses["reponses"] = [_Resp(504, "gateway timeout")]
+    with pytest.raises(UpstreamHTTPError) as e:
+        _client().run_status("run-1", wait_for_finish=60)
+    assert e.value.status_code == 504
+    assert len(file_de_reponses["envois"]) == 1 and file_de_reponses["attentes"] == []
