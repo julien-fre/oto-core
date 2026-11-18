@@ -66,7 +66,8 @@ class MailpoolUpdateNotKept(RuntimeError):
         if changed:
             parts.append(f"changed without being sent: {', '.join(changed)}")
         super().__init__(f"Mailpool did not keep the expected settings of mailbox "
-                         f"{mailbox_id} ({'; '.join(parts)}). Previous values: {previous}.")
+                         f"{mailbox_id} ({'; '.join(parts)}); the values before the write "
+                         "are in `previous`.")
 
 
 def _editable(mailbox: Any) -> Dict[str, Any]:

@@ -724,6 +724,7 @@ def test_a_field_lost_on_the_write_is_raised_with_the_previous_values(capture, c
     assert e.value.changed == ["forwardTo", "signature"]
     assert e.value.not_applied == []
     assert e.value.previous["signature"] == "Anna Lee"
+    assert "Anna Lee" not in str(e.value)  # the values travel in `previous`, not the text
     assert "password" not in e.value.mailbox
 
 
