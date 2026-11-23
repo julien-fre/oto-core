@@ -937,7 +937,7 @@ export const createTag = defineFunction({
   connector: "emailbison",
   class: "write",
   act: true,
-  description: "Create a tag in the workspace. Answers it with its id, for attach_tags_to_leads.",
+  description: "Create a tag in the workspace. Answers it with its id, for tag_leads.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -958,8 +958,8 @@ export const createTag = defineFunction({
   },
 })
 
-export const attachTagsToLeads = defineFunction({
-  name: "emailbison.attach_tags_to_leads",
+export const tagLeads = defineFunction({
+  name: "emailbison.tag_leads",
   connector: "emailbison",
   class: "write",
   act: true,
@@ -988,8 +988,8 @@ export const attachTagsToLeads = defineFunction({
   },
 })
 
-export const removeTagsFromLeads = defineFunction({
-  name: "emailbison.remove_tags_from_leads",
+export const untagLeads = defineFunction({
+  name: "emailbison.untag_leads",
   connector: "emailbison",
   class: "write",
   act: true,
@@ -1495,7 +1495,7 @@ export const connector = defineConnector({
   name: "emailbison",
   label: "EmailBison",
   namespace: "emailbison",
-  version: "1.0.1",
+  version: "1.0.2",
   apiVersion: "1.0.0",
   description: "EmailBison, cold email outreach on your own instance: read campaigns and their stats, sequence steps, leads, the master inbox replies and conversation threads, sending accounts, tags and webhooks; create and update leads, tag them, add leads or a lead list to a campaign, pause or resume a campaign, reply to an email, mark a reply interested or read, blacklist an address or a domain, and register webhooks that wake agents on replies.",
   logoDomain: "emailbison.com",
@@ -1544,8 +1544,8 @@ export const connector = defineConnector({
     createLeads,
     updateLead,
     createTag,
-    attachTagsToLeads,
-    removeTagsFromLeads,
+    tagLeads,
+    untagLeads,
     markReplyInterested,
     markReplyNotInterested,
     markReplyRead,

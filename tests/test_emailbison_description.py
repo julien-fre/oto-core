@@ -1,4 +1,4 @@
-"""La description `emailbison` 1.0.1 : la prospection par email à froid d'EmailBison, sans client Python.
+"""La description `emailbison` 1.0.2 : la prospection par email à froid d'EmailBison, sans client Python.
 
 Gardes : le compte est un jeton porteur et l'adresse de l'instance (un réglage `url`, gardé par le moteur à chaque
 requête) ; aucune route d'administration, de jeton ni de suppression n'est décrite, sauf la suppression d'un webhook ;
@@ -232,3 +232,10 @@ def test_lead_lists_drop_their_import_errors_and_keep_the_page():
     served = serve.result(fn, [{"data": [{"id": 12, "name": "Webinar", "error_messages": ["row 3: x@example.test"]}],
                                 "meta": {"current_page": 1, "last_page": 2}}])
     assert served == {"data": [{"id": 12, "name": "Webinar"}], "meta": {"current_page": 1, "last_page": 2}}
+
+
+def test_a_function_named_as_a_destruction_is_one():
+    """oto 1 reads `delete_`, `remove_`, `archive_`… as a destruction: such a name is a sensitive `destroy`."""
+    for name, fn in _functions().items():
+        if name.split("_")[0] in ("delete", "remove", "merge", "purge", "archive", "revoke", "trash"):
+            assert (fn["class"], fn.get("effect")) == ("sensitive", "destroy"), name

@@ -80,7 +80,7 @@ connector:
     interested or read, blacklist an address or a domain, and register webhooks that wake agents on replies.
   logo_domain: emailbison.com
   namespace: emailbison
-  version: 1.0.1
+  version: 1.0.2
   api_version: "1.0.0"
   base_url: "{instance_url}/api"
   auth: { kind: bearer, token: api_key }
@@ -760,7 +760,7 @@ functions:
     class: write
     description: >-
       Create a tag in the workspace. Answers it with its id, for
-      attach_tags_to_leads.
+      tag_leads.
     input:
       type: object
       additionalProperties: false
@@ -771,7 +771,7 @@ functions:
       - { title: A tag, input: { name: Hot lead } }
     call: { method: POST, path: /tags, body: { name: name } }
 
-  - name: attach_tags_to_leads
+  - name: tag_leads
     class: write
     description: >-
       Put tags (tag_ids) on leads (lead_ids). skip_webhooks true fires no
@@ -791,7 +791,7 @@ functions:
       path: /tags/attach-to-leads
       body: { tag_ids: tag_ids, lead_ids: lead_ids, skip_webhooks: skip_webhooks }
 
-  - name: remove_tags_from_leads
+  - name: untag_leads
     class: write
     description: >-
       Take tags (tag_ids) off leads (lead_ids). skip_webhooks true fires no
