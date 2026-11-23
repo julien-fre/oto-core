@@ -52,8 +52,9 @@
 #   error_messages. These are size choices, not secrets.
 # - Narrower than the reference, named: create_webhook takes an https address only and the 19 event ids the
 #   reference lists; lead_ids take at most 500 ids, campaign_ids, sender_email_ids and tag_ids 100, recipients 50
-#   (bounds of this file; the reference states none, except 500 leads for create_leads); dates are YYYY-MM-DD; a lead is named by its id or its email, as the reference allows, in get_lead,
-#   update_lead and list_lead_sent_emails; reply_to_email takes a sender and recipients, or reply_all.
+#   (bounds of this file; the reference states none, except 500 leads for create_leads); dates are YYYY-MM-DD; a lead
+#   is named by its id or its email, as the reference allows, in get_lead, update_lead and list_lead_sent_emails;
+#   reply_to_email takes a sender and recipients, or reply_all.
 # - Names as the API has them, except path ids, named after their object (campaign_id, lead_id, reply_id,
 #   sender_email_id, webhook_id) so one name means one thing across functions.
 #
@@ -62,8 +63,9 @@
 # OAuth sessions and a mailbox's OAuth token (an inbox's own credentials); warmup; custom tracking domains; campaign
 # creation, duplication, settings, schedules and sequence steps' edition (copy and schedules are written in EmailBison
 # by a person); test emails; composing a new email and forwarding (send beyond a reply); reply templates; ignore
-# phrases; lead lists' creation and CSV import (multipart, and a list fills only from a CSV); lead status, unsubscribe
-# and moving leads between campaigns; the events log, webhook deliveries, attempts, test events and sample payloads.
+# phrases; lead lists' creation (no route of the reference adds a lead to a list) and CSV import (multipart); lead
+# status, unsubscribe and moving leads between campaigns; the events log, webhook deliveries, attempts, test events and
+# sample payloads.
 # Deletion: only a webhook's (the agent removes what it created); deleting leads, replies, campaigns, tags or
 # blacklist entries is left out, irreversible and done in EmailBison.
 #
