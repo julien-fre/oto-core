@@ -26,7 +26,8 @@
 #   OAuth token) and the API token and headless UI token routes are never described.
 # - Limits: unknown, the reference states no rate and no 429; a 429 is still declared, retryable. Lists answer 15
 #   items a page; the cursor lists take pagination_type=cursor (a constant here), then cursor = meta.next_cursor,
-#   paginated below, ten pages at most. list_lead_lists has no cursor in the reference: page is an argument.
+#   paginated below, ten pages at most. list_lead_lists has no cursor in the reference: page is an argument, the
+#   page number of a paginated answer, which the reference does not name for this route.
 # - Address: each customer has an instance at its own address, the one they log in to (a white-label domain or a
 #   host of EmailBison's): a url setting, instance_url, cited by base_url. The engine guards it at each request
 #   (https only, never a private host, no redirect followed).
@@ -38,13 +39,20 @@
 # missing or invalid). 429: retryable, marks nothing. 5xx: not retryable, an action may have gone through.
 #
 # Choices.
-# - Query booleans: the instance validates query values as 1 or 0, the forms a query string can carry as booleans;
-#   the two query booleans (read, without_tags) are integers 1 or 0 here. Body booleans stay JSON booleans.
+# - Query booleans: the reference types read and without_tags as booleans and does not say how a query string
+#   carries one; a choice here, they are integers 1 or 0 (what a validator of booleans accepts in a query, where
+#   "true" may be refused). Body booleans stay JSON booleans.
 # - Lean answers: list_replies drops each reply's html_body (text_body stays; get_reply keeps both); list_replies,
 #   get_reply, get_reply_thread and reply_to_email drop raw_body, headers and attachments' download_url;
 #   get_reply_thread drops html_body too; list_campaign_scheduled_emails drops each email's body (its subject stays).
-# - Narrower than the reference, named: create_webhook takes an https address only and the event ids the reference
-#   lists; dates are YYYY-MM-DD; a lead is named by its id or its email, as the reference allows, in get_lead,
+#   list_campaigns, list_leads, list_campaign_leads, list_sender_emails and list_campaign_sender_emails keep a
+#   projection of each item: ids, names, statuses, counts and dates, without a campaign's tracking and unsubscribe
+#   settings (get_campaign has them), a lead's custom variables and notes (get_lead has them), an account's
+#   signature, IMAP and SMTP servers (get_sender_email has them). list_lead_lists drops each list's import
+#   error_messages. These are size choices, not secrets.
+# - Narrower than the reference, named: create_webhook takes an https address only and the 19 event ids the
+#   reference lists; lead_ids take at most 500 ids, campaign_ids, sender_email_ids and tag_ids 100, recipients 50
+#   (bounds of this file; the reference states none, except 500 leads for create_leads); dates are YYYY-MM-DD; a lead is named by its id or its email, as the reference allows, in get_lead,
 #   update_lead and list_lead_sent_emails; reply_to_email takes a sender and recipients, or reply_all.
 # - Names as the API has them, except path ids, named after their object (campaign_id, lead_id, reply_id,
 #   sender_email_id, webhook_id) so one name means one thing across functions.
@@ -70,7 +78,7 @@ connector:
     interested or read, blacklist an address or a domain, and register webhooks that wake agents on replies.
   logo_domain: emailbison.com
   namespace: emailbison
-  version: 1.0.0
+  version: 1.0.1
   api_version: "1.0.0"
   base_url: "{instance_url}/api"
   auth: { kind: bearer, token: api_key }
@@ -160,21 +168,22 @@ functions:
   - name: list_campaigns
     class: read
     description: >-
-      The workspace's campaigns, 15 a page: data [{id, name, type, status,
-      emails_sent, opened, replied, unique_replies, bounced, unsubscribed,
-      interested, total_leads, total_leads_contacted, daily limits, tags,
-      dates}] and meta.next_cursor. search matches the name; status filters;
-      tag_ids keeps campaigns with any of these tags.
+      The workspace's campaigns, 15 a page: items [{id, name, type, status,
+      completion_percentage, emails_sent, opened, unique_opens, replied,
+      unique_replies, bounced, unsubscribed, interested, total_leads,
+      total_leads_contacted, daily limits, tags, dates}] and next_cursor;
+      tracking and unsubscribe settings are in get_campaign. search is a
+      search term; status filters; tag_ids keeps campaigns with these tags.
     input:
       type: object
       additionalProperties: false
       properties:
-        search: { type: string, minLength: 1, description: "Matches the campaign name." }
+        search: { type: string, minLength: 1, description: "A search term." }
         status:
           type: string
           enum: [draft, launching, active, stopped, completed, paused, failed, queued, archived]
         tag_ids: *ids
-        cursor: &cursor { type: string, minLength: 1, description: "meta.next_cursor of the previous page." }
+        cursor: &cursor { type: string, minLength: 1, description: "next_cursor of the previous page." }
     examples:
       - { title: The active campaigns, input: { status: active } }
       - { title: Campaigns named like a word, input: { search: webinar } }
@@ -184,7 +193,11 @@ functions:
       query: { search: search, status: status, tag_ids: tag_ids, cursor: cursor }
       constants: { query: { pagination_type: cursor } }
     pagination: &pages { kind: cursor, request_param: cursor, next: meta.next_cursor, max_pages: 10 }
-    output: { items: data }
+    output:
+      items: data
+      projection: [id, name, type, status, completion_percentage, emails_sent, opened, unique_opens, replied,
+                   unique_replies, bounced, unsubscribed, interested, total_leads, total_leads_contacted,
+                   max_emails_per_day, max_new_leads_per_day, tags, created_at, updated_at]
 
   - name: get_campaign
     class: read
@@ -252,18 +265,19 @@ functions:
   - name: list_campaign_leads
     class: read
     description: >-
-      The leads of one campaign, 15 a page: data [{id, first_name, last_name,
-      email, title, company, status, custom_variables, lead_campaign_data,
-      overall_stats}] and meta.next_cursor. search matches name or email;
-      lead_campaign_status: in_sequence, sequence_finished, sequence_stopped,
-      never_contacted, replied; verification_statuses and tags filter too.
+      The leads of one campaign, 15 a page: items [{id, first_name,
+      last_name, email, title, company, status, lead_campaign_data,
+      overall_stats, dates}] and next_cursor; custom variables and notes
+      are in get_lead. search is a search term; lead_campaign_status:
+      in_sequence, sequence_finished, sequence_stopped, never_contacted,
+      replied; verification_statuses and tags filter too.
     input:
       type: object
       additionalProperties: false
       required: [campaign_id]
       properties:
         campaign_id: *id
-        search: &lead_search { type: string, minLength: 1, personal: true, description: "Matches a lead's name or email." }
+        search: &lead_search { type: string, minLength: 1, personal: true, description: "A search term (a name, an email)." }
         lead_campaign_status: &lead_campaign_status
           type: string
           enum: [in_sequence, sequence_finished, sequence_stopped, never_contacted, replied]
@@ -287,15 +301,18 @@ functions:
                "filters[excluded_tag_ids]": excluded_tag_ids, "filters[without_tags]": without_tags, cursor: cursor }
       constants: { query: { pagination_type: cursor } }
     pagination: *pages
-    output: { items: data }
+    output:
+      items: data
+      projection: &lead_projection [id, first_name, last_name, email, title, company, status, lead_campaign_data,
+                                    overall_stats, created_at, updated_at]
 
   - name: list_campaign_sender_emails
     class: read
     description: >-
       The sending accounts (sender emails) attached to one campaign, 15 a
-      page: data [{id, name, email, daily_limit, type, status,
-      warmup_enabled, sent, reply and bounce counts, tags}] and
-      meta.next_cursor.
+      page: items [{id, name, email, daily_limit, type, status,
+      warmup_enabled, sent, reply, bounce and interested counts, tags}] and
+      next_cursor; signature and servers are in get_sender_email.
     input:
       type: object
       additionalProperties: false
@@ -313,15 +330,19 @@ functions:
       query: { cursor: cursor }
       constants: { query: { pagination_type: cursor } }
     pagination: *pages
-    output: { items: data }
+    output:
+      items: data
+      projection: &sender_projection [id, name, email, daily_limit, type, status, warmup_enabled, emails_sent_count,
+                                      total_replied_count, unique_replied_count, bounced_count, interested_leads_count,
+                                      total_leads_contacted_count, tags]
 
   - name: list_campaign_scheduled_emails
     class: read
     description: >-
-      The emails of one campaign, scheduled or past, 15 a page: data [{id,
+      The emails of one campaign, scheduled or past, 15 a page: items [{id,
       email_subject, status, scheduled_date, scheduled_date_local, sent_at,
       opens, clicks, replies, interested, lead, sender_email}] and
-      meta.next_cursor; each body is left out. status: scheduled, sent,
+      next_cursor; each body is left out. status: scheduled, sent,
       failed, paused, stopped, bounced, unsubscribed; scheduled_date
       (YYYY-MM-DD) keeps one day.
     input:
@@ -350,11 +371,12 @@ functions:
   - name: list_leads
     class: read
     description: >-
-      The workspace's leads, 15 a page: data [{id, first_name, last_name,
-      email, title, company, notes, status, custom_variables,
-      lead_campaign_data, overall_stats, dates}] and meta.next_cursor. search
-      matches name or email; lead_campaign_status, verification_statuses and
-      tags filter. Use it to find a lead before creating it again.
+      The workspace's leads, 15 a page: items [{id, first_name, last_name,
+      email, title, company, status, lead_campaign_data, overall_stats,
+      dates}] and next_cursor; custom variables and notes are in
+      get_lead. search is a search term (a name, an email);
+      lead_campaign_status, verification_statuses and tags filter. Use it to
+      find a lead before creating it again.
     input:
       type: object
       additionalProperties: false
@@ -377,7 +399,7 @@ functions:
                "filters[excluded_tag_ids]": excluded_tag_ids, "filters[without_tags]": without_tags, cursor: cursor }
       constants: { query: { pagination_type: cursor } }
     pagination: *pages
-    output: { items: data }
+    output: { items: data, projection: *lead_projection }
 
   - name: get_lead
     class: read
@@ -421,9 +443,9 @@ functions:
     class: read
     description: >-
       The workspace's lead lists, 15 a page: data [{id, name, status,
-      leads_processed, leads_succeeded, leads_failed, dates}], meta
-      (current_page, last_page, total). page picks a page. A list is added to
-      a campaign by add_lead_list_to_campaign.
+      leads_processed, leads_succeeded, leads_failed, dates}] and meta (the
+      page and the last one); import error messages are left out. page picks
+      a page. A list is added to a campaign by add_lead_list_to_campaign.
     input:
       type: object
       additionalProperties: false
@@ -432,6 +454,11 @@ functions:
     examples:
       - { title: The lead lists, input: {} }
     call: { method: GET, path: /lead-lists, query: { page: page } }
+    output:
+      strip: [data.error_messages]
+      sample:
+        data: [{ id: 12, name: Webinar, status: done, error_messages: ["row 3: invalid email"] }]
+        meta: { current_page: 1, last_page: 1 }
 
   - name: list_custom_variables
     class: read
@@ -458,18 +485,18 @@ functions:
   - name: list_replies
     class: read
     description: >-
-      Replies in the master inbox, newest first, 15 a page: data [{id,
+      Replies in the master inbox, 15 a page: items [{id,
       folder, subject, read, interested, automated_reply, text_body,
       date_received, type, campaign_id, lead_id, lead, sender_email_id,
       from_name, from_email_address, to, cc, attachments}] and
-      meta.next_cursor; html_body is left out (get_reply has it). folder:
+      next_cursor; html_body is left out (get_reply has it). folder:
       inbox, sent, spam, bounced, all; status: interested, automated_reply,
       not_automated_reply; read 1 or 0.
     input:
       type: object
       additionalProperties: false
       properties:
-        search: { type: string, minLength: 1, personal: true, description: "Matches the reply's text, sender or subject." }
+        search: { type: string, minLength: 1, personal: true, description: "A search term." }
         folder: { type: string, enum: [inbox, sent, spam, bounced, all] }
         status: { type: string, enum: [interested, automated_reply, not_automated_reply] }
         read: *flag
@@ -565,16 +592,17 @@ functions:
   - name: list_sender_emails
     class: read
     description: >-
-      The workspace's sending accounts, 15 a page: data [{id, name, email,
+      The workspace's sending accounts, 15 a page: items [{id, name, email,
       daily_limit, type, status, warmup_enabled, emails_sent_count,
       total_replied_count, bounced_count, interested_leads_count, tags}] and
-      meta.next_cursor. status: connected, not_connected, pending_move,
-      pending_deletion. A reply is sent from one of them (sender_email_id).
+      next_cursor; signature and servers are in get_sender_email.
+      status: connected, not_connected, pending_move, pending_deletion. A
+      reply is sent from one of them (sender_email_id).
     input:
       type: object
       additionalProperties: false
       properties:
-        search: { type: string, minLength: 1, description: "Matches the account's name or email." }
+        search: { type: string, minLength: 1, description: "A search term (a name, an email)." }
         status: { type: string, enum: [connected, not_connected, pending_move, pending_deletion] }
         tag_ids: *ids
         excluded_tag_ids: *ids
@@ -589,7 +617,7 @@ functions:
                without_tags: without_tags, cursor: cursor }
       constants: { query: { pagination_type: cursor } }
     pagination: *pages
-    output: { items: data }
+    output: { items: data, projection: *sender_projection }
 
   - name: get_sender_email
     class: read
@@ -1057,8 +1085,8 @@ functions:
             enum: [email_sent, email_send_failed, manual_email_sent, manual_email_send_failed, lead_first_contacted,
                    lead_replied, lead_interested, lead_unsubscribed, untracked_reply_received, email_opened,
                    email_bounced, email_account_added, email_account_removed, email_account_disconnected,
-                   email_account_reconnected, tag_attached, tag_removed, warmup_disabled_receiving_bounces,
-                   warmup_disabled_causing_bounces]
+                   email_account_reconnected, blacklisted_email_added, blacklisted_email_removed,
+                   blacklisted_domain_added, blacklisted_domain_removed]
     examples:
       - { title: Wake on replies, input: { name: Replies to the agent, url: "https://hooks.example.com/emailbison", events: [lead_replied, lead_interested] } }
     call: { method: POST, path: /webhook-url, body: { name: name, url: url, events: events } }

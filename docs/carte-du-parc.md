@@ -32,7 +32,7 @@ Un connecteur à plusieurs accès (`accesses`) a le type de chacun, et compte da
 | `demodesk` | Demodesk | 1.0.1 | clé | non | 9 | 9 | 0 | 0 | oui | 0 | non | 0 |
 | `dropcontact` | Dropcontact | 1.0.0 | clé | oui | 3 | 2 | 1 | 0 | oui, avec solde | 1 | non | 0 |
 | `elevenlabs` | ElevenLabs | 1.0.1 | clé | non | 4 | 4 | 0 | 0 | oui | 4 | non | 0 |
-| `emailbison` | EmailBison | 1.0.0 | clé | non | 42 | 23 | 13 | 6 | oui | 0 | non | 0 |
+| `emailbison` | EmailBison | 1.0.1 | clé | non | 42 | 23 | 13 | 6 | oui | 0 | non | 0 |
 | `fillout` | Fillout | 1.0.0 | clé | non | 8 | 4 | 1 | 3 | oui | 8 | non | 0 |
 | `fod` | France Open Data | 1.8.0 | clé | oui | 55 | 55 | 0 | 0 | oui | 55 | non | 0 |
 | `folk` | folk | 1.0.1 | clé | non | 62 | 23 | 21 | 18 | oui | 62 | non | 0 |

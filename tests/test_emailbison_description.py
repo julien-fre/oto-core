@@ -1,4 +1,4 @@
-"""La description `emailbison` 1.0.0 : la prospection par email à froid d'EmailBison, sans client Python.
+"""La description `emailbison` 1.0.1 : la prospection par email à froid d'EmailBison, sans client Python.
 
 Gardes : le compte est un jeton porteur et l'adresse de l'instance (un réglage `url`, gardé par le moteur à chaque
 requête) ; aucune route d'administration, de jeton ni de suppression n'est décrite, sauf la suppression d'un webhook ;
@@ -187,3 +187,48 @@ def test_a_private_or_plain_http_instance_is_refused_before_anything_is_sent(mon
     monkeypatch.setattr(url_guard.socket, "getaddrinfo", private)
     with pytest.raises(engine.AddressRefused):
         play(_served(), "get_account", {}, settings=SETTINGS)
+
+
+WEBHOOK_EVENTS = {  # GET /api/webhook-events/event-types, in the reference
+    "email_sent", "email_send_failed", "manual_email_sent", "manual_email_send_failed", "lead_first_contacted",
+    "lead_replied", "lead_interested", "lead_unsubscribed", "untracked_reply_received", "email_opened",
+    "email_bounced", "email_account_added", "email_account_removed", "email_account_disconnected",
+    "email_account_reconnected", "blacklisted_email_added", "blacklisted_email_removed", "blacklisted_domain_added",
+    "blacklisted_domain_removed"}
+
+
+def test_a_webhook_subscribes_to_the_event_types_of_the_reference_only():
+    events = _functions()["create_webhook"]["input"]["properties"]["events"]["items"]["enum"]
+    assert set(events) == WEBHOOK_EVENTS and len(events) == len(WEBHOOK_EVENTS)
+
+
+def test_every_paged_list_keeps_a_projection_or_strips():
+    for name, fn in _functions().items():
+        if "pagination" in fn or "page" in fn["input"]["properties"]:
+            assert {"projection", "strip"} & set(fn.get("output") or {}), name
+
+
+def test_lead_lists_keep_their_ids_and_counts_but_not_custom_variables_or_notes():
+    lead = {"id": 1, "first_name": "Jane", "email": "jane@example.test", "status": "verified", "notes": "private",
+            "custom_variables": [{"name": "phone", "value": "+33000000000"}], "overall_stats": {"replies": 1},
+            "lead_campaign_data": [{"campaign_id": 6}], "uuid": "u-1"}
+    for name in ("list_leads", "list_campaign_leads"):
+        (served,) = serve.items_of(serve.function(_served(), name), [{"data": [lead]}])
+        assert served == {"id": 1, "first_name": "Jane", "email": "jane@example.test", "status": "verified",
+                          "overall_stats": {"replies": 1}, "lead_campaign_data": [{"campaign_id": 6}]}, name
+
+
+def test_sending_account_lists_leave_signature_and_servers_to_get_sender_email():
+    account = {"id": 20, "email": "sales@example.test", "status": "connected", "email_signature": "<p>Jane</p>",
+               "imap_server": "imap.example.test", "imap_port": 993, "smtp_server": "smtp.example.test",
+               "smtp_port": 465, "emails_sent_count": 12}
+    for name in ("list_sender_emails", "list_campaign_sender_emails"):
+        (served,) = serve.items_of(serve.function(_served(), name), [{"data": [account]}])
+        assert served == {"id": 20, "email": "sales@example.test", "status": "connected", "emails_sent_count": 12}
+
+
+def test_lead_lists_drop_their_import_errors_and_keep_the_page():
+    fn = serve.function(_served(), "list_lead_lists")
+    served = serve.result(fn, [{"data": [{"id": 12, "name": "Webinar", "error_messages": ["row 3: x@example.test"]}],
+                                "meta": {"current_page": 1, "last_page": 2}}])
+    assert served == {"data": [{"id": 12, "name": "Webinar"}], "meta": {"current_page": 1, "last_page": 2}}

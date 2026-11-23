@@ -87,18 +87,18 @@ export const listCampaigns = defineFunction({
   connector: "emailbison",
   class: "read",
   act: false,
-  description: "The workspace's campaigns, 15 a page: data [{id, name, type, status, emails_sent, opened, replied, unique_replies, bounced, unsubscribed, interested, total_leads, total_leads_contacted, daily limits, tags, dates}] and meta.next_cursor. search matches the name; status filters; tag_ids keeps campaigns with any of these tags.",
+  description: "The workspace's campaigns, 15 a page: items [{id, name, type, status, completion_percentage, emails_sent, opened, unique_opens, replied, unique_replies, bounced, unsubscribed, interested, total_leads, total_leads_contacted, daily limits, tags, dates}] and next_cursor; tracking and unsubscribe settings are in get_campaign. search is a search term; status filters; tag_ids keeps campaigns with these tags.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "search": {"type": "string", "minLength": 1, "description": "Matches the campaign name."},
+      "search": {"type": "string", "minLength": 1, "description": "A search term."},
       "status": {
         "type": "string",
         "enum": ["draft", "launching", "active", "stopped", "completed", "paused", "failed", "queued", "archived"]
       },
       "tag_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}},
-      "cursor": {"type": "string", "minLength": 1, "description": "meta.next_cursor of the previous page."},
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
       "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
       "max_pages": {
         "type": "integer",
@@ -124,7 +124,7 @@ export const listCampaigns = defineFunction({
     constants: {"query": {"pagination_type": "cursor"}},
   },
   pagination: { kind: "cursor", requestParam: "cursor", next: "meta.next_cursor", maxPages: 10 },
-  output: { items: "data" },
+  output: { items: "data", projection: ["id", "name", "type", "status", "completion_percentage", "emails_sent", "opened", "unique_opens", "replied", "unique_replies", "bounced", "unsubscribed", "interested", "total_leads", "total_leads_contacted", "max_emails_per_day", "max_new_leads_per_day", "tags", "created_at", "updated_at"] },
 })
 
 export const getCampaign = defineFunction({
@@ -220,14 +220,14 @@ export const listCampaignLeads = defineFunction({
   connector: "emailbison",
   class: "read",
   act: false,
-  description: "The leads of one campaign, 15 a page: data [{id, first_name, last_name, email, title, company, status, custom_variables, lead_campaign_data, overall_stats}] and meta.next_cursor. search matches name or email; lead_campaign_status: in_sequence, sequence_finished, sequence_stopped, never_contacted, replied; verification_statuses and tags filter too.",
+  description: "The leads of one campaign, 15 a page: items [{id, first_name, last_name, email, title, company, status, lead_campaign_data, overall_stats, dates}] and next_cursor; custom variables and notes are in get_lead. search is a search term; lead_campaign_status: in_sequence, sequence_finished, sequence_stopped, never_contacted, replied; verification_statuses and tags filter too.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "required": ["campaign_id"],
     "properties": {
       "campaign_id": {"type": "integer", "minimum": 1},
-      "search": {"type": "string", "minLength": 1, "personal": true, "description": "Matches a lead's name or email."},
+      "search": {"type": "string", "minLength": 1, "personal": true, "description": "A search term (a name, an email)."},
       "lead_campaign_status": {
         "type": "string",
         "enum": ["in_sequence", "sequence_finished", "sequence_stopped", "never_contacted", "replied"]
@@ -243,7 +243,7 @@ export const listCampaignLeads = defineFunction({
       "tag_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}},
       "excluded_tag_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}},
       "without_tags": {"type": "integer", "enum": [0, 1], "description": "1 for yes, 0 for no."},
-      "cursor": {"type": "string", "minLength": 1, "description": "meta.next_cursor of the previous page."},
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
       "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
       "max_pages": {
         "type": "integer",
@@ -270,7 +270,7 @@ export const listCampaignLeads = defineFunction({
     constants: {"query": {"pagination_type": "cursor"}},
   },
   pagination: { kind: "cursor", requestParam: "cursor", next: "meta.next_cursor", maxPages: 10 },
-  output: { items: "data" },
+  output: { items: "data", projection: ["id", "first_name", "last_name", "email", "title", "company", "status", "lead_campaign_data", "overall_stats", "created_at", "updated_at"] },
 })
 
 export const listCampaignSenderEmails = defineFunction({
@@ -278,14 +278,14 @@ export const listCampaignSenderEmails = defineFunction({
   connector: "emailbison",
   class: "read",
   act: false,
-  description: "The sending accounts (sender emails) attached to one campaign, 15 a page: data [{id, name, email, daily_limit, type, status, warmup_enabled, sent, reply and bounce counts, tags}] and meta.next_cursor.",
+  description: "The sending accounts (sender emails) attached to one campaign, 15 a page: items [{id, name, email, daily_limit, type, status, warmup_enabled, sent, reply, bounce and interested counts, tags}] and next_cursor; signature and servers are in get_sender_email.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "required": ["campaign_id"],
     "properties": {
       "campaign_id": {"type": "integer", "minimum": 1},
-      "cursor": {"type": "string", "minLength": 1, "description": "meta.next_cursor of the previous page."},
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
       "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
       "max_pages": {
         "type": "integer",
@@ -312,7 +312,7 @@ export const listCampaignSenderEmails = defineFunction({
     constants: {"query": {"pagination_type": "cursor"}},
   },
   pagination: { kind: "cursor", requestParam: "cursor", next: "meta.next_cursor", maxPages: 10 },
-  output: { items: "data" },
+  output: { items: "data", projection: ["id", "name", "email", "daily_limit", "type", "status", "warmup_enabled", "emails_sent_count", "total_replied_count", "unique_replied_count", "bounced_count", "interested_leads_count", "total_leads_contacted_count", "tags"] },
 })
 
 export const listCampaignScheduledEmails = defineFunction({
@@ -320,7 +320,7 @@ export const listCampaignScheduledEmails = defineFunction({
   connector: "emailbison",
   class: "read",
   act: false,
-  description: "The emails of one campaign, scheduled or past, 15 a page: data [{id, email_subject, status, scheduled_date, scheduled_date_local, sent_at, opens, clicks, replies, interested, lead, sender_email}] and meta.next_cursor; each body is left out. status: scheduled, sent, failed, paused, stopped, bounced, unsubscribed; scheduled_date (YYYY-MM-DD) keeps one day.",
+  description: "The emails of one campaign, scheduled or past, 15 a page: items [{id, email_subject, status, scheduled_date, scheduled_date_local, sent_at, opens, clicks, replies, interested, lead, sender_email}] and next_cursor; each body is left out. status: scheduled, sent, failed, paused, stopped, bounced, unsubscribed; scheduled_date (YYYY-MM-DD) keeps one day.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -332,7 +332,7 @@ export const listCampaignScheduledEmails = defineFunction({
         "enum": ["scheduled", "sent", "failed", "paused", "stopped", "bounced", "unsubscribed"]
       },
       "scheduled_date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "YYYY-MM-DD."},
-      "cursor": {"type": "string", "minLength": 1, "description": "meta.next_cursor of the previous page."},
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
       "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
       "max_pages": {
         "type": "integer",
@@ -367,12 +367,12 @@ export const listLeads = defineFunction({
   connector: "emailbison",
   class: "read",
   act: false,
-  description: "The workspace's leads, 15 a page: data [{id, first_name, last_name, email, title, company, notes, status, custom_variables, lead_campaign_data, overall_stats, dates}] and meta.next_cursor. search matches name or email; lead_campaign_status, verification_statuses and tags filter. Use it to find a lead before creating it again.",
+  description: "The workspace's leads, 15 a page: items [{id, first_name, last_name, email, title, company, status, lead_campaign_data, overall_stats, dates}] and next_cursor; custom variables and notes are in get_lead. search is a search term (a name, an email); lead_campaign_status, verification_statuses and tags filter. Use it to find a lead before creating it again.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "search": {"type": "string", "minLength": 1, "personal": true, "description": "Matches a lead's name or email."},
+      "search": {"type": "string", "minLength": 1, "personal": true, "description": "A search term (a name, an email)."},
       "lead_campaign_status": {
         "type": "string",
         "enum": ["in_sequence", "sequence_finished", "sequence_stopped", "never_contacted", "replied"]
@@ -388,7 +388,7 @@ export const listLeads = defineFunction({
       "tag_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}},
       "excluded_tag_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}},
       "without_tags": {"type": "integer", "enum": [0, 1], "description": "1 for yes, 0 for no."},
-      "cursor": {"type": "string", "minLength": 1, "description": "meta.next_cursor of the previous page."},
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
       "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
       "max_pages": {
         "type": "integer",
@@ -414,7 +414,7 @@ export const listLeads = defineFunction({
     constants: {"query": {"pagination_type": "cursor"}},
   },
   pagination: { kind: "cursor", requestParam: "cursor", next: "meta.next_cursor", maxPages: 10 },
-  output: { items: "data" },
+  output: { items: "data", projection: ["id", "first_name", "last_name", "email", "title", "company", "status", "lead_campaign_data", "overall_stats", "created_at", "updated_at"] },
 })
 
 export const getLead = defineFunction({
@@ -493,7 +493,7 @@ export const listLeadLists = defineFunction({
   connector: "emailbison",
   class: "read",
   act: false,
-  description: "The workspace's lead lists, 15 a page: data [{id, name, status, leads_processed, leads_succeeded, leads_failed, dates}], meta (current_page, last_page, total). page picks a page. A list is added to a campaign by add_lead_list_to_campaign.",
+  description: "The workspace's lead lists, 15 a page: data [{id, name, status, leads_processed, leads_succeeded, leads_failed, dates}] and meta (the page and the last one); import error messages are left out. page picks a page. A list is added to a campaign by add_lead_list_to_campaign.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -511,6 +511,7 @@ export const listLeadLists = defineFunction({
     body: {},
     headers: {},
   },
+  output: { strip: ["data.error_messages"] },
 })
 
 export const listCustomVariables = defineFunction({
@@ -560,17 +561,12 @@ export const listReplies = defineFunction({
   connector: "emailbison",
   class: "read",
   act: false,
-  description: "Replies in the master inbox, newest first, 15 a page: data [{id, folder, subject, read, interested, automated_reply, text_body, date_received, type, campaign_id, lead_id, lead, sender_email_id, from_name, from_email_address, to, cc, attachments}] and meta.next_cursor; html_body is left out (get_reply has it). folder: inbox, sent, spam, bounced, all; status: interested, automated_reply, not_automated_reply; read 1 or 0.",
+  description: "Replies in the master inbox, 15 a page: items [{id, folder, subject, read, interested, automated_reply, text_body, date_received, type, campaign_id, lead_id, lead, sender_email_id, from_name, from_email_address, to, cc, attachments}] and next_cursor; html_body is left out (get_reply has it). folder: inbox, sent, spam, bounced, all; status: interested, automated_reply, not_automated_reply; read 1 or 0.",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "search": {
-        "type": "string",
-        "minLength": 1,
-        "personal": true,
-        "description": "Matches the reply's text, sender or subject."
-      },
+      "search": {"type": "string", "minLength": 1, "personal": true, "description": "A search term."},
       "folder": {"type": "string", "enum": ["inbox", "sent", "spam", "bounced", "all"]},
       "status": {"type": "string", "enum": ["interested", "automated_reply", "not_automated_reply"]},
       "read": {"type": "integer", "enum": [0, 1], "description": "1 for yes, 0 for no."},
@@ -578,7 +574,7 @@ export const listReplies = defineFunction({
       "sender_email_id": {"type": "integer", "minimum": 1},
       "lead_id": {"type": "integer", "minimum": 1},
       "tag_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}},
-      "cursor": {"type": "string", "minLength": 1, "description": "meta.next_cursor of the previous page."},
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
       "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
       "max_pages": {
         "type": "integer",
@@ -670,17 +666,17 @@ export const listSenderEmails = defineFunction({
   connector: "emailbison",
   class: "read",
   act: false,
-  description: "The workspace's sending accounts, 15 a page: data [{id, name, email, daily_limit, type, status, warmup_enabled, emails_sent_count, total_replied_count, bounced_count, interested_leads_count, tags}] and meta.next_cursor. status: connected, not_connected, pending_move, pending_deletion. A reply is sent from one of them (sender_email_id).",
+  description: "The workspace's sending accounts, 15 a page: items [{id, name, email, daily_limit, type, status, warmup_enabled, emails_sent_count, total_replied_count, bounced_count, interested_leads_count, tags}] and next_cursor; signature and servers are in get_sender_email. status: connected, not_connected, pending_move, pending_deletion. A reply is sent from one of them (sender_email_id).",
   schema: {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "search": {"type": "string", "minLength": 1, "description": "Matches the account's name or email."},
+      "search": {"type": "string", "minLength": 1, "description": "A search term (a name, an email)."},
       "status": {"type": "string", "enum": ["connected", "not_connected", "pending_move", "pending_deletion"]},
       "tag_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}},
       "excluded_tag_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}},
       "without_tags": {"type": "integer", "enum": [0, 1], "description": "1 for yes, 0 for no."},
-      "cursor": {"type": "string", "minLength": 1, "description": "meta.next_cursor of the previous page."},
+      "cursor": {"type": "string", "minLength": 1, "description": "next_cursor of the previous page."},
       "all_pages": {"type": "boolean", "description": "Read the following pages too, up to max_pages (at most 10)."},
       "max_pages": {
         "type": "integer",
@@ -705,7 +701,7 @@ export const listSenderEmails = defineFunction({
     constants: {"query": {"pagination_type": "cursor"}},
   },
   pagination: { kind: "cursor", requestParam: "cursor", next: "meta.next_cursor", maxPages: 10 },
-  output: { items: "data" },
+  output: { items: "data", projection: ["id", "name", "email", "daily_limit", "type", "status", "warmup_enabled", "emails_sent_count", "total_replied_count", "unique_replied_count", "bounced_count", "interested_leads_count", "total_leads_contacted_count", "tags"] },
 })
 
 export const getSenderEmail = defineFunction({
@@ -1442,10 +1438,10 @@ export const createWebhook = defineFunction({
             "email_account_removed",
             "email_account_disconnected",
             "email_account_reconnected",
-            "tag_attached",
-            "tag_removed",
-            "warmup_disabled_receiving_bounces",
-            "warmup_disabled_causing_bounces"
+            "blacklisted_email_added",
+            "blacklisted_email_removed",
+            "blacklisted_domain_added",
+            "blacklisted_domain_removed"
           ]
         }
       }
@@ -1499,7 +1495,7 @@ export const connector = defineConnector({
   name: "emailbison",
   label: "EmailBison",
   namespace: "emailbison",
-  version: "1.0.0",
+  version: "1.0.1",
   apiVersion: "1.0.0",
   description: "EmailBison, cold email outreach on your own instance: read campaigns and their stats, sequence steps, leads, the master inbox replies and conversation threads, sending accounts, tags and webhooks; create and update leads, tag them, add leads or a lead list to a campaign, pause or resume a campaign, reply to an email, mark a reply interested or read, blacklist an address or a domain, and register webhooks that wake agents on replies.",
   logoDomain: "emailbison.com",
