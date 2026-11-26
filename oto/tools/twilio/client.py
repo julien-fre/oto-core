@@ -43,6 +43,8 @@ BASE_URL = "https://api.twilio.com"
 API_ROOT = "/2010-04-01"
 
 _ACCOUNT_SID = re.compile(r"^AC[0-9a-fA-F]{32}$")
+#: Keys of an Account resource that are credentials, removed from every return.
+SECRET_FIELDS = ("auth_token",)
 
 def basic_signature(account_sid: str, auth_token: str) -> str:
     """`base64(account_sid:auth_token)` — the value that follows « Basic »."""
@@ -105,8 +107,13 @@ class TwilioClient(NumbersMixin, CallsMixin, MessagesMixin):
 
     def get_account(self) -> dict:
         """The account: `friendly_name`, `status` (active, suspended, closed),
-        `type` (Trial or Full). Free; the connection probe."""
-        return self._send("GET", self.account_path + ".json")
+        `type` (Trial or Full). Free; the connection probe. The resource carries the
+        account's `auth_token`: it is removed here, never returned."""
+        account = self._send("GET", self.account_path + ".json")
+        if isinstance(account, dict):
+            for key in SECRET_FIELDS:
+                account.pop(key, None)
+        return account
 
     def get_balance(self) -> dict:
         """The account balance: `balance` and `currency`. Subaccounts share

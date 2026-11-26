@@ -62,6 +62,11 @@ def test_les_deux_champs_sont_exiges_et_le_sid_verifie():
         TwilioClient(account_sid="AC123", auth_token="t")
 
 
+def test_le_jeton_du_compte_ne_sort_jamais(cli, capture):
+    capture["responses"].append(_Resp(body={"sid": SID, "status": "active", "auth_token": "SECRET"}))
+    assert "auth_token" not in cli.get_account()
+
+
 def test_basic_auth_en_entete(cli, capture):
     cli.get_account()
     assert capture["url"] == ROOT + ".json"
@@ -134,8 +139,8 @@ def test_media_d_un_enregistrement_en_octets(cli, capture):
 
 
 def test_sms_expediteur_et_bornes(cli, capture):
-    cli.send_message("+33600000001", body="Salut !", from_="TULINA")
-    assert ("From", "TULINA") in capture["data"] and ("Body", "Salut !") in capture["data"]
+    cli.send_message("+33600000001", body="Salut !", from_="MYSHOP")
+    assert ("From", "MYSHOP") in capture["data"] and ("Body", "Salut !") in capture["data"]
     cli.send_message("+33600000001", media_urls=["https://h/a.png", "https://h/b.png"],
                      from_="+33939030001")
     assert [v for k, v in capture["data"] if k == "MediaUrl"] == ["https://h/a.png", "https://h/b.png"]
@@ -146,7 +151,7 @@ def test_sms_expediteur_et_bornes(cli, capture):
     with pytest.raises(ValueError):
         cli.send_message("+33600000001", body="x", from_="TROP-LONG-NOM")
     with pytest.raises(ValueError):
-        cli.send_message("+33600000001", body="x" * 1601, from_="TULINA")
+        cli.send_message("+33600000001", body="x" * 1601, from_="MYSHOP")
 
 
 def test_liste_de_messages_et_filtres(cli, capture):
