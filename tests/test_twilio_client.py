@@ -197,3 +197,10 @@ def test_twiml_echappe():
     assert 'maxLength="60"' in voicemail_twiml(max_length=60)
     with pytest.raises(ValueError):
         bridge_twiml("+33600000001", caller_id="+33939030001", record="always")
+
+
+def test_types_de_numeros_vendus(cli, capture):
+    capture["responses"].append(_Resp(body={"country_code": "GB", "subresource_uris": {
+        "local": "/x", "mobile": "/y", "toll_free": "/z"}}))
+    assert cli.available_number_types("gb") == ["local", "mobile", "toll_free"]
+    assert capture["url"] == ROOT + "/AvailablePhoneNumbers/GB.json"

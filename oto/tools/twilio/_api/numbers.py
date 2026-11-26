@@ -53,6 +53,20 @@ class NumbersMixin:
                 params[name] = "true" if flag else "false"
         return self._get(f"/AvailablePhoneNumbers/{code}/{NUMBER_TYPES[number_type]}.json", params)
 
+    def available_number_types(self, country: str) -> list[str]:
+        """The number types Twilio sells in `country` to THIS account (keys of
+        `NUMBER_TYPES`), e.g. `["local"]` for France on many accounts: a type absent
+        here answers 404 to `search_available_numbers`. Free."""
+        code = (country or "").strip().upper()
+        if not _COUNTRY.match(code):
+            raise ValueError(f"`country` must be an ISO 3166 alpha-2 code such as FR; got {country!r}.")
+        found = self._get(f"/AvailablePhoneNumbers/{code}.json")
+        segments = set((found.get("subresource_uris") or {}).keys())
+        by_segment = {v.lower(): k for k, v in NUMBER_TYPES.items()}
+        by_segment.update({"toll_free": "toll_free", "shared_cost": "shared_cost",
+                           "machine_to_machine": "machine_to_machine"})
+        return sorted(by_segment[s] for s in segments if s in by_segment)
+
     def list_numbers(self, *, phone_number: Optional[str] = None,
                      friendly_name: Optional[str] = None,
                      page_size: Optional[int] = None) -> dict:
