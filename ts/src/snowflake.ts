@@ -29,7 +29,7 @@ export const runQuery = defineFunction({
   connector: "snowflake",
   class: "read",
   act: false,
-  description: "Run one read-only SQL statement (it must open with SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN) and wait up to 45 s. Done: {resultSetMetaData {numRows, rowType [{name, type}], partitionInfo}, data: rows as arrays of strings, statementHandle}. Longer: code 333334 and a statementHandle, read with get_statement. More than one partition in partitionInfo: read the others with get_statement. It bills warehouse credits while it runs: always LIMIT, filter, and select the columns you need; explore with SHOW DATABASES, SHOW SCHEMAS IN DATABASE x, SHOW TABLES IN x.y, DESCRIBE TABLE x.y.z or INFORMATION_SCHEMA. Put values in bindings, never in the SQL. Unquoted identifiers are upper case.",
+  description: "Run one read-only SQL statement (it must open with SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN) and wait up to 45 s. Done: {resultSetMetaData {numRows, rowType [{name, type}], partitionInfo}, data: rows as arrays of strings, statementHandle}. Longer: code 333334 and a statementHandle, read with get_statement. More than one partition in partitionInfo: read the others with get_statement. It bills warehouse credits while it runs: always LIMIT, filter, and select the columns you need; explore with SHOW DATABASES, SHOW SCHEMAS IN DATABASE x, SHOW TABLES IN x.y, DESCRIBE TABLE x.y.z or INFORMATION_SCHEMA. Put values in bindings, never in the SQL. A heavy query: async true. A SQL error answers 422 with Snowflake's message. Unquoted identifiers are upper case.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -40,7 +40,8 @@ export const runQuery = defineFunction({
         "minLength": 1,
         "maxLength": 100000,
         "pattern": "^[\\s(]*([Ss][Ee][Ll][Ee][Cc][Tt]|[Ww][Ii][Tt][Hh]|[Ss][Hh][Oo][Ww]|[Dd][Ee][Ss][Cc]([Rr][Ii][Bb][Ee])?|[Ee][Xx][Pp][Ll][Aa][Ii][Nn])\\b",
-        "description": "One SQL statement that reads: SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN first. Placeholders ? (by position) or :name, valued by bindings."
+        "not": {"pattern": "->>"},
+        "description": "One SQL statement that reads: SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN first, never the flow operator ->>. Placeholders ? (by position) or :name, valued by bindings."
       },
       "bindings": {
         "type": "object",
@@ -103,6 +104,10 @@ export const runQuery = defineFunction({
         "maximum": 3600,
         "description": "Seconds the statement may run before Snowflake cancels it (default: the account's STATEMENT_TIMEOUT_IN_SECONDS). The call itself waits 45 s at most."
       },
+      "async": {
+        "type": "boolean",
+        "description": "true: answer at once with the statementHandle (code 333334), read with get_statement. Use it for any query that may take more than 30 s: the call never waits past 45 s, and a cut call loses the handle while the query keeps billing."
+      },
       "max_rows": {
         "type": "integer",
         "minimum": 1,
@@ -121,7 +126,7 @@ export const runQuery = defineFunction({
     method: "POST",
     path: "/statements",
     pathParams: [],
-    query: {},
+    query: {"async": "async"},
     body: {"statement": "statement", "bindings": "bindings", "warehouse": "warehouse", "role": "role", "database": "database", "schema": "schema", "timeout": "timeout", "parameters": {"rows_per_resultset": "max_rows"}},
     headers: {},
     constants: {"body": {"parameters": {"multi_statement_count": "1", "query_tag": "oto"}}},
@@ -134,7 +139,7 @@ export const getStatement = defineFunction({
   connector: "snowflake",
   class: "read",
   act: false,
-  description: "Read a statement run_query left running (code 333334), or another partition of a finished result. Still running: code 333334 again, wait a few seconds and read again. Done, partition 0 (the default): the same answer as run_query. partition N (1 to the last index of resultSetMetaData.partitionInfo): {data} only, the rows of that partition. Costs nothing beyond the statement's own run.",
+  description: "Read a statement run_query left running (code 333334), or another partition of a finished result. Still running: code 333334 again, wait a few seconds and read again. Done, partition 0 (the default): the same answer as run_query. partition N (1 to the last index of resultSetMetaData.partitionInfo): {data} only, the rows of that partition. Failed: 422 with Snowflake's message. Costs nothing beyond the statement's own run.",
   schema: {
     "type": "object",
     "additionalProperties": false,
@@ -157,9 +162,7 @@ export const getStatement = defineFunction({
     { title: "Is the query done", input: {"statement_handle": "01b2c3d4-0000-1111-0000-00000000abcd"} },
     { title: "Second partition", input: {"statement_handle": "01b2c3d4-0000-1111-0000-00000000abcd", "partition": 1} },
   ],
-  refusals: [
-    { code: "statement_not_found", when: 422, message: "No such statement in Snowflake, or it expired: run the query again." },
-  ],
+  refusals: [],
   request: {
     method: "GET",
     path: "/statements/{statement_handle}",
@@ -198,7 +201,6 @@ export const connector = defineConnector({
     { status: 403, code: "forbidden", message: "Snowflake refused this call for the token's user: the SQL API is not open to it.", retryable: false },
     { status: 404, code: "not_found", message: "No such statement in Snowflake: check the statement handle (a handle answers for a limited time).", retryable: false },
     { status: 408, code: "statement_timeout", message: "The statement ran past its timeout and Snowflake cancelled it: narrow the query (filters, LIMIT) or give a longer timeout.", retryable: false },
-    { status: 422, code: "statement_failed", message: "Snowflake could not run the statement: a SQL error, an object that does not exist or that the role may not read, or a warehouse the role may not use.", retryable: false },
     { status: 429, code: "rate_limited", message: "Snowflake is receiving too many requests: wait, then retry.", retryable: true },
     { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Snowflake is temporarily unavailable: retry later.", retryable: true },
   ],

@@ -21,13 +21,15 @@
 #   customer while it runs (a suspended warehouse resumes on the first query). The functions say it; no cost here.
 #   No balance read: probe without balance.
 # - What engages: nothing described. run_query admits only statements that open with SELECT, WITH, SHOW, DESCRIBE,
-#   DESC or EXPLAIN (the input pattern), and one statement per call (multi_statement_count "1", a constant, the API's
+#   DESC or EXPLAIN (the input pattern) and never carry the flow operator ->> (which chains any statement, DML and
+#   DDL included, after a SELECT or a SHOW), and one statement per call (multi_statement_count "1", a constant, the API's
 #   default too). The pattern is a guard, not the boundary: a SELECT can call a function with effects; the role is
 #   what keeps the account safe, and the screen says so.
 # - What an agent must not see: nothing secret in the answers; a result set is the customer's data, as the role
 #   allows it.
 # - Limits: no rate is documented, a 429 is retryable. A request waits up to 45 seconds for its result, then answers
-#   202 with a statementHandle, read by get_statement; timeout_s is 60 for that wait. A result comes in partitions:
+#   202 with a statementHandle, read by get_statement; timeout_s is 60 for that wait. A host that cuts a call at 45 s
+#   or less would lose the handle: run_query takes async (answer at once with the handle), advised for heavy queries. A result comes in partitions:
 #   the first in the answer, the next ones by get_statement with partition (gzip, decoded by the transport).
 #   max_rows (session parameter rows_per_resultset) caps the rows of a result; the agent is told to also LIMIT.
 # - Address: each customer has an account at https://<account_identifier>.snowflakecomputing.com: a text setting,
@@ -38,8 +40,9 @@
 # Errors. 400: the request is malformed. 401: the token is missing, invalid, expired or refused by a network policy:
 # marks the account credential_rejected. 403: the user may not call the API. 404: no such statement handle. 408: the
 # statement ran past its timeout and was cancelled. 422: the statement failed (SQL compilation error, object not found
-# or not authorized for the role, a statement the pattern let through but the API refuses). 429: retryable. 5xx:
-# retryable (a read: nothing to repeat badly).
+# or not authorized for the role), on submission or when a running statement is read: NOT declared, so that
+# Snowflake's own message (code, sqlState, message) reaches the agent, which needs it to fix its SQL. 429: retryable.
+# 5xx: retryable (a read: nothing to repeat badly).
 #
 # Choices.
 # - One statement per call, the read prefixes only; bindings (? or :name placeholders) carry values, so the agent
@@ -51,7 +54,7 @@
 #
 # Not described, and why: any statement that writes, creates, grants or calls a procedure (DML, DDL, CALL: they need a
 # write side and confirmation, decided later); cancelling a statement (it acts; the timeout argument bounds a run);
-# multi-statement requests; PUT and GET (files, refused by the API); async=true (every call waits its 45 seconds); the
+# multi-statement requests and the flow operator; PUT and GET (files, refused by the API); the
 # Snowflake REST resource APIs (databases, schemas, tables as objects), served here by SHOW through run_query.
 #
 # Values checked against the public documentation only: no real call was made (no Snowflake token was available).
@@ -90,8 +93,6 @@ connector:
         message: "No such statement in Snowflake: check the statement handle (a handle answers for a limited time)." }
     - { status: 408, code: statement_timeout, retryable: false,
         message: "The statement ran past its timeout and Snowflake cancelled it: narrow the query (filters, LIMIT) or give a longer timeout." }
-    - { status: 422, code: statement_failed, retryable: false,
-        message: "Snowflake could not run the statement: a SQL error, an object that does not exist or that the role may not read, or a warehouse the role may not use." }
     - { status: 429, code: rate_limited, retryable: true,
         message: "Snowflake is receiving too many requests: wait, then retry." }
     - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
@@ -132,7 +133,8 @@ functions:
       always LIMIT, filter, and select the columns you need; explore with SHOW
       DATABASES, SHOW SCHEMAS IN DATABASE x, SHOW TABLES IN x.y, DESCRIBE TABLE
       x.y.z or INFORMATION_SCHEMA. Put values in bindings, never in the SQL.
-      Unquoted identifiers are upper case.
+      A heavy query: async true. A SQL error answers 422 with Snowflake's
+      message. Unquoted identifiers are upper case.
     input:
       type: object
       additionalProperties: false
@@ -143,7 +145,8 @@ functions:
           minLength: 1
           maxLength: 100000
           pattern: "^[\\s(]*([Ss][Ee][Ll][Ee][Cc][Tt]|[Ww][Ii][Tt][Hh]|[Ss][Hh][Oo][Ww]|[Dd][Ee][Ss][Cc]([Rr][Ii][Bb][Ee])?|[Ee][Xx][Pp][Ll][Aa][Ii][Nn])\\b"
-          description: "One SQL statement that reads: SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN first. Placeholders ? (by position) or :name, valued by bindings."
+          not: { pattern: "->>" }
+          description: "One SQL statement that reads: SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN first, never the flow operator ->>. Placeholders ? (by position) or :name, valued by bindings."
         bindings:
           type: object
           minProperties: 1
@@ -162,6 +165,7 @@ functions:
         database: { type: string, minLength: 1, maxLength: 255, description: "Database for unqualified names; omitted, the user's default namespace." }
         schema: { type: string, minLength: 1, maxLength: 255, description: "Schema for unqualified names; omitted, the user's default namespace." }
         timeout: { type: integer, minimum: 1, maximum: 3600, description: "Seconds the statement may run before Snowflake cancels it (default: the account's STATEMENT_TIMEOUT_IN_SECONDS). The call itself waits 45 s at most." }
+        async: { type: boolean, description: "true: answer at once with the statementHandle (code 333334), read with get_statement. Use it for any query that may take more than 30 s: the call never waits past 45 s, and a cut call loses the handle while the query keeps billing." }
         max_rows: { type: integer, minimum: 1, maximum: 100000, description: "Most rows the result keeps (session rows_per_resultset). LIMIT in the SQL is cheaper." }
     examples:
       - title: Tables of a schema
@@ -176,6 +180,7 @@ functions:
     call:
       method: POST
       path: /statements
+      query: { async: async }
       body:
         statement: statement
         bindings: bindings
@@ -198,7 +203,8 @@ functions:
       few seconds and read again. Done, partition 0 (the default): the same
       answer as run_query. partition N (1 to the last index of
       resultSetMetaData.partitionInfo): {data} only, the rows of that
-      partition. Costs nothing beyond the statement's own run.
+      partition. Failed: 422 with Snowflake's message. Costs nothing beyond
+      the statement's own run.
     input:
       type: object
       additionalProperties: false
@@ -213,6 +219,4 @@ functions:
       method: GET
       path: "/statements/{statement_handle}"
       query: { partition: partition }
-    refusals:
-      - { code: statement_not_found, when: 422, message: "No such statement in Snowflake, or it expired: run the query again." }
     output: { strip: [statementStatusUrl] }

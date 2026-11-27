@@ -50,12 +50,6 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                            'retryable': False,
                            'message': 'The statement ran past its timeout and Snowflake cancelled it: narrow '
                                       'the query (filters, LIMIT) or give a longer timeout.'},
-                          {'status': 422,
-                           'code': 'statement_failed',
-                           'retryable': False,
-                           'message': 'Snowflake could not run the statement: a SQL error, an object that '
-                                      'does not exist or that the role may not read, or a warehouse the role '
-                                      'may not use.'},
                           {'status': 429,
                            'code': 'rate_limited',
                            'retryable': True,
@@ -94,7 +88,8 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                                'others with get_statement. It bills warehouse credits while it runs: always '
                                'LIMIT, filter, and select the columns you need; explore with SHOW DATABASES, '
                                'SHOW SCHEMAS IN DATABASE x, SHOW TABLES IN x.y, DESCRIBE TABLE x.y.z or '
-                               'INFORMATION_SCHEMA. Put values in bindings, never in the SQL. Unquoted '
+                               'INFORMATION_SCHEMA. Put values in bindings, never in the SQL. A heavy query: '
+                               "async true. A SQL error answers 422 with Snowflake's message. Unquoted "
                                'identifiers are upper case.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
@@ -103,10 +98,12 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                                                        'minLength': 1,
                                                        'maxLength': 100000,
                                                        'pattern': '^[\\s(]*([Ss][Ee][Ll][Ee][Cc][Tt]|[Ww][Ii][Tt][Hh]|[Ss][Hh][Oo][Ww]|[Dd][Ee][Ss][Cc]([Rr][Ii][Bb][Ee])?|[Ee][Xx][Pp][Ll][Aa][Ii][Nn])\\b',
+                                                       'not': {'pattern': '->>'},
                                                        'description': 'One SQL statement that reads: SELECT, '
                                                                       'WITH, SHOW, DESCRIBE, DESC or EXPLAIN '
-                                                                      'first. Placeholders ? (by position) '
-                                                                      'or :name, valued by bindings.'},
+                                                                      'first, never the flow operator ->>. '
+                                                                      'Placeholders ? (by position) or '
+                                                                      ':name, valued by bindings.'},
                                          'bindings': {'type': 'object',
                                                       'minProperties': 1,
                                                       'maxProperties': 100,
@@ -167,6 +164,13 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                                                                     "account's "
                                                                     'STATEMENT_TIMEOUT_IN_SECONDS). The call '
                                                                     'itself waits 45 s at most.'},
+                                         'async': {'type': 'boolean',
+                                                   'description': 'true: answer at once with the '
+                                                                  'statementHandle (code 333334), read with '
+                                                                  'get_statement. Use it for any query that '
+                                                                  'may take more than 30 s: the call never '
+                                                                  'waits past 45 s, and a cut call loses the '
+                                                                  'handle while the query keeps billing.'},
                                          'max_rows': {'type': 'integer',
                                                       'minimum': 1,
                                                       'maximum': 100000,
@@ -185,6 +189,7 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                               'input': {'statement': 'DESCRIBE TABLE ANALYTICS.PUBLIC.ORDERS'}}],
                 'call': {'method': 'POST',
                          'path': '/statements',
+                         'query': {'async': 'async'},
                          'body': {'statement': 'statement',
                                   'bindings': 'bindings',
                                   'warehouse': 'warehouse',
@@ -203,7 +208,8 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                                'and read again. Done, partition 0 (the default): the same answer as '
                                'run_query. partition N (1 to the last index of '
                                'resultSetMetaData.partitionInfo): {data} only, the rows of that partition. '
-                               "Costs nothing beyond the statement's own run.",
+                               "Failed: 422 with Snowflake's message. Costs nothing beyond the statement's "
+                               'own run.',
                 'input': {'type': 'object',
                           'additionalProperties': False,
                           'required': ['statement_handle'],
@@ -224,8 +230,4 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                 'call': {'method': 'GET',
                          'path': '/statements/{statement_handle}',
                          'query': {'partition': 'partition'}},
-                'refusals': [{'code': 'statement_not_found',
-                              'when': 422,
-                              'message': 'No such statement in Snowflake, or it expired: run the query '
-                                         'again.'}],
                 'output': {'strip': ['statementStatusUrl']}}]}
