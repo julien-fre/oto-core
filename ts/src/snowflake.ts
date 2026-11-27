@@ -174,13 +174,121 @@ export const getStatement = defineFunction({
   output: { strip: ["statementStatusUrl"] },
 })
 
+export const executeStatement = defineFunction({
+  name: "snowflake.execute_statement",
+  connector: "snowflake",
+  class: "sensitive",
+  act: true,
+  description: "Execute ONE SQL statement that changes the account (INSERT, UPDATE, MERGE, DELETE, TRUNCATE, CREATE, ALTER, DROP, COPY INTO, CALL…), after confirmation. Prefer run_query for any read. It answers at once with a statementHandle (code 333334): read the outcome with get_statement (numRows affected, or Snowflake's error as 422). Values must be written in the statement (no bindings): the confirmation shows it whole. It cannot be undone unless the table has Time Travel; never submit the same statement again before reading its handle. Bills warehouse credits.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["statement"],
+    "properties": {
+      "statement": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20000,
+        "allOf": [
+          {"not": {"pattern": "->>"}},
+          {
+            "not": {
+              "pattern": "[Pp][Rr][Oo][Gg][Rr][Aa][Mm][Mm][Aa][Tt][Ii][Cc]\\s+[Aa][Cc][Cc][Ee][Ss][Ss]\\s+[Tt][Oo][Kk][Ee][Nn]"
+            }
+          }
+        ],
+        "description": "One SQL statement, values written in it. Never the flow operator ->>, never a programmatic access token statement."
+      },
+      "warehouse": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Warehouse to run on; omitted, the user's default. Case-sensitive: unquoted names are upper case."
+      },
+      "role": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Role to run as, among the token's roles; omitted, the user's default (or the token's restricted role)."
+      },
+      "database": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Database for unqualified names; omitted, the user's default namespace."
+      },
+      "schema": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Schema for unqualified names; omitted, the user's default namespace."
+      },
+      "timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3600,
+        "description": "Seconds the statement may run before Snowflake cancels it (default: the account's STATEMENT_TIMEOUT_IN_SECONDS)."
+      }
+    }
+  },
+  examples: [
+    { title: "Mark accounts as churned", input: {"statement": "UPDATE ANALYTICS.PUBLIC.ACCOUNTS SET status = 'churned' WHERE last_order < '2025-01-01'", "warehouse": "COMPUTE_WH"} },
+    { title: "A table for scored leads", input: {"statement": "CREATE TABLE IF NOT EXISTS SALES.PUBLIC.LEAD_SCORES (lead_id STRING, score NUMBER(5,2), scored_at TIMESTAMP_NTZ)"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/statements",
+    pathParams: [],
+    query: {},
+    body: {"statement": "statement", "warehouse": "warehouse", "role": "role", "database": "database", "schema": "schema", "timeout": "timeout"},
+    headers: {},
+    constants: {"query": {"async": "true"}, "body": {"parameters": {"multi_statement_count": "1", "query_tag": "oto"}}},
+  },
+  output: { strip: ["statementStatusUrl"] },
+  confirm: { summary: "Execute on Snowflake, not undone unless Time Travel keeps the data: {statement}" },
+})
+
+export const cancelStatement = defineFunction({
+  name: "snowflake.cancel_statement",
+  connector: "snowflake",
+  class: "write",
+  act: true,
+  description: "Stop a running statement by its handle, to end a query that runs too long or bills too much. A DML statement stopped is rolled back. Answers code 000604 when stopped; 422 when the handle is unknown or the statement already ended.",
+  schema: {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["statement_handle"],
+    "properties": {
+      "statement_handle": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F-]{36}$",
+        "description": "statementHandle given by run_query or execute_statement."
+      }
+    }
+  },
+  examples: [
+    { title: "Stop a runaway query", input: {"statement_handle": "01b2c3d4-0000-1111-0000-00000000abcd"} },
+  ],
+  refusals: [],
+  request: {
+    method: "POST",
+    path: "/statements/{statement_handle}/cancel",
+    pathParams: ["statement_handle"],
+    query: {},
+    body: {},
+    headers: {},
+  },
+  output: { strip: ["statementStatusUrl"] },
+})
+
 export const connector = defineConnector({
   name: "snowflake",
   label: "Snowflake",
   namespace: "snowflake",
-  version: "1.0.1",
+  version: "1.1.0",
   apiVersion: "v2",
-  description: "Snowflake, the data warehouse on your own account: run read-only SQL (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) on the warehouse, role, database and schema of your choice, read long results by their statement handle and partitions, and see the session's user, role and defaults.",
+  description: "Snowflake, the data warehouse on your own account: run read-only SQL (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) on the warehouse, role, database and schema of your choice, read long results by their statement handle and partitions, see the session's user, role and defaults; and, confirmed, execute one statement that writes (INSERT, UPDATE, MERGE, DELETE, CREATE, COPY, CALL), or cancel a running one.",
   baseUrl: "https://{account}.snowflakecomputing.com/api/v2",
   auth: {"kind": "bearer", "token": "token"},
   credential: [{"name": "token", "label": "Programmatic access token", "secret": true, "holder": "account"}],
@@ -202,12 +310,14 @@ export const connector = defineConnector({
     { status: 404, code: "not_found", message: "No such statement in Snowflake: check the statement handle (a handle answers for a limited time).", retryable: false },
     { status: 408, code: "statement_timeout", message: "The statement ran past its timeout and Snowflake cancelled it: narrow the query (filters, LIMIT) or give a longer timeout.", retryable: false },
     { status: 429, code: "rate_limited", message: "Snowflake is receiving too many requests: wait, then retry.", retryable: true },
-    { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Snowflake is temporarily unavailable: retry later.", retryable: true },
+    { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Snowflake is temporarily unavailable, and a statement may have run: read it by its handle, or check the data, before submitting it again.", retryable: false },
   ],
   probe: { function: "snowflake.get_session", nonEmpty: [] },
   functions: [
     getSession,
     runQuery,
     getStatement,
+    executeStatement,
+    cancelStatement,
   ],
 })

@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../connector.schema.json
 # Snowflake SQL API v2 (docs.snowflake.com, developer-guide/sql-api: authenticating, submitting-requests,
-# handling-responses, reference; user-guide/programmatic-access-tokens; read on 2026-11-27): read-only SQL on the
-# customer's own Snowflake account. No Python client: this description is the connector.
+# handling-responses, reference; user-guide/programmatic-access-tokens; sql-reference/operators-flow; read on
+# 2026-11-27): SQL on the customer's own Snowflake account, reads on one side, confirmed statements on the other. No Python client: this description is the connector.
 #
 # Qualification sheet (docs/conception/concevoir-un-connecteur.md, step 1).
 # - Who holds the access: the organization (a service user's token) or a person who keeps their own; never the
@@ -12,21 +12,26 @@
 #   ALTER USER ... ADD PROGRAMMATIC ACCESS TOKEN ... ROLE_RESTRICTION = '<role>'; its secret is shown once. Key-pair JWT
 #   and OAuth are not described: the JWT is signed per request, which the format does not say.
 # - What a token allows: what its role allows. The SQL API has no read-only mode: the boundary is the role. The screen
-#   asks for a token restricted (ROLE_RESTRICTION) to a role that only has USAGE on a warehouse and SELECT on what the
-#   agent may read. A role restriction cannot be changed after the token is made.
+#   asks for a token restricted (ROLE_RESTRICTION) to a role that holds only what the agent may read and write (USAGE
+#   on a warehouse, SELECT, and INSERT/UPDATE/DELETE or CREATE where it may act), never an administration role. A role
+#   restriction cannot be changed after the token is made.
 # - Network policy: by default Snowflake refuses a PAT whose user is subject to no network policy (PAT_POLICY
 #   NETWORK_POLICY_EVALUATION = ENFORCED_REQUIRED). The admin either allows the host's egress addresses in a network
 #   policy on the user, or relaxes that rule in an authentication policy. Refused otherwise, as a 401.
 # - Cost: no call is billed by the API itself; a statement runs on a warehouse, which bills Snowflake credits to the
 #   customer while it runs (a suspended warehouse resumes on the first query). The functions say it; no cost here.
 #   No balance read: probe without balance.
-# - What engages: nothing described. run_query admits only statements that open with SELECT, WITH, SHOW, DESCRIBE,
+# - What engages: execute_statement, any one statement (DML, DDL, CALL, COPY), sensitive and confirmed, effect
+#   destroy (the most constraining: a statement may delete, replace or drop, and an unload to an outside stage also
+#   sends); cancel_statement, a write (it stops a running statement; an autocommit DML stopped is rolled back).
+#   run_query admits only statements that open with SELECT, WITH, SHOW, DESCRIBE,
 #   DESC or EXPLAIN (the input pattern) and never carry the flow operator ->> (which chains any statement, DML and
 #   DDL included, after a SELECT or a SHOW), and one statement per call (multi_statement_count "1", a constant, the API's
 #   default too). The pattern is a guard, not the boundary: a SELECT can call a function with effects; the role is
 #   what keeps the account safe, and the screen says so.
-# - What an agent must not see: nothing secret in the answers; a result set is the customer's data, as the role
-#   allows it.
+# - What an agent must not see: a programmatic access token's secret, which ALTER USER ... ADD PROGRAMMATIC ACCESS
+#   TOKEN returns in its result set, where output.strip cannot reach it: execute_statement refuses any statement that
+#   names PROGRAMMATIC ACCESS TOKEN (input pattern). Otherwise a result set is the customer's data, as the role allows.
 # - Limits: no rate is documented, a 429 is retryable. A request waits up to 45 seconds for its result, then answers
 #   202 with a statementHandle, read by get_statement; timeout_s is 60 for that wait. A host that cuts a call at 45 s
 #   or less would lose the handle: run_query takes async (answer at once with the handle), advised for heavy queries. A result comes in partitions:
@@ -41,19 +46,22 @@
 # marks the account credential_rejected. 403: the user may not call the API. 404: no such statement handle. 408: the
 # statement ran past its timeout and was cancelled. 422: the statement failed (SQL compilation error, object not found
 # or not authorized for the role), on submission or when a running statement is read: NOT declared, so that
-# Snowflake's own message (code, sqlState, message) reaches the agent, which needs it to fix its SQL. 429: retryable.
-# 5xx: retryable (a read: nothing to repeat badly).
+# Snowflake's own message (code, sqlState, message) reaches the agent, which needs it to fix its SQL. 429: retryable
+# (the request was not taken). 5xx: NOT retryable: a statement may have run; read it by its handle, or check the data,
+# before submitting it again.
 #
 # Choices.
-# - One statement per call, the read prefixes only; bindings (? or :name placeholders) carry values, so the agent
-#   never pastes a value into SQL.
+# - One statement per call (multi_statement_count "1") and never the flow operator ->>, on both sides: one
+#   confirmation covers exactly one statement. run_query takes the read prefixes only, with bindings; execute_statement
+#   takes no bindings (the confirmation shows the statement, whose values must be in it to be seen), at most 20,000
+#   characters, and always runs async (a constant): its answer is the handle at once, never a write cut at 45 s and
+#   run again blind.
 # - warehouse, role, database and schema are arguments, not settings (a setting only feeds an address): omitted, the
 #   user's defaults apply. They are case-sensitive as the API says: an unquoted identifier is upper case.
 # - query_tag "oto" (a constant) marks every statement in the account's query history.
 # - User-Agent is required by the API: a constant.
 #
-# Not described, and why: any statement that writes, creates, grants or calls a procedure (DML, DDL, CALL: they need a
-# write side and confirmation, decided later); cancelling a statement (it acts; the timeout argument bounds a run);
+# Not described, and why: the creation of programmatic access tokens (their secret would reach the agent);
 # multi-statement requests and the flow operator; PUT and GET (files, refused by the API); the
 # Snowflake REST resource APIs (databases, schemas, tables as objects), served here by SHOW through run_query.
 #
@@ -64,9 +72,10 @@ connector:
   description: >-
     Snowflake, the data warehouse on your own account: run read-only SQL (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) on the
     warehouse, role, database and schema of your choice, read long results by their statement handle and partitions,
-    and see the session's user, role and defaults.
+    see the session's user, role and defaults; and, confirmed, execute one statement that writes (INSERT, UPDATE,
+    MERGE, DELETE, CREATE, COPY, CALL), or cancel a running one.
   namespace: snowflake
-  version: 1.0.1
+  version: 1.1.0
   api_version: v2
   base_url: https://{account}.snowflakecomputing.com/api/v2
   auth: { kind: bearer, token: token }
@@ -95,8 +104,8 @@ connector:
         message: "The statement ran past its timeout and Snowflake cancelled it: narrow the query (filters, LIMIT) or give a longer timeout." }
     - { status: 429, code: rate_limited, retryable: true,
         message: "Snowflake is receiving too many requests: wait, then retry." }
-    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: true,
-        message: "Snowflake is temporarily unavailable: retry later." }
+    - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: false,
+        message: "Snowflake is temporarily unavailable, and a statement may have run: read it by its handle, or check the data, before submitting it again." }
 
 functions:
   - name: get_session
@@ -219,4 +228,77 @@ functions:
       method: GET
       path: "/statements/{statement_handle}"
       query: { partition: partition }
+    output: { strip: [statementStatusUrl] }
+
+  - name: execute_statement
+    class: sensitive
+    effect: destroy
+    description: >-
+      Execute ONE SQL statement that changes the account (INSERT, UPDATE,
+      MERGE, DELETE, TRUNCATE, CREATE, ALTER, DROP, COPY INTO, CALL…), after
+      confirmation. Prefer run_query for any read. It answers at once with a
+      statementHandle (code 333334): read the outcome with get_statement
+      (numRows affected, or Snowflake's error as 422). Values must be written
+      in the statement (no bindings): the confirmation shows it whole. It
+      cannot be undone unless the table has Time Travel; never submit the same
+      statement again before reading its handle. Bills warehouse credits.
+    input:
+      type: object
+      additionalProperties: false
+      required: [statement]
+      properties:
+        statement:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          allOf:
+            - { not: { pattern: "->>" } }
+            - { not: { pattern: "[Pp][Rr][Oo][Gg][Rr][Aa][Mm][Mm][Aa][Tt][Ii][Cc]\\s+[Aa][Cc][Cc][Ee][Ss][Ss]\\s+[Tt][Oo][Kk][Ee][Nn]" } }
+          description: "One SQL statement, values written in it. Never the flow operator ->>, never a programmatic access token statement."
+        warehouse: { type: string, minLength: 1, maxLength: 255, description: "Warehouse to run on; omitted, the user's default. Case-sensitive: unquoted names are upper case." }
+        role: { type: string, minLength: 1, maxLength: 255, description: "Role to run as, among the token's roles; omitted, the user's default (or the token's restricted role)." }
+        database: { type: string, minLength: 1, maxLength: 255, description: "Database for unqualified names; omitted, the user's default namespace." }
+        schema: { type: string, minLength: 1, maxLength: 255, description: "Schema for unqualified names; omitted, the user's default namespace." }
+        timeout: { type: integer, minimum: 1, maximum: 3600, description: "Seconds the statement may run before Snowflake cancels it (default: the account's STATEMENT_TIMEOUT_IN_SECONDS)." }
+    examples:
+      - title: Mark accounts as churned
+        input: { statement: "UPDATE ANALYTICS.PUBLIC.ACCOUNTS SET status = 'churned' WHERE last_order < '2025-01-01'", warehouse: COMPUTE_WH }
+      - title: A table for scored leads
+        input: { statement: "CREATE TABLE IF NOT EXISTS SALES.PUBLIC.LEAD_SCORES (lead_id STRING, score NUMBER(5,2), scored_at TIMESTAMP_NTZ)" }
+    call:
+      method: POST
+      path: /statements
+      body:
+        statement: statement
+        warehouse: warehouse
+        role: role
+        database: database
+        schema: schema
+        timeout: timeout
+      constants:
+        query: { async: "true" }
+        body:
+          parameters: { multi_statement_count: "1", query_tag: oto }
+    confirm:
+      summary: "Execute on Snowflake, not undone unless Time Travel keeps the data: {statement}"
+    output: { strip: [statementStatusUrl] }
+
+  - name: cancel_statement
+    class: write
+    description: >-
+      Stop a running statement by its handle, to end a query that runs too
+      long or bills too much. A DML statement stopped is rolled back. Answers
+      code 000604 when stopped; 422 when the handle is unknown or the
+      statement already ended.
+    input:
+      type: object
+      additionalProperties: false
+      required: [statement_handle]
+      properties:
+        statement_handle: { type: string, pattern: "^[0-9a-fA-F-]{36}$", description: "statementHandle given by run_query or execute_statement." }
+    examples:
+      - { title: Stop a runaway query, input: { statement_handle: "01b2c3d4-0000-1111-0000-00000000abcd" } }
+    call:
+      method: POST
+      path: "/statements/{statement_handle}/cancel"
     output: { strip: [statementStatusUrl] }
