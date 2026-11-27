@@ -9,7 +9,7 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                               'that writes (INSERT, UPDATE, MERGE, DELETE, CREATE, COPY, CALL), or cancel a '
                               'running one.',
                'namespace': 'snowflake',
-               'version': '1.1.1',
+               'version': '1.1.2',
                'api_version': 'v2',
                'base_url': 'https://{account}.snowflakecomputing.com/api/v2',
                'auth': {'kind': 'bearer', 'token': 'token'},
@@ -60,8 +60,8 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                            'code': 'upstream_unavailable',
                            'retryable': False,
                            'message': 'Snowflake is temporarily unavailable, and a statement may have run: '
-                                      'read it by its handle, or check the data, before submitting it '
-                                      'again.'}]},
+                                      "check the account's query history (query_tag oto) or the data before "
+                                      'submitting it again.'}]},
  'functions': [{'name': 'get_session',
                 'class': 'read',
                 'description': 'Who and where the token runs: one row with the current user, role, '
@@ -102,12 +102,15 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                                                        'minLength': 1,
                                                        'maxLength': 100000,
                                                        'pattern': '^[\\s(]*([Ss][Ee][Ll][Ee][Cc][Tt]|[Ww][Ii][Tt][Hh]|[Ss][Hh][Oo][Ww]|[Dd][Ee][Ss][Cc]([Rr][Ii][Bb][Ee])?|[Ee][Xx][Pp][Ll][Aa][Ii][Nn])\\b',
-                                                       'not': {'pattern': '->>'},
+                                                       'allOf': [{'not': {'pattern': '->>'}},
+                                                                 {'not': {'pattern': '[Aa][Ss]\\s+[Pp][Rr][Oo][Cc][Ee][Dd][Uu][Rr][Ee]'}}],
                                                        'description': 'One SQL statement that reads: SELECT, '
                                                                       'WITH, SHOW, DESCRIBE, DESC or EXPLAIN '
-                                                                      'first, never the flow operator ->>. '
-                                                                      'Placeholders ? (by position) or '
-                                                                      ':name, valued by bindings.'},
+                                                                      'first, never the flow operator ->>, '
+                                                                      'never an anonymous procedure (WITH … '
+                                                                      'AS PROCEDURE). Placeholders ? (by '
+                                                                      'position) or :name, valued by '
+                                                                      'bindings.'},
                                          'bindings': {'type': 'object',
                                                       'minProperties': 1,
                                                       'maxProperties': 100,
@@ -253,11 +256,11 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                                                        'minLength': 1,
                                                        'maxLength': 20000,
                                                        'allOf': [{'not': {'pattern': '->>'}},
-                                                                 {'not': {'pattern': '[Pp][Rr][Oo][Gg][Rr][Aa][Mm][Mm][Aa][Tt][Ii][Cc]\\s+[Aa][Cc][Cc][Ee][Ss][Ss]\\s+[Tt][Oo][Kk][Ee][Nn]'}}],
+                                                                 {'not': {'pattern': '([Aa][Dd][Dd]|[Rr][Oo][Tt][Aa][Tt][Ee])\\s+([Pp][Aa][Tt]|[Pp][Rr][Oo][Gg][Rr][Aa][Mm][Mm][Aa][Tt][Ii][Cc]\\s+[Aa][Cc][Cc][Ee][Ss][Ss]\\s+[Tt][Oo][Kk][Ee][Nn])\\b'}}],
                                                        'description': 'One SQL statement, values written in '
                                                                       'it. Never the flow operator ->>, '
-                                                                      'never a programmatic access token '
-                                                                      'statement.'},
+                                                                      'never ADD or ROTATE of a programmatic '
+                                                                      'access token (PAT).'},
                                          'warehouse': {'type': 'string',
                                                        'minLength': 1,
                                                        'maxLength': 255,

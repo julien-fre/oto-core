@@ -40,8 +40,11 @@ export const runQuery = defineFunction({
         "minLength": 1,
         "maxLength": 100000,
         "pattern": "^[\\s(]*([Ss][Ee][Ll][Ee][Cc][Tt]|[Ww][Ii][Tt][Hh]|[Ss][Hh][Oo][Ww]|[Dd][Ee][Ss][Cc]([Rr][Ii][Bb][Ee])?|[Ee][Xx][Pp][Ll][Aa][Ii][Nn])\\b",
-        "not": {"pattern": "->>"},
-        "description": "One SQL statement that reads: SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN first, never the flow operator ->>. Placeholders ? (by position) or :name, valued by bindings."
+        "allOf": [
+          {"not": {"pattern": "->>"}},
+          {"not": {"pattern": "[Aa][Ss]\\s+[Pp][Rr][Oo][Cc][Ee][Dd][Uu][Rr][Ee]"}}
+        ],
+        "description": "One SQL statement that reads: SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN first, never the flow operator ->>, never an anonymous procedure (WITH … AS PROCEDURE). Placeholders ? (by position) or :name, valued by bindings."
       },
       "bindings": {
         "type": "object",
@@ -193,11 +196,11 @@ export const executeStatement = defineFunction({
           {"not": {"pattern": "->>"}},
           {
             "not": {
-              "pattern": "[Pp][Rr][Oo][Gg][Rr][Aa][Mm][Mm][Aa][Tt][Ii][Cc]\\s+[Aa][Cc][Cc][Ee][Ss][Ss]\\s+[Tt][Oo][Kk][Ee][Nn]"
+              "pattern": "([Aa][Dd][Dd]|[Rr][Oo][Tt][Aa][Tt][Ee])\\s+([Pp][Aa][Tt]|[Pp][Rr][Oo][Gg][Rr][Aa][Mm][Mm][Aa][Tt][Ii][Cc]\\s+[Aa][Cc][Cc][Ee][Ss][Ss]\\s+[Tt][Oo][Kk][Ee][Nn])\\b"
             }
           }
         ],
-        "description": "One SQL statement, values written in it. Never the flow operator ->>, never a programmatic access token statement."
+        "description": "One SQL statement, values written in it. Never the flow operator ->>, never ADD or ROTATE of a programmatic access token (PAT)."
       },
       "warehouse": {
         "type": "string",
@@ -287,7 +290,7 @@ export const connector = defineConnector({
   name: "snowflake",
   label: "Snowflake",
   namespace: "snowflake",
-  version: "1.1.1",
+  version: "1.1.2",
   apiVersion: "v2",
   description: "Snowflake, the data warehouse on your own account: run read-only SQL (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) on the warehouse, role, database and schema of your choice, read long results by their statement handle and partitions, see the session's user, role and defaults; and, confirmed, execute one statement that writes (INSERT, UPDATE, MERGE, DELETE, CREATE, COPY, CALL), or cancel a running one.",
   baseUrl: "https://{account}.snowflakecomputing.com/api/v2",
@@ -311,7 +314,7 @@ export const connector = defineConnector({
     { status: 404, code: "not_found", message: "No such statement in Snowflake: check the statement handle (a handle answers for a limited time).", retryable: false },
     { status: 408, code: "statement_timeout", message: "The statement ran past its timeout and Snowflake cancelled it: narrow the query (filters, LIMIT) or give a longer timeout.", retryable: false },
     { status: 429, code: "rate_limited", message: "Snowflake is receiving too many requests: wait, then retry.", retryable: true },
-    { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Snowflake is temporarily unavailable, and a statement may have run: read it by its handle, or check the data, before submitting it again.", retryable: false },
+    { status: [500, 502, 503, 504], code: "upstream_unavailable", message: "Snowflake is temporarily unavailable, and a statement may have run: check the account's query history (query_tag oto) or the data before submitting it again.", retryable: false },
   ],
   probe: { function: "snowflake.get_session", nonEmpty: [] },
   functions: [

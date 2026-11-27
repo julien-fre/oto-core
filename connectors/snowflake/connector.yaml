@@ -27,12 +27,16 @@
 #   autocommit DML stopped is rolled back).
 #   run_query admits only statements that open with SELECT, WITH, SHOW, DESCRIBE,
 #   DESC or EXPLAIN (the input pattern) and never carry the flow operator ->> (which chains any statement, DML and
-#   DDL included, after a SELECT or a SHOW), and one statement per call (multi_statement_count "1", a constant, the API's
+#   DDL included, after a SELECT or a SHOW) nor AS PROCEDURE (WITH p AS PROCEDURE ... CALL p() opens with WITH and its
+#   body may write), and one statement per call (multi_statement_count "1", a constant, the API's
 #   default too). The pattern is a guard, not the boundary: a SELECT can call a function with effects; the role is
 #   what keeps the account safe, and the screen says so.
-# - What an agent must not see: a programmatic access token's secret, which ALTER USER ... ADD PROGRAMMATIC ACCESS
-#   TOKEN returns in its result set, where output.strip cannot reach it: execute_statement refuses any statement that
-#   names PROGRAMMATIC ACCESS TOKEN (input pattern). Otherwise a result set is the customer's data, as the role allows.
+# - What an agent must not see: a programmatic access token's secret, which ALTER USER ... ADD and ROTATE
+#   PROGRAMMATIC ACCESS TOKEN (or PAT) return in the token_secret column, where output.strip cannot reach it:
+#   execute_statement refuses ADD or ROTATE followed by PAT or PROGRAMMATIC ACCESS TOKEN (input pattern). A guard, not
+#   the boundary: a comment between the keywords or EXECUTE IMMEDIATE on a built string gets past it; a role without
+#   OWNERSHIP of users (never an administration role) is what keeps it out. Otherwise a result set is the customer's
+#   data, as the role allows.
 # - Limits: no rate is documented, a 429 is retryable. A request waits up to 45 seconds for its result, then answers
 #   202 with a statementHandle, read by get_statement; timeout_s is 60 for that wait. A host that cuts a call at 45 s
 #   or less would lose the handle: run_query takes async (answer at once with the handle), advised for heavy queries. A result comes in partitions:
@@ -76,7 +80,7 @@ connector:
     see the session's user, role and defaults; and, confirmed, execute one statement that writes (INSERT, UPDATE,
     MERGE, DELETE, CREATE, COPY, CALL), or cancel a running one.
   namespace: snowflake
-  version: 1.1.1
+  version: 1.1.2
   api_version: v2
   base_url: https://{account}.snowflakecomputing.com/api/v2
   auth: { kind: bearer, token: token }
@@ -106,7 +110,7 @@ connector:
     - { status: 429, code: rate_limited, retryable: true,
         message: "Snowflake is receiving too many requests: wait, then retry." }
     - { status: [500, 502, 503, 504], code: upstream_unavailable, retryable: false,
-        message: "Snowflake is temporarily unavailable, and a statement may have run: read it by its handle, or check the data, before submitting it again." }
+        message: "Snowflake is temporarily unavailable, and a statement may have run: check the account's query history (query_tag oto) or the data before submitting it again." }
 
 functions:
   - name: get_session
@@ -155,8 +159,10 @@ functions:
           minLength: 1
           maxLength: 100000
           pattern: "^[\\s(]*([Ss][Ee][Ll][Ee][Cc][Tt]|[Ww][Ii][Tt][Hh]|[Ss][Hh][Oo][Ww]|[Dd][Ee][Ss][Cc]([Rr][Ii][Bb][Ee])?|[Ee][Xx][Pp][Ll][Aa][Ii][Nn])\\b"
-          not: { pattern: "->>" }
-          description: "One SQL statement that reads: SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN first, never the flow operator ->>. Placeholders ? (by position) or :name, valued by bindings."
+          allOf:
+            - { not: { pattern: "->>" } }
+            - { not: { pattern: "[Aa][Ss]\\s+[Pp][Rr][Oo][Cc][Ee][Dd][Uu][Rr][Ee]" } }
+          description: "One SQL statement that reads: SELECT, WITH, SHOW, DESCRIBE, DESC or EXPLAIN first, never the flow operator ->>, never an anonymous procedure (WITH … AS PROCEDURE). Placeholders ? (by position) or :name, valued by bindings."
         bindings:
           type: object
           minProperties: 1
@@ -254,8 +260,8 @@ functions:
           maxLength: 20000
           allOf:
             - { not: { pattern: "->>" } }
-            - { not: { pattern: "[Pp][Rr][Oo][Gg][Rr][Aa][Mm][Mm][Aa][Tt][Ii][Cc]\\s+[Aa][Cc][Cc][Ee][Ss][Ss]\\s+[Tt][Oo][Kk][Ee][Nn]" } }
-          description: "One SQL statement, values written in it. Never the flow operator ->>, never a programmatic access token statement."
+            - { not: { pattern: "([Aa][Dd][Dd]|[Rr][Oo][Tt][Aa][Tt][Ee])\\s+([Pp][Aa][Tt]|[Pp][Rr][Oo][Gg][Rr][Aa][Mm][Mm][Aa][Tt][Ii][Cc]\\s+[Aa][Cc][Cc][Ee][Ss][Ss]\\s+[Tt][Oo][Kk][Ee][Nn])\\b" } }
+          description: "One SQL statement, values written in it. Never the flow operator ->>, never ADD or ROTATE of a programmatic access token (PAT)."
         warehouse: { type: string, minLength: 1, maxLength: 255, description: "Warehouse to run on; omitted, the user's default. Case-sensitive: unquoted names are upper case." }
         role: { type: string, minLength: 1, maxLength: 255, description: "Role to run as, among the token's roles; omitted, the user's default (or the token's restricted role)." }
         database: { type: string, minLength: 1, maxLength: 255, description: "Database for unqualified names; omitted, the user's default namespace." }
