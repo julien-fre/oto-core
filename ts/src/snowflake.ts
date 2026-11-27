@@ -252,7 +252,7 @@ export const executeStatement = defineFunction({
 export const cancelStatement = defineFunction({
   name: "snowflake.cancel_statement",
   connector: "snowflake",
-  class: "write",
+  class: "sensitive",
   act: true,
   description: "Stop a running statement by its handle, to end a query that runs too long or bills too much. A DML statement stopped is rolled back. Answers code 000604 when stopped; 422 when the handle is unknown or the statement already ended.",
   schema: {
@@ -280,13 +280,14 @@ export const cancelStatement = defineFunction({
     headers: {},
   },
   output: { strip: ["statementStatusUrl"] },
+  confirm: { summary: "Cancel Snowflake statement {statement_handle}: its run stops, a DML statement is rolled back." },
 })
 
 export const connector = defineConnector({
   name: "snowflake",
   label: "Snowflake",
   namespace: "snowflake",
-  version: "1.1.0",
+  version: "1.1.1",
   apiVersion: "v2",
   description: "Snowflake, the data warehouse on your own account: run read-only SQL (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) on the warehouse, role, database and schema of your choice, read long results by their statement handle and partitions, see the session's user, role and defaults; and, confirmed, execute one statement that writes (INSERT, UPDATE, MERGE, DELETE, CREATE, COPY, CALL), or cancel a running one.",
   baseUrl: "https://{account}.snowflakecomputing.com/api/v2",

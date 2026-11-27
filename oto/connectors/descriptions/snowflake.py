@@ -9,7 +9,7 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                               'that writes (INSERT, UPDATE, MERGE, DELETE, CREATE, COPY, CALL), or cancel a '
                               'running one.',
                'namespace': 'snowflake',
-               'version': '1.1.0',
+               'version': '1.1.1',
                'api_version': 'v2',
                'base_url': 'https://{account}.snowflakecomputing.com/api/v2',
                'auth': {'kind': 'bearer', 'token': 'token'},
@@ -311,7 +311,8 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                                        '{statement}'},
                 'output': {'strip': ['statementStatusUrl']}},
                {'name': 'cancel_statement',
-                'class': 'write',
+                'class': 'sensitive',
+                'effect': 'destroy',
                 'description': 'Stop a running statement by its handle, to end a query that runs too long or '
                                'bills too much. A DML statement stopped is rolled back. Answers code 000604 '
                                'when stopped; 422 when the handle is unknown or the statement already ended.',
@@ -326,4 +327,6 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                 'examples': [{'title': 'Stop a runaway query',
                               'input': {'statement_handle': '01b2c3d4-0000-1111-0000-00000000abcd'}}],
                 'call': {'method': 'POST', 'path': '/statements/{statement_handle}/cancel'},
+                'confirm': {'summary': 'Cancel Snowflake statement {statement_handle}: its run stops, a DML '
+                                       'statement is rolled back.'},
                 'output': {'strip': ['statementStatusUrl']}}]}

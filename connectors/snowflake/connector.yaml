@@ -23,7 +23,8 @@
 #   No balance read: probe without balance.
 # - What engages: execute_statement, any one statement (DML, DDL, CALL, COPY), sensitive and confirmed, effect
 #   destroy (the most constraining: a statement may delete, replace or drop, and an unload to an outside stage also
-#   sends); cancel_statement, a write (it stops a running statement; an autocommit DML stopped is rolled back).
+#   sends); cancel_statement, sensitive and confirmed too, effect destroy (it stops a running statement for good; an
+#   autocommit DML stopped is rolled back).
 #   run_query admits only statements that open with SELECT, WITH, SHOW, DESCRIBE,
 #   DESC or EXPLAIN (the input pattern) and never carry the flow operator ->> (which chains any statement, DML and
 #   DDL included, after a SELECT or a SHOW), and one statement per call (multi_statement_count "1", a constant, the API's
@@ -75,7 +76,7 @@ connector:
     see the session's user, role and defaults; and, confirmed, execute one statement that writes (INSERT, UPDATE,
     MERGE, DELETE, CREATE, COPY, CALL), or cancel a running one.
   namespace: snowflake
-  version: 1.1.0
+  version: 1.1.1
   api_version: v2
   base_url: https://{account}.snowflakecomputing.com/api/v2
   auth: { kind: bearer, token: token }
@@ -284,7 +285,8 @@ functions:
     output: { strip: [statementStatusUrl] }
 
   - name: cancel_statement
-    class: write
+    class: sensitive
+    effect: destroy
     description: >-
       Stop a running statement by its handle, to end a query that runs too
       long or bills too much. A DML statement stopped is rolled back. Answers
@@ -301,4 +303,6 @@ functions:
     call:
       method: POST
       path: "/statements/{statement_handle}/cancel"
+    confirm:
+      summary: "Cancel Snowflake statement {statement_handle}: its run stops, a DML statement is rolled back."
     output: { strip: [statementStatusUrl] }
