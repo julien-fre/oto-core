@@ -7,7 +7,7 @@ DESCRIPTION = {'connector': {'name': 'snowflake',
                               'your choice, read long results by their statement handle and partitions, and '
                               "see the session's user, role and defaults.",
                'namespace': 'snowflake',
-               'version': '1.0.0',
+               'version': '1.0.1',
                'api_version': 'v2',
                'base_url': 'https://{account}.snowflakecomputing.com/api/v2',
                'auth': {'kind': 'bearer', 'token': 'token'},

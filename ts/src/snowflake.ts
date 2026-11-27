@@ -178,7 +178,7 @@ export const connector = defineConnector({
   name: "snowflake",
   label: "Snowflake",
   namespace: "snowflake",
-  version: "1.0.0",
+  version: "1.0.1",
   apiVersion: "v2",
   description: "Snowflake, the data warehouse on your own account: run read-only SQL (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) on the warehouse, role, database and schema of your choice, read long results by their statement handle and partitions, and see the session's user, role and defaults.",
   baseUrl: "https://{account}.snowflakecomputing.com/api/v2",
